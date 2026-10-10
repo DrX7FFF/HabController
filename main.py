@@ -116,7 +116,10 @@ async def read_loop(ws: WebSocket, queue: asyncio.Queue) -> None:
         if error:
             device = message.get("device") if isinstance(message, dict) else None
             queue.put_nowait({"type": "error", "device": device, "detail": error})
-
+            if isinstance(device, str) and device in devices:
+                # resynchronise l'affichage (curseur déplacé, commande refusée)
+                state = devices[device].state()
+                queue.put_nowait({"type": "state", "device": device, "state": state})
 
 @app.websocket("/ws")
 async def websocket(ws: WebSocket):
