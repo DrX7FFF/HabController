@@ -1,6 +1,8 @@
 import tomllib
 from pathlib import Path
 
+from core import CONFIG_DIR
+
 # Un widget déclare les capacités dont il a besoin, quel que soit le protocole.
 WIDGETS = {
     "onoff": {"needs": {"power"}},
@@ -9,8 +11,8 @@ WIDGETS = {
 }
 
 
-def load_blocks(devices: dict, path: str = "screens.toml") -> list[dict]:
-    conf = tomllib.loads(Path(path).read_text(encoding="utf-8"))
+def load_blocks(devices: dict, path: Path = CONFIG_DIR / "screens.toml") -> list[dict]:
+    conf = tomllib.loads(path.read_text(encoding="utf-8"))
     blocks = []
     for block in conf.get("blocks", []):
         dev = devices.get(block["device"])
