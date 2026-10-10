@@ -10,3 +10,8 @@ host = "192.168.1.110"
 name = "Cuisine"
 driver = "yeelight"
 host = "192.168.1.111"
+
+# Clés facultatives pour un équipement yeelight :
+#   port = 55443            (défaut)
+#   transition = 300        (durée par défaut des transitions, en ms)
+#   capabilities = ["power", "brightness", "color_temp"]   (ex. ampoule blanche, sans rgb)
