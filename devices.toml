@@ -1,0 +1,12 @@
+# Un équipement par section : l'identifiant est le nom de la section.
+# "driver" choisit le type de pilote, les autres clés sont ses paramètres.
+
+[salon]
+name = "Salon"
+driver = "yeelight"
+host = "192.168.1.110"
+
+[cuisine]
+name = "Cuisine"
+driver = "yeelight"
+host = "192.168.1.111"
