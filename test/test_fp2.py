@@ -16,7 +16,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from aiohomekit.exceptions import AccessoryNotFoundError  # noqa: E402
+from aiohomekit.exceptions import AccessoryDisconnectedError, AccessoryNotFoundError  # noqa: E402
 from aiohomekit.zeroconf import HomeKitService  # noqa: E402
 
 import pair as pair_cli  # noqa: E402
@@ -86,12 +86,15 @@ class FakePairing:
             "AccessoryPort": 1234,
             "Connection": "IP",
         }
+        self.read_error: Exception | None = None
         self.listeners = {"event": [], "availability": [], "config": []}
 
     async def list_accessories_and_characteristics(self):
         return self.accessories
 
     async def get_characteristics(self, keys):
+        if self.read_error:
+            raise self.read_error
         return {key: {"value": self.values[key]} for key in keys}
 
     async def subscribe(self, keys):
@@ -134,25 +137,32 @@ class MappingTest(unittest.TestCase):
         self.assertEqual(
             {key: entity.attr for key, entity in mapping.entities.items()},
             {
-                presence_key(0): "presence_0",
-                presence_key(1): "presence_1",
+                presence_key(0): "zoneGlobal",
+                presence_key(1): "zone1",
                 (1, 32): "illuminance",
             },
         )
         self.assertEqual(mapping.event_keys, {presence_key(0), presence_key(1), (1, 32)})
         self.assertEqual(mapping.warnings, [])
 
+    def test_aliases_rename_zones_but_not_global(self):
+        mapping = fp2.build_mapping(accessories((0, 1, 2)), {1: "salon", 0: "x"})
+        self.assertEqual(
+            {entity.attr for entity in mapping.entities.values()},
+            {"zoneGlobal", "salon", "zone2", "illuminance"},
+        )
+
     def test_attribute_follows_index_not_position(self):
         data = accessories((5, 3))
         mapping = fp2.build_mapping(data)
-        self.assertEqual(mapping.entities[presence_key(5)].attr, "presence_5")
-        self.assertEqual(mapping.entities[presence_key(3)].attr, "presence_3")
+        self.assertEqual(mapping.entities[presence_key(5)].attr, "zone5")
+        self.assertEqual(mapping.entities[presence_key(3)].attr, "zone3")
 
     def test_without_index_falls_back_to_ids(self):
         data = accessories((0,))
         data[0]["services"][0]["characteristics"].pop()  # retire « Sensor Index »
         mapping = fp2.build_mapping(data)
-        self.assertEqual(mapping.entities[presence_key(0)].attr, "presence_1_102")
+        self.assertEqual(mapping.entities[presence_key(0)].attr, "zone_1_102")
 
     def test_duplicate_index_is_reported(self):
         data = accessories((0, 1))
@@ -167,9 +177,40 @@ class MappingTest(unittest.TestCase):
         self.assertNotIn(presence_key(0), fp2.build_mapping(data).entities)
 
 
+class ParseAliasesTest(unittest.TestCase):
+    def test_valid(self):
+        self.assertEqual(
+            fp2.parse_aliases({"zone1": "salon", "zone12": "zCuisine", "zone3": "zone3"}),
+            {1: "salon", 12: "zCuisine", 3: "zone3"},
+        )
+        self.assertEqual(fp2.parse_aliases({}), {})
+
+    def test_invalid(self):
+        for zones in (
+            {"zoneGlobal": "salon"},  # index 0 non renommable
+            {"zone0": "salon"},
+            {"zonex": "salon"},
+            {"zone1": ""},
+            {"zone1": "a.b"},  # le point sert de séparateur « équipement.attribut »
+            {"zone1": "1salon"},
+            {"zone1": 5},
+            {"zone1": "illuminance"},
+            {"zone1": "reachable"},
+            {"zone1": "zoneGlobal"},
+            {"zone1": "zone2"},  # nom par défaut d'une autre zone
+            {"zone1": "salon", "zone2": "salon"},
+        ):
+            with self.subTest(zones=zones), self.assertRaises(ValueError):
+                fp2.parse_aliases(zones)
+
+    def test_constructor_rejects_unknown_parameter(self):
+        with self.assertRaises(ValueError):
+            fp2.FP2(id="fp2", name="FP2", fnd_timeout=3)
+
+
 class DriverTest(unittest.IsolatedAsyncioTestCase):
-    async def start(self, pairing):
-        driver = fp2.FP2(id="fp2", name="FP2")
+    async def start(self, pairing, **zones):
+        driver = fp2.FP2(id="fp2", name="FP2", **zones)
         self.states: list[dict] = []
         driver.subscribe(self.states.append)
         task = asyncio.create_task(driver._serve(pairing))
@@ -187,7 +228,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         driver = await self.start(pairing)
         self.assertEqual(
             driver.state(),
-            {"reachable": True, "presence_0": False, "presence_1": True, "illuminance": 42.5},
+            {"reachable": True, "zoneGlobal": False, "zone1": True, "illuminance": 42.5},
         )
         self.assertEqual(pairing.subscribed, {presence_key(0), presence_key(1), (1, 32)})
         self.assertEqual(len(self.states), 1)
@@ -196,7 +237,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         pairing = FakePairing()
         driver = await self.start(pairing)
         pairing.emit("event", {presence_key(0): {"value": 1}})
-        self.assertTrue(driver.state()["presence_0"])
+        self.assertTrue(driver.state()["zoneGlobal"])
         pairing.emit("event", {presence_key(0): {"value": 1}})  # même valeur
         pairing.emit("event", {})  # reconnexion : rien à dire
         pairing.emit("event", {(9, 9): {"value": 1}})  # caractéristique inconnue
@@ -216,7 +257,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         pairing.values[presence_key(0)] = 1  # changé pendant la coupure
         pairing.emit("availability", True)
         await until(lambda: driver.state().get("reachable"))
-        self.assertTrue(driver.state()["presence_0"])
+        self.assertTrue(driver.state()["zoneGlobal"])
         self.assertEqual([s["reachable"] for s in self.states], [True, False, True])
 
     async def test_config_change_rebuilds_mapping(self):
@@ -225,14 +266,64 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         pairing.accessories = accessories((0, 1, 2))  # un capteur ajouté dans l'appli Aqara
         pairing.values[presence_key(2)] = 1
         pairing.emit("config", 2)
-        await until(lambda: "presence_2" in driver.state())
-        self.assertTrue(driver.state()["presence_2"])
+        await until(lambda: "zone2" in driver.state())
+        self.assertTrue(driver.state()["zone2"])
         self.assertIn(presence_key(2), pairing.subscribed)
         pairing.accessories = accessories((0,))  # puis deux retirés
         pairing.emit("config", 3)
-        await until(lambda: "presence_1" not in driver.state())
-        self.assertNotIn("presence_2", driver.state())
+        await until(lambda: "zone1" not in driver.state())
+        self.assertNotIn("zone2", driver.state())
         self.assertEqual(pairing.subscribed, {presence_key(0), (1, 32)})
+
+    async def test_aliases_from_config(self):
+        driver = await self.start(FakePairing(), zone1="salon", zone5="inexistante")
+        self.assertEqual(
+            driver.state(),
+            {"reachable": True, "zoneGlobal": False, "salon": True, "illuminance": 42.5},
+        )
+
+    async def test_failed_full_resync_keeps_previous_state(self):
+        pairing = FakePairing()
+        driver = await self.start(pairing)
+        before = driver.state()
+        pairing.accessories = accessories((0, 1, 2))
+        pairing.read_error = AccessoryDisconnectedError("coupé")
+        with self.assertLogs("drivers.fp2", "WARNING"):
+            pairing.emit("config", 2)
+            await until(lambda: not driver._tasks)
+        self.assertEqual(driver.state(), before)  # ni valeurs vidées, ni mapping à moitié changé
+        pairing.read_error = None
+        pairing.values[presence_key(2)] = 1
+        pairing.emit("config", 3)
+        await until(lambda: "zone2" in driver.state())
+        self.assertIn(presence_key(2), pairing.subscribed)
+
+    async def test_new_session_resubscribes_after_failed_first_sync(self):
+        first, second = FakePairing(), FakePairing()
+        first.read_error = AccessoryDisconnectedError("coupé")
+        pairings = [first, second]
+
+        async def fake_connect(_controller, _dev_id, _wait):
+            return pairings.pop(0)
+
+        @asynccontextmanager
+        async def fake_controller():
+            yield object()
+
+        driver = fp2.FP2(id="fp2", name="FP2")
+        with (
+            mock.patch.object(fp2, "RETRY_MIN", 0.01),
+            mock.patch.object(fp2, "open_controller", fake_controller),
+            mock.patch.object(fp2, "connect", fake_connect),
+            self.assertLogs("drivers.fp2", "WARNING"),
+        ):
+            driver._backoff = 0.01
+            await driver.start()
+            await until(lambda: driver.state().get("reachable"))
+            second.emit("event", {presence_key(0): {"value": 1}})
+        await driver.stop()
+        self.assertEqual(second.subscribed, {presence_key(0), presence_key(1), (1, 32)})
+        self.assertTrue(driver.state().get("zoneGlobal"))
 
     async def test_set_refused(self):
         driver = fp2.FP2(id="fp2", name="FP2")
@@ -385,6 +476,17 @@ class AddDeviceTest(unittest.TestCase):
         ):
             with self.subTest(dev_id=dev_id, driver=driver), self.assertRaises(ValueError):
                 core_devices.add_device(dev_id, driver, path=self.path)
+
+    def test_load_devices_passes_zone_aliases(self):
+        self.path.write_text(
+            '[fp2]\nname = "FP2"\ndriver = "fp2"\nzone1 = "salon"\nzone2 = "cuisine"\n'
+        )
+        self.assertEqual(
+            core_devices.load_devices(self.path)["fp2"]._aliases, {1: "salon", 2: "cuisine"}
+        )
+        self.path.write_text('[fp2]\ndriver = "fp2"\nzoneGlobal = "x"\n')
+        with self.assertRaises(ValueError):
+            core_devices.load_devices(self.path)
 
     def test_load_devices_skips_unconfigured_and_defaults_name(self):
         core_devices.add_device("porte", path=self.path)  # pilote à renseigner

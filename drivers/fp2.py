@@ -1,16 +1,25 @@
 """Aqara FP2 (HomeKit) : capteurs de présence et luminosité, par événements.
 
-État : {"reachable": bool, "presence_<n>": bool, "illuminance": float}.
-Chaque capteur de présence du FP2 est repéré par son « Sensor Index » (caractéristique Aqara),
-comme dans node-red-contrib-fp2 : le FP2 n'expose pas de nom de zone exploitable (« Presence
-Sensor 1 »...), la correspondance index <-> zone se fait côté automatisations.
+État : {"reachable": bool, "zoneGlobal": bool, "zone1": bool, ..., "illuminance": float}.
+Chaque capteur de présence est repéré par son « Sensor Index » (caractéristique Aqara), comme
+dans node-red-contrib-fp2 : l'index 0 est la présence globale (zoneGlobal, non renommable), les
+autres s'appellent zone1, zone2... Dans devices.toml, on les renomme à volonté, sans toucher
+au reste :
+
+    [fp2]
+    name = "FP2"
+    driver = "fp2"
+    zone1 = "salon"      # index 1 -> attribut « salon » ; une zone non listée garde « zoneN »
+
 Équipement créé et appairé par pair.py.
 """
 
 import asyncio
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
@@ -26,6 +35,10 @@ FIND_TIMEOUT = 30  # s, attente de l'accessoire sur le réseau (mDNS)
 OCCUPANCY = normalize_uuid(Types.OCCUPANCY_DETECTED)
 LIGHT_LEVEL = normalize_uuid(Types.LIGHT_LEVEL_CURRENT)
 SENSOR_INDEX = normalize_uuid("C8622A33-826A-4DD3-9BE9-D496361F29BB")  # propre à Aqara
+GLOBAL = "zoneGlobal"  # index 0 : présence globale
+RESERVED = {"reachable", "illuminance", GLOBAL}
+ZONE_KEY = re.compile(r"zone([1-9]\d*)")  # clés de devices.toml : zone1, zone2...
+NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 Key = tuple[int, int]  # (aid, iid) : une caractéristique HomeKit
 
@@ -43,27 +56,57 @@ class Mapping:
     warnings: list[str] = field(default_factory=list)
 
 
-def build_mapping(accessories: list[dict]) -> Mapping:
-    """Un attribut par capteur de présence (« presence_<index> ») et un pour la luminosité."""
+def parse_aliases(zones: dict[str, Any]) -> dict[int, str]:
+    """Paramètres « zoneN = nom » de devices.toml -> {index: nom} ; lève ValueError si invalides."""
+    aliases: dict[int, str] = {}
+    for key, alias in zones.items():
+        if key == GLOBAL:
+            raise ValueError(f"{GLOBAL} (index 0) n'est pas renommable")
+        match = ZONE_KEY.fullmatch(key)
+        if not match:
+            raise ValueError(f"paramètre inconnu « {key} » (attendu zone1, zone2...)")
+        if not isinstance(alias, str) or not NAME.fullmatch(alias):
+            raise ValueError(f"{key} : nom invalide « {alias} » (lettres, chiffres et _)")
+        taken = alias in RESERVED or alias in aliases.values()
+        if taken or (ZONE_KEY.fullmatch(alias) and alias != key):
+            raise ValueError(f"{key} : nom « {alias} » réservé ou déjà utilisé")
+        aliases[int(match[1])] = alias
+    return aliases
+
+
+def _zone_name(index: int | None, key: Key, aliases: dict[int, str]) -> str:
+    if index is None:  # capteur sans « Sensor Index » : repli sur ses identifiants HomeKit
+        return f"zone_{key[0]}_{key[1]}"
+    if index == 0:
+        return GLOBAL
+    return aliases.get(index, f"zone{index}")
+
+
+def build_mapping(accessories: list[dict], aliases: dict[int, str] | None = None) -> Mapping:
+    """Un attribut par capteur de présence (zoneGlobal, zone1...) et un pour la luminosité."""
+    aliases = aliases or {}
     mapping = Mapping()
     light: list[Key] = []
     for accessory in accessories:
         aid = int(accessory.get("aid", 0))
         for service in accessory.get("services", []):
             index = None
-            sensors: list[tuple[Key, str]] = []
+            sensors: list[Key] = []
             for characteristic in service.get("characteristics", []):
                 kind = normalize_uuid(str(characteristic.get("type", "")))
                 key = (aid, int(characteristic.get("iid", 0)))
                 if kind == SENSOR_INDEX:
-                    index = characteristic.get("value")
+                    try:
+                        index = int(characteristic.get("value"))
+                    except (TypeError, ValueError):
+                        index = None
                 elif "ev" in characteristic.get("perms", []):
                     if kind == OCCUPANCY:
-                        sensors.append((key, "presence"))
+                        sensors.append(key)
                     elif kind == LIGHT_LEVEL:
                         light.append(key)
-            for key, base in sensors:
-                attr = f"{base}_{index}" if index is not None else f"{base}_{key[0]}_{key[1]}"
+            for key in sensors:
+                attr = _zone_name(index, key, aliases)
                 if attr in {entity.attr for entity in mapping.entities.values()}:
                     mapping.warnings.append(f"capteur {key} ignoré : « {attr} » déjà utilisé")
                     continue
@@ -88,9 +131,12 @@ class FP2(Device):
         name: str,
         capabilities: list[str] | None = None,
         find_timeout: float = FIND_TIMEOUT,
+        **zones: str,  # zone1 = "salon", zone2 = "cuisine"... (devices.toml)
     ):
         super().__init__(id, name, capabilities)
         self._find_timeout = find_timeout
+        self._aliases = parse_aliases(zones)
+        self._subscribed: set[Key] = set()  # abonnements actifs sur la connexion courante
         self._mapping = Mapping()
         self._values: dict[str, bool | float] = {}  # dernières valeurs connues, par attribut
         self._pairing = None  # défini une fois la première lecture faite
@@ -147,6 +193,7 @@ class FP2(Device):
             pairing.dispatcher_availability_changed(self._on_availability),
             pairing.dispatcher_connect_config_changed(self._on_config),
         ]
+        self._subscribed = set()  # nouvelle connexion : aucun abonnement
         try:
             await self._sync(pairing)
             self._backoff = RETRY_MIN
@@ -166,24 +213,30 @@ class FP2(Device):
     # --- état ---------------------------------------------------------------
 
     async def _sync(self, pairing) -> None:
-        """Relit les accessoires, refait mapping et abonnements, puis lit les valeurs."""
-        mapping = build_mapping(await pairing.list_accessories_and_characteristics())
+        """Relit les accessoires, refait mapping et abonnements, puis lit les valeurs.
+
+        Mapping et valeurs ne sont remplacés qu'une fois tout lu : en cas d'échec, l'ancien état
+        est conservé tel quel.
+        """
+        mapping = build_mapping(await pairing.list_accessories_and_characteristics(), self._aliases)
         for warning in mapping.warnings:
             log.warning("%s : mapping incomplet, %s", self.name, warning)
-        old_keys = self._mapping.event_keys
-        self._mapping = mapping  # avant l'abonnement : un événement précoce doit être reconnu
-        if removed := old_keys - mapping.event_keys:
+        if removed := self._subscribed - mapping.event_keys:
             await pairing.unsubscribe(removed)
-        if added := mapping.event_keys - old_keys:
-            failures = {
-                key: value
-                for key, value in (await pairing.subscribe(sorted(added)) or {}).items()
-                if value.get("status", 0) != 0
-            }
-            if failures:
-                log.warning("%s : abonnement refusé pour %s", self.name, sorted(failures))
-        self._values = {}
-        await self._read(pairing)
+            self._subscribed -= removed
+        if added := mapping.event_keys - self._subscribed:
+            results = await pairing.subscribe(sorted(added)) or {}
+            refused = {key for key, value in results.items() if value.get("status", 0) != 0}
+            if refused:
+                log.warning("%s : abonnement refusé pour %s", self.name, sorted(refused))
+            self._subscribed |= added - refused
+        values: dict[str, bool | float] = {}
+        if mapping.entities:
+            values = self._convert(
+                mapping, await pairing.get_characteristics(list(mapping.entities))
+            )
+        self._mapping = mapping
+        self._values = values
         self._connected = pairing.is_available
         self._synced = True
         self._notify()
@@ -192,17 +245,22 @@ class FP2(Device):
         if self._mapping.entities:
             self._apply(await pairing.get_characteristics(list(self._mapping.entities)))
 
-    def _apply(self, updates: dict[Key, dict]) -> None:
+    def _convert(self, mapping: Mapping, updates: dict[Key, dict]) -> dict[str, bool | float]:
+        values: dict[str, bool | float] = {}
         for key, result in updates.items():
-            entity = self._mapping.entities.get(key)
+            entity = mapping.entities.get(key)
             if entity is None or "value" not in result:
                 continue
             try:
-                self._values[entity.attr] = entity.cast(result["value"])
+                values[entity.attr] = entity.cast(result["value"])
             except (TypeError, ValueError):
                 log.warning(
                     "%s : valeur illisible pour %s : %r", self.name, entity.attr, result["value"]
                 )
+        return values
+
+    def _apply(self, updates: dict[Key, dict]) -> None:
+        self._values.update(self._convert(self._mapping, updates))
 
     def state(self) -> dict:
         if not (self._connected and self._synced):

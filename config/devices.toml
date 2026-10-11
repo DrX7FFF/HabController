@@ -20,3 +20,5 @@ host = "192.168.1.111"
 [fp2]
 name = "FP2-MainRoom"  # à renseigner
 driver = "fp2"
+zone1 = "salon"
+zone2 = "cuisine"

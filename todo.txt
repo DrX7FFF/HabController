@@ -1,2 +1,5 @@
 homekit_models.toml doit être dans le dossier des drivers
 ajouter log à chaque connexion d'un équipement
+
+A revoir :
+Sur le capteur FP2 : Un capteur sans index serait nommé zone_<aid>_<iid>.
