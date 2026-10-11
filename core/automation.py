@@ -1,8 +1,9 @@
 """Automatisations : fonctions déclenchées par les changements d'état des équipements.
 
-Un fichier par sujet dans automations/, chargé au démarrage (comme drivers/) :
+Un fichier par sujet dans automations/, chargé au démarrage (comme drivers/). Une seule ligne
+d'import suffit :
 
-    from core.automation import devices, on_change
+    from core.automation import devices, log, on_change
 
     @on_change("fp2.presence_0")              # « équipement.attribut » ; « fp2 » seul = tout l'état
     async def salon(event):                   # event.old, event.new, event.changed
@@ -11,8 +12,9 @@ Un fichier par sujet dans automations/, chargé au démarrage (comme drivers/) :
 `to=` ne déclenche que vers une valeur donnée : @on_change("fp2.presence_0", to=True).
 Un attribut absent de l'état (équipement injoignable) n'est pas un changement : on garde la
 dernière valeur connue, et rien ne se déclenche tant que la valeur revient identique.
-Les événements d'une même fonction sont traités dans l'ordre. Une erreur d'équipement est
-journalisée sans empêcher les événements suivants ni les autres automatisations.
+Les commandes sont envoyées sans se soucier de l'état de l'équipement : s'il est injoignable,
+c'est journalisé et le script continue (set() renvoie alors False). Les événements d'une même
+fonction sont traités dans l'ordre ; une erreur dans une automatisation n'arrête pas les autres.
 """
 
 import asyncio
@@ -25,12 +27,33 @@ from typing import Any
 from core import ROOT
 from core.base import Device, DeviceError
 
-log = logging.getLogger(__name__)
+log = logging.getLogger(__name__)  # partagé : les scripts l'importent aussi
+__all__ = ["devices", "log", "on_change"]
 
 AUTOMATIONS_DIR = ROOT / "automations"
 _ANY = object()  # « to » non précisé (None et False sont des valeurs valides)
 
-devices: dict[str, Device] = {}  # rempli au démarrage : devices["salon"].set(...)
+
+class _Commands:
+    """Équipement vu par les automatisations : une commande vers un équipement injoignable
+    est journalisée, jamais levée. Le reste (state(), id, name...) est celui de l'équipement."""
+
+    def __init__(self, device: Device):
+        self._device = device
+
+    async def set(self, name: str, value: str | int, transition: int | None = None) -> bool:
+        try:
+            await self._device.set(name, value, transition)
+        except DeviceError as err:
+            log.warning("%s : commande %s=%s non envoyée (%s)", self._device.id, name, value, err)
+            return False
+        return True
+
+    def __getattr__(self, attr: str):
+        return getattr(self._device, attr)
+
+
+devices: dict[str, _Commands] = {}  # rempli au démarrage : devices["salon"].set(...)
 
 
 @dataclass(frozen=True)
@@ -122,7 +145,7 @@ def _done(task: asyncio.Task) -> None:
 def bind(devs: dict[str, Device]) -> None:
     """Abonne les automatisations déclarées aux équipements (avant leur démarrage)."""
     devices.clear()
-    devices.update(devs)
+    devices.update({dev_id: _Commands(dev) for dev_id, dev in devs.items()})
     by_device: dict[str, list[Handler]] = {}
     for handler in _handlers:
         if handler.device not in devs:

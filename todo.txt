@@ -1,1 +1,2 @@
 homekit_models.toml doit être dans le dossier des drivers
+ajouter log à chaque connexion d'un équipement

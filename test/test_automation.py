@@ -146,25 +146,49 @@ class OnChangeTest(AutomationTestCase):
         await self.idle()
         self.assertEqual(done, [1, 2])
 
-    async def test_device_error_is_logged_and_next_event_runs(self):
+    async def test_unreachable_device_never_stops_the_script(self):
         fp = FakeDevice("fp2", {"n": 0})
-        bulb = FakeDevice("salon")
-        automation.devices["salon"] = bulb
+        salon, cuisine = FakeDevice("salon"), FakeDevice("cuisine")
+        results = []
 
         @automation.on_change("fp2.n")
         async def handler(event):
-            await automation.devices["salon"].set("power", event.new)
+            results.append(await automation.devices["salon"].set("power", event.new))
+            results.append(await automation.devices["cuisine"].set("power", event.new))
 
-        automation.bind({"fp2": fp, "salon": bulb})
-        bulb.fail = DeviceError("injoignable")
+        automation.bind({"fp2": fp, "salon": salon, "cuisine": cuisine})
+        salon.fail = DeviceError("injoignable")
         with self.assertLogs("core.automation", "WARNING") as logs:
             fp.update(n=1)
             await self.idle()
         self.assertIn("injoignable", logs.output[0])
-        bulb.fail = None
+        self.assertEqual(results, [False, True])  # la suite du script a bien tourné
+        self.assertEqual(cuisine.commands, [("power", 1)])
+        salon.fail = None
         fp.update(n=2)
         await self.idle()
-        self.assertEqual(bulb.commands, [("power", 2)])
+        self.assertEqual(salon.commands, [("power", 2)])
+
+    async def test_commands_wrapper_passes_through(self):
+        bulb = FakeDevice("salon", {"power": "on"})
+        automation.bind({"salon": bulb})
+        self.assertEqual(automation.devices["salon"].state(), {"power": "on"})
+        self.assertEqual(automation.devices["salon"].id, "salon")
+
+    async def test_invalid_command_is_not_swallowed(self):
+        fp = FakeDevice("fp2", {"n": 0})
+        bulb = FakeDevice("salon")
+        bulb.fail = ValueError("power attend on/off")
+
+        @automation.on_change("fp2.n")
+        async def handler(event):
+            await automation.devices["salon"].set("power", "oups")
+
+        automation.bind({"fp2": fp, "salon": bulb})
+        with self.assertLogs("core.automation", "WARNING") as logs:
+            fp.update(n=1)
+            await self.idle()
+        self.assertIn("ValueError", logs.output[0])
 
     async def test_unexpected_error_is_logged_with_traceback(self):
         fp = FakeDevice("fp2", {"n": 0})
@@ -251,7 +275,7 @@ class PresenceRuleTest(AutomationTestCase):
 
     async def test_one_unreachable_bulb_does_not_block_the_other(self):
         self.salon.fail = DeviceError("injoignable")
-        with self.assertLogs("automations.presence", "WARNING"):
+        with self.assertLogs("core.automation", "WARNING"):
             self.pairing.emit("event", {presence_key(0): {"value": 1}})
             await self.idle()
         self.assertEqual(self.cuisine.commands[-1], ("power", "on"))
