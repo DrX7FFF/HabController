@@ -17,6 +17,6 @@ host = "192.168.1.111"
 #   capabilities = ["power", "brightness", "color_temp"]   (ex. ampoule blanche, sans rgb)
 
 # HomeKit : Presence-Sensor-FP2-D61A, modèle PS-S02E
-[FP2-MainRoom]
+[fp2]
 name = "FP2-MainRoom"  # à renseigner
 driver = "fp2"

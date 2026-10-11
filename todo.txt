@@ -1,0 +1,1 @@
+homekit_models.toml doit être dans le dossier des drivers
