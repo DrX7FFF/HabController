@@ -6,7 +6,7 @@ Habitation domotique home mad
 
 ## Pairing HomeKit
 ```batch
-.venv/bin/python pair.py fp2 --driver fp2 --name "FP2"
+.venv/bin/python pair.py fp2
 ```
 
 

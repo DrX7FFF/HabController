@@ -14,7 +14,12 @@ from pathlib import Path
 
 from aiohomekit import Controller
 from aiohomekit.exceptions import HomeKitException, HttpException
-from aiohomekit.zeroconf import HAP_TYPE_TCP, HAP_TYPE_UDP, ZeroconfServiceListener
+from aiohomekit.zeroconf import (
+    HAP_TYPE_TCP,
+    HAP_TYPE_UDP,
+    HomeKitService,
+    ZeroconfServiceListener,
+)
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncZeroconf
 
 from core import DATA_DIR
@@ -101,6 +106,8 @@ async def connect(controller: Controller, dev_id: str, wait: float = 30.0):
     data = load_pairing(dev_id)
     discovery = await controller.async_find(data["AccessoryPairingID"], wait)
     description = discovery.description
+    if not isinstance(description, HomeKitService):  # IP uniquement (pas BLE/CoAP)
+        raise PairingError(f"{dev_id} : accessoire non IP, non pris en charge")
     data = {
         **data,
         "AccessoryIP": description.address,

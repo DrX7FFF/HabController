@@ -1,6 +1,8 @@
 """Tests hors ligne (aucun matériel) : python -m unittest discover -s test -p "test_*.py" -v"""
 
 import asyncio
+import contextlib
+import io
 import json
 import stat
 import sys
@@ -15,6 +17,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aiohomekit.exceptions import AccessoryNotFoundError  # noqa: E402
+from aiohomekit.zeroconf import HomeKitService  # noqa: E402
 
 import pair as pair_cli  # noqa: E402
 from core import devices as core_devices  # noqa: E402
@@ -280,7 +283,21 @@ class HomekitFilesTest(unittest.IsolatedAsyncioTestCase):
         homekit.save_pairing(
             "fp2", {"AccessoryPairingID": "AA:BB:CC:DD:EE:FF", "iOSDeviceLTSK": "sk"}
         )
-        description = SimpleNamespace(address="192.168.1.50", addresses=["192.168.1.50"], port=5555)
+        description = HomeKitService(
+            name="FP2",
+            id="AA:BB:CC:DD:EE:FF",
+            model="PS-S02D",
+            feature_flags=0,
+            status_flags=0,
+            config_num=1,
+            state_num=1,
+            category=2,
+            protocol_version="1.1",
+            type="_hap._tcp.local.",
+            address="192.168.1.50",
+            addresses=["192.168.1.50"],
+            port=5555,
+        )
         controller = SimpleNamespace(
             async_find=mock.AsyncMock(return_value=SimpleNamespace(description=description)),
             load_pairing=mock.Mock(return_value="pairing"),
@@ -314,34 +331,86 @@ class AddDeviceTest(unittest.TestCase):
             '# commentaire\n\n[salon]\nname = "Salon"\ndriver = "yeelight"\nhost = "1.2.3.4"\n'
         )
 
-    def test_add_keeps_comments_and_parses(self):
-        core_devices.add_device("fp2", "fp2", 'Présence "salon"', self.path)
+    def test_add_with_driver_and_name(self):
+        core_devices.add_device("fp2", "fp2", 'Présence "salon"', path=self.path)
         text = self.path.read_text()
         self.assertTrue(text.startswith("# commentaire"))
         conf = tomllib.loads(text)
         self.assertEqual(conf["fp2"], {"name": 'Présence "salon"', "driver": "fp2"})
         self.assertEqual(conf["salon"]["host"], "1.2.3.4")
 
+    def test_add_without_driver_nor_name(self):
+        core_devices.add_device("porte", comment="HomeKit : Porte, modèle X1", path=self.path)
+        text = self.path.read_text()
+        self.assertIn("# HomeKit : Porte, modèle X1\n[porte]", text)
+        self.assertIn('name = ""  # à renseigner', text)
+        self.assertIn('driver = ""  # à renseigner', text)
+        self.assertEqual(tomllib.loads(text)["porte"], {"name": "", "driver": ""})
+
     def test_refuses_duplicates_bad_id_unknown_driver(self):
         for dev_id, driver in (
             ("salon", "fp2"),
-            ("a b", "fp2"),
+            ("salon", ""),
+            ("a b", ""),
             ("../x", "fp2"),
             ("neuf", "nexistepas"),
         ):
             with self.subTest(dev_id=dev_id, driver=driver), self.assertRaises(ValueError):
-                core_devices.add_device(dev_id, driver, "X", self.path)
+                core_devices.add_device(dev_id, driver, path=self.path)
 
-    def test_load_devices_builds_fp2(self):
-        core_devices.add_device("fp2", "fp2", "FP2", self.path)
-        self.path.write_text(
-            self.path.read_text()
-            .replace('driver = "yeelight"', 'driver = "fp2"')
-            .replace('host = "1.2.3.4"\n', "")
-        )
-        devices = core_devices.load_devices(self.path)
+    def test_load_devices_skips_unconfigured_and_defaults_name(self):
+        core_devices.add_device("porte", path=self.path)  # pilote à renseigner
+        core_devices.add_device("fp2", "fp2", path=self.path)  # nom à renseigner
+        self.path.write_text(self.path.read_text().replace('driver = "yeelight"', 'driver = "fp2"'))
+        self.path.write_text(self.path.read_text().replace('host = "1.2.3.4"\n', ""))
+        with self.assertLogs("core.devices", "WARNING") as logs:
+            devices = core_devices.load_devices(self.path)
+        self.assertEqual(set(devices), {"salon", "fp2"})
+        self.assertIn("porte", logs.output[0])
         self.assertIsInstance(devices["fp2"], fp2.FP2)
+        self.assertEqual(devices["fp2"].name, "fp2")  # nom vide : l'identifiant sert de nom
         self.assertEqual(devices["fp2"].state(), {"reachable": False})
+
+
+def service(model="PS-S02D"):
+    return HomeKitService(
+        name="FP2-1234",
+        id="AA:BB:CC:DD:EE:FF",
+        model=model,
+        feature_flags=0,
+        status_flags=0,
+        config_num=7,
+        state_num=1,
+        category=2,
+        protocol_version="1.1",
+        type="_hap._tcp.local.",
+        address="192.168.1.50",
+        addresses=["192.168.1.50"],
+        port=5555,
+    )
+
+
+class DriverForModelTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = Path(tmp.name) / "homekit_models.toml"
+
+    def test_lookup(self):
+        self.path.write_text('[models]\n"PS-S02D" = "fp2"\n"X1" = "nexistepas"\n')
+        self.assertEqual(pair_cli.driver_for_model("PS-S02D", self.path), "fp2")
+        self.assertEqual(pair_cli.driver_for_model("inconnu", self.path), "")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(pair_cli.driver_for_model("X1", self.path), "")  # pilote absent
+        self.assertIn("inutilisable", out.getvalue())
+
+    def test_missing_file(self):
+        self.assertEqual(pair_cli.driver_for_model("PS-S02D", self.path), "")
+
+    def test_repo_mapping_points_to_existing_driver(self):
+        models = tomllib.loads((core_devices.CONFIG_DIR / "homekit_models.toml").read_text())
+        for driver in models["models"].values():
+            core_devices.load_driver(driver)
 
 
 class PairCliTest(unittest.IsolatedAsyncioTestCase):
@@ -350,65 +419,88 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(tmp.cleanup)
         self.devices = Path(tmp.name) / "devices.toml"
         self.devices.write_text('[salon]\nname = "Salon"\ndriver = "fp2"\n')
-        for target, value in (
-            (homekit, ("PAIRING_DIR", Path(tmp.name) / "homekit")),
-            (core_devices, ("CONFIG_DIR", Path(tmp.name))),
-        ):
-            patcher = mock.patch.object(target, *value)
-            patcher.start()
-            self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(homekit, "PAIRING_DIR", Path(tmp.name) / "homekit")
+        patcher.start()
+        self.addCleanup(patcher.stop)
         # valeurs par défaut de chemin figées à la définition : on les redirige explicitement
-        for func in (core_devices.check_new_device, core_devices.add_device):
-            patcher = mock.patch.object(func, "__defaults__", (self.devices,))
+        for func, defaults in (
+            (core_devices.check_new_device, ("", self.devices)),
+            (core_devices.add_device, ("", "", "", self.devices)),
+        ):
+            patcher = mock.patch.object(func, "__defaults__", defaults)
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    async def test_pair_flow(self):
-        pairing = FakePairing()
-
+    def discovery(self, model="PS-S02D", paired=False):
         async def finish(_pin):
-            return pairing
+            return FakePairing()
 
-        discovery = SimpleNamespace(
-            description=SimpleNamespace(name="FP2-1234", id="aa:bb", model="PS-S02D"),
-            paired=False,
+        return SimpleNamespace(
+            description=service(model),
+            paired=paired,
             async_start_pairing=mock.AsyncMock(return_value=finish),
         )
 
+    async def run_cli(self, discovery, models="PS-S02D"):
         @asynccontextmanager
         async def fake_controller():
             yield object()
 
-        args = SimpleNamespace(id="fp2", driver="fp2", name="Présence", timeout=0)
+        args = SimpleNamespace(id="fp2", timeout=0)
+        known = {"PS-S02D": "fp2"} if models else {}
         with (
             mock.patch.object(pair_cli, "open_controller", fake_controller),
             mock.patch.object(pair_cli, "discover", mock.AsyncMock(return_value=[discovery])),
+            mock.patch.object(pair_cli, "driver_for_model", lambda m: known.get(m, "")),
             mock.patch("builtins.input", return_value="1"),
             mock.patch("getpass.getpass", return_value="123-45-678"),
+            contextlib.redirect_stdout(io.StringIO()) as out,
         ):
-            self.assertEqual(await pair_cli.run(args), 0)
+            code = await pair_cli.run(args)
+        return code, out.getvalue()
+
+    async def test_known_model_fills_driver(self):
+        code, out = await self.run_cli(self.discovery())
+        self.assertEqual(code, 0)
         conf = tomllib.loads(self.devices.read_text())
-        self.assertEqual(conf["fp2"], {"name": "Présence", "driver": "fp2"})
+        self.assertEqual(conf["fp2"], {"name": "", "driver": "fp2"})
+        self.assertIn("modèle PS-S02D", self.devices.read_text())
         self.assertTrue(homekit.pairing_file("fp2").exists())
+        self.assertNotIn("Modèle inconnu", out)
+        self.assertIn("fp2", core_devices.load_devices(self.devices))
         # second appel : refusé, rien n'est modifié
-        self.assertEqual(await pair_cli.run(args), 1)
+        self.assertEqual((await self.run_cli(self.discovery()))[0], 1)
+
+    async def test_unknown_model_leaves_driver_empty(self):
+        code, out = await self.run_cli(self.discovery(model="Z9"))
+        self.assertEqual(code, 0)
+        self.assertEqual(tomllib.loads(self.devices.read_text())["fp2"], {"name": "", "driver": ""})
+        self.assertIn("Modèle inconnu", out)
+        self.assertTrue(homekit.pairing_file("fp2").exists())
+
+    async def test_discovery_shows_every_field(self):
+        _code, out = await self.run_cli(self.discovery())
+        for name in (
+            "name",
+            "id",
+            "model",
+            "feature_flags",
+            "status_flags",
+            "config_num",
+            "state_num",
+            "category",
+            "protocol_version",
+            "type",
+            "address",
+            "addresses",
+            "port",
+        ):
+            self.assertIn(f"{name} :", out)
+        self.assertIn("non appairé", out)
 
     async def test_already_paired_accessory(self):
-        discovery = SimpleNamespace(
-            description=SimpleNamespace(name="FP2", id="aa", model=""), paired=True
-        )
-
-        @asynccontextmanager
-        async def fake_controller():
-            yield object()
-
-        args = SimpleNamespace(id="fp2", driver="fp2", name=None, timeout=0)
-        with (
-            mock.patch.object(pair_cli, "open_controller", fake_controller),
-            mock.patch.object(pair_cli, "discover", mock.AsyncMock(return_value=[discovery])),
-            mock.patch("builtins.input", return_value="1"),
-        ):
-            self.assertEqual(await pair_cli.run(args), 1)
+        code, _out = await self.run_cli(self.discovery(paired=True))
+        self.assertEqual(code, 1)
         self.assertNotIn("fp2", tomllib.loads(self.devices.read_text()))
         self.assertFalse(homekit.pairing_file("fp2").exists())
 

@@ -15,3 +15,8 @@ host = "192.168.1.111"
 #   port = 55443            (défaut)
 #   transition = 300        (durée par défaut des transitions, en ms)
 #   capabilities = ["power", "brightness", "color_temp"]   (ex. ampoule blanche, sans rgb)
+
+# HomeKit : Presence-Sensor-FP2-D61A, modèle PS-S02E
+[FP2-MainRoom]
+name = "FP2-MainRoom"  # à renseigner
+driver = "fp2"

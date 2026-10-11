@@ -1,10 +1,13 @@
 import importlib
 import json
+import logging
 import re
 import tomllib
 from pathlib import Path
 
 from core import CONFIG_DIR
+
+log = logging.getLogger(__name__)
 
 
 def load_driver(name: str):
@@ -27,28 +30,48 @@ def load_devices(path: Path = CONFIG_DIR / "devices.toml") -> dict:
     devices = {}
     for dev_id, params in conf.items():
         params = dict(params)
-        driver = load_driver(params.pop("driver"))
-        devices[dev_id] = driver(id=dev_id, **params)
+        driver_name = params.pop("driver", "")
+        if not driver_name:  # équipement déclaré (ex. par pair.py) mais pas encore configuré
+            log.warning("%s : pilote à renseigner dans %s, équipement ignoré", dev_id, path.name)
+            continue
+        if not params.get("name"):
+            params["name"] = dev_id
+        devices[dev_id] = load_driver(driver_name)(id=dev_id, **params)
     return devices
 
 
 def check_new_device(
-    dev_id: str, driver: str, path: Path = CONFIG_DIR / "devices.toml"
+    dev_id: str, driver: str = "", path: Path = CONFIG_DIR / "devices.toml"
 ) -> None:
     """Vérifie qu'on peut déclarer cet équipement ; lève ValueError sinon."""
     if not re.fullmatch(r"[A-Za-z0-9_-]+", dev_id):
         raise ValueError(f"identifiant invalide « {dev_id} » (lettres, chiffres, _, - seulement)")
     if dev_id in tomllib.loads(path.read_text(encoding="utf-8")):
         raise ValueError(f"l'équipement « {dev_id} » existe déjà dans {path.name}")
-    load_driver(driver)
+    if driver:
+        load_driver(driver)
 
 
 def add_device(
-    dev_id: str, driver: str, name: str, path: Path = CONFIG_DIR / "devices.toml"
+    dev_id: str,
+    driver: str = "",
+    name: str = "",
+    comment: str = "",
+    path: Path = CONFIG_DIR / "devices.toml",
 ) -> None:
-    """Ajoute la section de l'équipement en fin de devices.toml (commentaires conservés)."""
+    """Ajoute la section de l'équipement en fin de devices.toml (commentaires conservés).
+
+    Le pilote et le nom vides sont marqués « à renseigner » ; load_devices ignore l'équipement
+    tant que le pilote n'est pas renseigné.
+    """
     check_new_device(dev_id, driver, path)
+    todo = "  # à renseigner"
+    lines = [f"# {comment}"] if comment else []
+    lines += [
+        f"[{dev_id}]",
+        f"name = {json.dumps(name, ensure_ascii=False)}" + ("" if name else todo),
+        f"driver = {json.dumps(driver)}" + ("" if driver else todo),
+    ]
     text = path.read_text(encoding="utf-8")
-    section = f"[{dev_id}]\nname = {json.dumps(name, ensure_ascii=False)}\ndriver = \"{driver}\"\n"
     separator = "" if text.endswith("\n\n") else "\n" if text.endswith("\n") else "\n\n"
-    path.write_text(text + separator + section, encoding="utf-8")
+    path.write_text(text + separator + "\n".join(lines) + "\n", encoding="utf-8")
