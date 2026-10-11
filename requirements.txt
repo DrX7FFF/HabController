@@ -4,3 +4,4 @@ yeelight
 zigpy
 bellows
 websockets
+aiohomekit

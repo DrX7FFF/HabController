@@ -4,6 +4,12 @@ Habitation domotique home mad
 ## Start
 ./habctrl
 
+## Pairing HomeKit
+```batch
+.venv/bin/python pair.py fp2 --driver fp2 --name "FP2"
+```
+
+
 ## détection clé USB SonOff Dongle Plus MG24 
 ❯ lsusb | grep -i "Silicon"
 Bus 001 Device 015: ID 10c4:ea60 Silicon Labs CP210x UART Bridge

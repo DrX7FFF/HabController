@@ -1,4 +1,6 @@
 import importlib
+import json
+import re
 import tomllib
 from pathlib import Path
 
@@ -28,3 +30,25 @@ def load_devices(path: Path = CONFIG_DIR / "devices.toml") -> dict:
         driver = load_driver(params.pop("driver"))
         devices[dev_id] = driver(id=dev_id, **params)
     return devices
+
+
+def check_new_device(
+    dev_id: str, driver: str, path: Path = CONFIG_DIR / "devices.toml"
+) -> None:
+    """Vérifie qu'on peut déclarer cet équipement ; lève ValueError sinon."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", dev_id):
+        raise ValueError(f"identifiant invalide « {dev_id} » (lettres, chiffres, _, - seulement)")
+    if dev_id in tomllib.loads(path.read_text(encoding="utf-8")):
+        raise ValueError(f"l'équipement « {dev_id} » existe déjà dans {path.name}")
+    load_driver(driver)
+
+
+def add_device(
+    dev_id: str, driver: str, name: str, path: Path = CONFIG_DIR / "devices.toml"
+) -> None:
+    """Ajoute la section de l'équipement en fin de devices.toml (commentaires conservés)."""
+    check_new_device(dev_id, driver, path)
+    text = path.read_text(encoding="utf-8")
+    section = f"[{dev_id}]\nname = {json.dumps(name, ensure_ascii=False)}\ndriver = \"{driver}\"\n"
+    separator = "" if text.endswith("\n\n") else "\n" if text.endswith("\n") else "\n\n"
+    path.write_text(text + separator + section, encoding="utf-8")
