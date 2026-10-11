@@ -31,41 +31,47 @@ def char(iid, short, value, perms):
     return {"iid": iid, "type": f"{short:08X}{BASE}", "value": value, "perms": perms}
 
 
-def accessories(zone="Bureau"):
-    return [
+INDEX_TYPE = "C8622A33-826A-4DD3-9BE9-D496361F29BB"
+
+
+def presence_key(index):
+    return (1, 102 + 4 * index)  # (aid, iid) de la présence du capteur « index »
+
+
+def accessories(indexes=(0, 1)):
+    """Structure du vrai FP2 : un service « Presence Sensor N » par capteur, + luminosité."""
+    services = [
         {
-            "aid": 1,
-            "services": [
+            "iid": 100 + 4 * i,
+            "characteristics": [
+                char(101 + 4 * i, 0x23, f"Presence Sensor {i + 1}", ["pr"]),
+                char(102 + 4 * i, 0x71, 0, ["pr", "ev"]),
                 {
-                    "iid": 10,
-                    "characteristics": [
-                        char(11, 0x23, "Global Presence", ["pr"]),
-                        char(12, 0x71, 0, ["pr", "ev"]),
-                    ],
-                },
-                {
-                    "iid": 20,
-                    "characteristics": [
-                        char(21, 0x23, zone, ["pr"]),
-                        char(22, 0x71, 1, ["pr", "ev"]),
-                    ],
-                },
-                {
-                    "iid": 30,
-                    "characteristics": [
-                        char(31, 0x23, "Luminosity", ["pr"]),
-                        char(32, 0x6B, 42.5, ["pr", "ev"]),
-                    ],
+                    "iid": 103 + 4 * i,
+                    "type": INDEX_TYPE,
+                    "value": i,
+                    "perms": ["pr", "hd"],
                 },
             ],
         }
+        for i in indexes
     ]
+    services.append(
+        {
+            "iid": 30,
+            "characteristics": [
+                char(31, 0x23, "Light Sensor", ["pr"]),
+                char(32, 0x6B, 42.5, ["pr", "ev"]),
+            ],
+        }
+    )
+    return [{"aid": 1, "services": services}]
 
 
 class FakePairing:
-    def __init__(self, zone="Bureau"):
-        self.accessories = accessories(zone)
-        self.values = {(1, 12): 0, (1, 22): 1, (1, 32): 42.5}
+    def __init__(self):
+        self.accessories = accessories()
+        self.values = {presence_key(0): 0, presence_key(1): 1, (1, 32): 42.5}
         self.is_available = True
         self.subscribed: set = set()
         self.closed = False
@@ -123,27 +129,42 @@ async def until(condition, limit=2.0):
 
 
 class MappingTest(unittest.TestCase):
-    def test_global_zone_light(self):
-        mapping = fp2.build_mapping(accessories())
+    def test_one_attribute_per_sensor_index(self):
+        mapping = fp2.build_mapping(accessories((0, 1)))
         self.assertEqual(
             {key: entity.attr for key, entity in mapping.entities.items()},
-            {(1, 12): "presence", (1, 22): "bureau", (1, 32): "illuminance"},
+            {
+                presence_key(0): "presence_0",
+                presence_key(1): "presence_1",
+                (1, 32): "illuminance",
+            },
         )
-        self.assertEqual(mapping.event_keys, {(1, 12), (1, 22), (1, 32)})
+        self.assertEqual(mapping.event_keys, {presence_key(0), presence_key(1), (1, 32)})
         self.assertEqual(mapping.warnings, [])
 
-    def test_zone_name_collision_and_accents(self):
-        mapping = fp2.build_mapping(accessories(zone="Illuminance"))
-        self.assertEqual(mapping.entities[(1, 22)].attr, "illuminance_1_22")
-        mapping = fp2.build_mapping(accessories(zone="Salle à manger"))
-        self.assertEqual(mapping.entities[(1, 22)].attr, "salle_a_manger")
-
-    def test_ambiguous_global(self):
-        data = accessories(zone="Salon")
-        data[0]["services"][0]["characteristics"][0]["value"] = "Zone 1"
+    def test_attribute_follows_index_not_position(self):
+        data = accessories((5, 3))
         mapping = fp2.build_mapping(data)
-        self.assertNotIn("presence", {e.attr for e in mapping.entities.values()})
-        self.assertTrue(mapping.warnings)
+        self.assertEqual(mapping.entities[presence_key(5)].attr, "presence_5")
+        self.assertEqual(mapping.entities[presence_key(3)].attr, "presence_3")
+
+    def test_without_index_falls_back_to_ids(self):
+        data = accessories((0,))
+        data[0]["services"][0]["characteristics"].pop()  # retire « Sensor Index »
+        mapping = fp2.build_mapping(data)
+        self.assertEqual(mapping.entities[presence_key(0)].attr, "presence_1_102")
+
+    def test_duplicate_index_is_reported(self):
+        data = accessories((0, 1))
+        data[0]["services"][1]["characteristics"][2]["value"] = 0
+        mapping = fp2.build_mapping(data)
+        self.assertEqual(len(mapping.warnings), 1)
+        self.assertNotIn(presence_key(1), mapping.entities)
+
+    def test_events_only(self):
+        data = accessories((0,))
+        data[0]["services"][0]["characteristics"][1]["perms"] = ["pr"]  # pas d'événements
+        self.assertNotIn(presence_key(0), fp2.build_mapping(data).entities)
 
 
 class DriverTest(unittest.IsolatedAsyncioTestCase):
@@ -166,17 +187,17 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         driver = await self.start(pairing)
         self.assertEqual(
             driver.state(),
-            {"reachable": True, "presence": False, "bureau": True, "illuminance": 42.5},
+            {"reachable": True, "presence_0": False, "presence_1": True, "illuminance": 42.5},
         )
-        self.assertEqual(pairing.subscribed, {(1, 12), (1, 22), (1, 32)})
+        self.assertEqual(pairing.subscribed, {presence_key(0), presence_key(1), (1, 32)})
         self.assertEqual(len(self.states), 1)
 
     async def test_events_notify_only_real_changes(self):
         pairing = FakePairing()
         driver = await self.start(pairing)
-        pairing.emit("event", {(1, 12): {"value": 1}})
-        self.assertTrue(driver.state()["presence"])
-        pairing.emit("event", {(1, 12): {"value": 1}})  # même valeur
+        pairing.emit("event", {presence_key(0): {"value": 1}})
+        self.assertTrue(driver.state()["presence_0"])
+        pairing.emit("event", {presence_key(0): {"value": 1}})  # même valeur
         pairing.emit("event", {})  # reconnexion : rien à dire
         pairing.emit("event", {(9, 9): {"value": 1}})  # caractéristique inconnue
         self.assertEqual(len(self.states), 2)
@@ -192,19 +213,26 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         driver = await self.start(pairing)
         pairing.emit("availability", False)
         self.assertEqual(driver.state(), {"reachable": False})
-        pairing.values[(1, 12)] = 1  # changé pendant la coupure
+        pairing.values[presence_key(0)] = 1  # changé pendant la coupure
         pairing.emit("availability", True)
         await until(lambda: driver.state().get("reachable"))
-        self.assertTrue(driver.state()["presence"])
+        self.assertTrue(driver.state()["presence_0"])
         self.assertEqual([s["reachable"] for s in self.states], [True, False, True])
 
     async def test_config_change_rebuilds_mapping(self):
         pairing = FakePairing()
         driver = await self.start(pairing)
-        pairing.accessories = accessories(zone="Cuisine")
+        pairing.accessories = accessories((0, 1, 2))  # un capteur ajouté dans l'appli Aqara
+        pairing.values[presence_key(2)] = 1
         pairing.emit("config", 2)
-        await until(lambda: "cuisine" in driver.state())
-        self.assertNotIn("bureau", driver.state())
+        await until(lambda: "presence_2" in driver.state())
+        self.assertTrue(driver.state()["presence_2"])
+        self.assertIn(presence_key(2), pairing.subscribed)
+        pairing.accessories = accessories((0,))  # puis deux retirés
+        pairing.emit("config", 3)
+        await until(lambda: "presence_1" not in driver.state())
+        self.assertNotIn("presence_2", driver.state())
+        self.assertEqual(pairing.subscribed, {presence_key(0), (1, 32)})
 
     async def test_set_refused(self):
         driver = fp2.FP2(id="fp2", name="FP2")

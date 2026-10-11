@@ -1,14 +1,14 @@
-"""Aqara FP2 (HomeKit) : présence globale, zones et luminosité, par événements.
+"""Aqara FP2 (HomeKit) : capteurs de présence et luminosité, par événements.
 
-État : {"reachable": bool, "presence": bool, "illuminance": float, "<zone>": bool, ...}.
-Les zones portent le nom (en minuscules, sans accents) qu'elles ont dans l'application Aqara.
-Le mapping reprend celui de MQTT4FP2. Équipement créé et appairé par pair.py.
+État : {"reachable": bool, "presence_<n>": bool, "illuminance": float}.
+Chaque capteur de présence du FP2 est repéré par son « Sensor Index » (caractéristique Aqara),
+comme dans node-red-contrib-fp2 : le FP2 n'expose pas de nom de zone exploitable (« Presence
+Sensor 1 »...), la correspondance index <-> zone se fait côté automatisations.
+Équipement créé et appairé par pair.py.
 """
 
 import asyncio
 import logging
-import re
-import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -23,20 +23,9 @@ log = logging.getLogger(__name__)
 RETRY_MIN = 2  # s, entre deux tentatives de connexion (doublé à chaque échec)
 RETRY_MAX = 60
 FIND_TIMEOUT = 30  # s, attente de l'accessoire sur le réseau (mDNS)
-RESERVED = {"reachable", "presence", "illuminance"}
-GLOBAL_NAMES = {
-    "global occupancy",
-    "global presence",
-    "occupancy",
-    "occupancy sensor",
-    "presence",
-    "presence globale",
-    "presence global",
-    "presence sensor",
-}
 OCCUPANCY = normalize_uuid(Types.OCCUPANCY_DETECTED)
 LIGHT_LEVEL = normalize_uuid(Types.LIGHT_LEVEL_CURRENT)
-NAMES = {normalize_uuid(Types.CONFIGURED_NAME), normalize_uuid(Types.NAME)}
+SENSOR_INDEX = normalize_uuid("C8622A33-826A-4DD3-9BE9-D496361F29BB")  # propre à Aqara
 
 Key = tuple[int, int]  # (aid, iid) : une caractéristique HomeKit
 
@@ -54,79 +43,35 @@ class Mapping:
     warnings: list[str] = field(default_factory=list)
 
 
-def _slug(text: str) -> str:
-    ascii_text = (
-        unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
-    )
-    return re.sub(r"[^a-z0-9]+", "_", ascii_text).strip("_")
-
-
-def _is_global(name: str) -> bool:
-    return _slug(name).replace("_", " ") in GLOBAL_NAMES
-
-
-def _service_name(service: dict) -> str:
-    for characteristic in service.get("characteristics", []):
-        if normalize_uuid(str(characteristic.get("type", ""))) in NAMES:
-            value = characteristic.get("value")
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    value = service.get("name")
-    return value.strip() if isinstance(value, str) else ""
-
-
 def build_mapping(accessories: list[dict]) -> Mapping:
-    """Repère présence globale, zones et luminosité parmi les caractéristiques à événements."""
+    """Un attribut par capteur de présence (« presence_<index> ») et un pour la luminosité."""
     mapping = Mapping()
-    occupancy: list[tuple[Key, str]] = []
-    light: list[tuple[Key, str]] = []
+    light: list[Key] = []
     for accessory in accessories:
         aid = int(accessory.get("aid", 0))
         for service in accessory.get("services", []):
-            name = _service_name(service)
+            index = None
+            sensors: list[tuple[Key, str]] = []
             for characteristic in service.get("characteristics", []):
-                if "ev" not in characteristic.get("perms", []):
-                    continue
-                key = (aid, int(characteristic.get("iid", 0)))
                 kind = normalize_uuid(str(characteristic.get("type", "")))
-                if kind == OCCUPANCY:
-                    occupancy.append((key, name))
-                elif kind == LIGHT_LEVEL:
-                    light.append((key, name))
+                key = (aid, int(characteristic.get("iid", 0)))
+                if kind == SENSOR_INDEX:
+                    index = characteristic.get("value")
+                elif "ev" in characteristic.get("perms", []):
+                    if kind == OCCUPANCY:
+                        sensors.append((key, "presence"))
+                    elif kind == LIGHT_LEVEL:
+                        light.append(key)
+            for key, base in sensors:
+                attr = f"{base}_{index}" if index is not None else f"{base}_{key[0]}_{key[1]}"
+                if attr in {entity.attr for entity in mapping.entities.values()}:
+                    mapping.warnings.append(f"capteur {key} ignoré : « {attr} » déjà utilisé")
+                    continue
+                mapping.entities[key] = Entity(attr, bool)
 
-    named_global = [item for item in occupancy if _is_global(item[1])]
-    global_key: Key | None = None
-    if len(occupancy) == 1:
-        global_key = occupancy[0][0]
-    elif len(named_global) == 1:
-        global_key = named_global[0][0]
-    elif occupancy:
-        mapping.warnings.append(
-            "présence globale introuvable ou ambiguë (aucun nom ne la distingue)"
-        )
-    if global_key:
-        mapping.entities[global_key] = Entity("presence", bool)
-
-    used = set(RESERVED)
-    for key, name in occupancy:
-        if key == global_key:
-            continue
-        attr = _slug(name)
-        if not attr or _is_global(name):
-            mapping.warnings.append(f"zone {key} ignorée (nom « {name} » inexploitable)")
-            continue
-        if attr in used:
-            attr = f"{attr}_{key[0]}_{key[1]}"
-        used.add(attr)
-        mapping.entities[key] = Entity(attr, bool)
-
-    candidates = light if len(light) <= 1 else [item for item in light if _is_global(item[1])]
-    if len(candidates) == 1:
-        mapping.entities[candidates[0][0]] = Entity("illuminance", float)
-    elif light:
-        mapping.warnings.append(
-            "plusieurs capteurs de luminosité, aucun n'est désigné comme global"
-        )
+    for key in light:
+        attr = "illuminance" if len(light) == 1 else f"illuminance_{key[0]}_{key[1]}"
+        mapping.entities[key] = Entity(attr, float)
 
     mapping.event_keys = set(mapping.entities)
     return mapping

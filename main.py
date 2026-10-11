@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ValidationError
 
+from core.automation import load_automations, stop_automations
 from core.base import DeviceError
 from core.devices import load_devices
 from core.widgets import load_blocks
@@ -31,12 +32,14 @@ def on_device_change(dev_id: str, state: dict) -> None:
 
 for _dev in devices.values():
     _dev.subscribe(partial(on_device_change, _dev.id))
+load_automations(devices)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await asyncio.gather(*(d.start() for d in devices.values()))
     yield
+    await stop_automations()
     await asyncio.gather(*(d.stop() for d in devices.values()))
 
 
