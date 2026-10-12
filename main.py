@@ -10,8 +10,10 @@ from pydantic import BaseModel, ValidationError
 from core.automation import load_automations, stop_automations
 from core.base import DeviceError
 from core.devices import load_devices
+from core.log import setup as setup_logging
 from core.widgets import load_blocks
 
+setup_logging()
 devices = load_devices()
 blocks = load_blocks(devices)
 clients: set[asyncio.Queue] = set()  # une file de messages par page connectée

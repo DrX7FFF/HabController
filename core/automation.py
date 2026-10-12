@@ -1,9 +1,13 @@
 """Automatisations : fonctions déclenchées par les changements d'état des équipements.
 
 Un fichier par sujet dans automations/, chargé au démarrage (comme drivers/). Les équipements
-s'importent par leur identifiant depuis config/devices/, avec le déclencheur et le journal :
+s'importent par leur identifiant depuis config/devices/, avec le déclencheur :
 
-    from core.automation import capteur, cuisine, log, on_change, salon
+    import logging
+
+    from core.automation import capteur, cuisine, on_change, salon
+
+    log = logging.getLogger(__name__)  # journal des scripts : data/logs/automations.log
 
     @on_change("capteur.presence")            # « équipement.attribut » ; « capteur » = tout l'état
     async def eclairage(event):               # event.old, event.new, event.changed
@@ -35,8 +39,8 @@ from typing import Any
 from core import ROOT
 from core.base import Device, DeviceError
 
-log = logging.getLogger(__name__)  # partagé : les scripts l'importent aussi
-__all__ = ["devices", "log", "on_change"]
+log = logging.getLogger(__name__)
+__all__ = ["devices", "on_change"]
 
 AUTOMATIONS_DIR = ROOT / "automations"
 _ANY = object()  # « to » non précisé (None et False sont des valeurs valides)
