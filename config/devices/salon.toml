@@ -1,0 +1,8 @@
+name = "Salon"
+driver = "yeelight"
+host = "192.168.1.110"
+
+# Clés facultatives pour un équipement yeelight :
+# port = 55443
+# transition = 300
+# capabilities = ["power", "brightness", "color_temp"]

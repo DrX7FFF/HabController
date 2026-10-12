@@ -13,7 +13,7 @@ class Device:
     def __init__(self, id: str, name: str, capabilities: list[str] | None = None):
         self.id = id
         self.name = name
-        if capabilities is not None:  # surcharge possible depuis devices.toml
+        if capabilities is not None:  # surcharge possible dans la configuration de l'équipement
             self.capabilities = frozenset(capabilities)
         self._listeners: list[Callable[[dict], None]] = []
         self._last_notified: dict | None = None

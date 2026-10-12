@@ -3,10 +3,9 @@
 État : {"reachable": bool, "zoneGlobal": bool, "zone1": bool, ..., "illuminance": float}.
 Chaque capteur de présence est repéré par son « Sensor Index » (caractéristique Aqara), comme
 dans node-red-contrib-fp2 : l'index 0 est la présence globale (zoneGlobal, non renommable), les
-autres s'appellent zone1, zone2... Dans devices.toml, on les renomme à volonté, sans toucher
-au reste :
+autres s'appellent zone1, zone2... Chaque appareil se configure dans
+`config/devices/<id>.toml`. Pour le FP2 :
 
-    [fp2]
     name = "FP2"
     driver = "fp2"
     zone1 = "salon"      # index 1 -> attribut « salon » ; une zone non listée garde « zoneN »
@@ -37,7 +36,7 @@ LIGHT_LEVEL = normalize_uuid(Types.LIGHT_LEVEL_CURRENT)
 SENSOR_INDEX = normalize_uuid("C8622A33-826A-4DD3-9BE9-D496361F29BB")  # propre à Aqara
 GLOBAL = "zoneGlobal"  # index 0 : présence globale
 RESERVED = {"reachable", "illuminance", GLOBAL}
-ZONE_KEY = re.compile(r"zone([1-9]\d*)")  # clés de devices.toml : zone1, zone2...
+ZONE_KEY = re.compile(r"zone([1-9]\d*)")  # clés zoneN du fichier FP2
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 Key = tuple[int, int]  # (aid, iid) : une caractéristique HomeKit
@@ -57,7 +56,7 @@ class Mapping:
 
 
 def parse_aliases(zones: dict[str, Any]) -> dict[int, str]:
-    """Paramètres « zoneN = nom » de devices.toml -> {index: nom} ; lève ValueError si invalides."""
+    """Paramètres « zoneN = nom » du fichier FP2 -> {index: nom} ; lève ValueError si invalides."""
     aliases: dict[int, str] = {}
     for key, alias in zones.items():
         if key == GLOBAL:
@@ -131,7 +130,7 @@ class FP2(Device):
         name: str,
         capabilities: list[str] | None = None,
         find_timeout: float = FIND_TIMEOUT,
-        **zones: str,  # zone1 = "salon", zone2 = "cuisine"... (devices.toml)
+        **zones: str,  # zone1 = "salon", zone2 = "cuisine"... (fichier FP2)
     ):
         super().__init__(id, name, capabilities)
         self._find_timeout = find_timeout

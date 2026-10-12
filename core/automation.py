@@ -1,7 +1,7 @@
 """Automatisations : fonctions déclenchées par les changements d'état des équipements.
 
 Un fichier par sujet dans automations/, chargé au démarrage (comme drivers/). Les équipements
-s'importent par leur identifiant dans devices.toml, avec le déclencheur et le journal :
+s'importent par leur identifiant depuis config/devices/, avec le déclencheur et le journal :
 
     from core.automation import cuisine, fp2, log, on_change, salon
 

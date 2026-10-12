@@ -445,26 +445,29 @@ class AddDeviceTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.path = Path(tmp.name) / "devices.toml"
-        self.path.write_text(
-            '# commentaire\n\n[salon]\nname = "Salon"\ndriver = "yeelight"\nhost = "1.2.3.4"\n'
+        self.path = Path(tmp.name) / "devices"
+        self.path.mkdir()
+        (self.path / "salon.toml").write_text(
+            '# commentaire\nname = "Salon"\ndriver = "yeelight"\nhost = "1.2.3.4"\n'
         )
 
     def test_add_with_driver_and_name(self):
         core_devices.add_device("fp2", "fp2", 'Présence "salon"', path=self.path)
-        text = self.path.read_text()
-        self.assertTrue(text.startswith("# commentaire"))
+        text = (self.path / "fp2.toml").read_text(encoding="utf-8")
         conf = tomllib.loads(text)
-        self.assertEqual(conf["fp2"], {"name": 'Présence "salon"', "driver": "fp2"})
-        self.assertEqual(conf["salon"]["host"], "1.2.3.4")
+        self.assertEqual(conf, {"name": 'Présence "salon"', "driver": "fp2"})
+        self.assertEqual(
+            tomllib.loads((self.path / "salon.toml").read_text(encoding="utf-8"))["host"],
+            "1.2.3.4",
+        )
 
     def test_add_without_driver_nor_name(self):
         core_devices.add_device("porte", comment="HomeKit : Porte, modèle X1", path=self.path)
-        text = self.path.read_text()
-        self.assertIn("# HomeKit : Porte, modèle X1\n[porte]", text)
+        text = (self.path / "porte.toml").read_text(encoding="utf-8")
+        self.assertIn("# HomeKit : Porte, modèle X1\n", text)
         self.assertIn('name = ""  # à renseigner', text)
         self.assertIn('driver = ""  # à renseigner', text)
-        self.assertEqual(tomllib.loads(text)["porte"], {"name": "", "driver": ""})
+        self.assertEqual(tomllib.loads(text), {"name": "", "driver": ""})
 
     def test_refuses_duplicates_bad_id_unknown_driver(self):
         for dev_id, driver in (
@@ -478,21 +481,20 @@ class AddDeviceTest(unittest.TestCase):
                 core_devices.add_device(dev_id, driver, path=self.path)
 
     def test_load_devices_passes_zone_aliases(self):
-        self.path.write_text(
-            '[fp2]\nname = "FP2"\ndriver = "fp2"\nzone1 = "salon"\nzone2 = "cuisine"\n'
+        (self.path / "fp2.toml").write_text(
+            'name = "FP2"\ndriver = "fp2"\nzone1 = "salon"\nzone2 = "cuisine"\n'
         )
         self.assertEqual(
             core_devices.load_devices(self.path)["fp2"]._aliases, {1: "salon", 2: "cuisine"}
         )
-        self.path.write_text('[fp2]\ndriver = "fp2"\nzoneGlobal = "x"\n')
+        (self.path / "fp2.toml").write_text('driver = "fp2"\nzoneGlobal = "x"\n')
         with self.assertRaises(ValueError):
             core_devices.load_devices(self.path)
 
     def test_load_devices_skips_unconfigured_and_defaults_name(self):
         core_devices.add_device("porte", path=self.path)  # pilote à renseigner
         core_devices.add_device("fp2", "fp2", path=self.path)  # nom à renseigner
-        self.path.write_text(self.path.read_text().replace('driver = "yeelight"', 'driver = "fp2"'))
-        self.path.write_text(self.path.read_text().replace('host = "1.2.3.4"\n', ""))
+        (self.path / "salon.toml").write_text('name = "Salon"\ndriver = "fp2"\n')
         with self.assertLogs("core.devices", "WARNING") as logs:
             devices = core_devices.load_devices(self.path)
         self.assertEqual(set(devices), {"salon", "fp2"})
@@ -548,8 +550,9 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.devices = Path(tmp.name) / "devices.toml"
-        self.devices.write_text('[salon]\nname = "Salon"\ndriver = "fp2"\n')
+        self.devices = Path(tmp.name) / "devices"
+        self.devices.mkdir()
+        (self.devices / "salon.toml").write_text('name = "Salon"\ndriver = "fp2"\n')
         patcher = mock.patch.object(homekit, "PAIRING_DIR", Path(tmp.name) / "homekit")
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -593,9 +596,10 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
     async def test_known_model_fills_driver(self):
         code, out = await self.run_cli(self.discovery())
         self.assertEqual(code, 0)
-        conf = tomllib.loads(self.devices.read_text())
-        self.assertEqual(conf["fp2"], {"name": "", "driver": "fp2"})
-        self.assertIn("modèle PS-S02D", self.devices.read_text())
+        config_path = self.devices / "fp2.toml"
+        conf = tomllib.loads(config_path.read_text())
+        self.assertEqual(conf, {"name": "", "driver": "fp2"})
+        self.assertIn("modèle PS-S02D", config_path.read_text(encoding="utf-8"))
         self.assertTrue(homekit.pairing_file("fp2").exists())
         self.assertNotIn("Modèle inconnu", out)
         self.assertIn("fp2", core_devices.load_devices(self.devices))
@@ -605,7 +609,9 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
     async def test_unknown_model_leaves_driver_empty(self):
         code, out = await self.run_cli(self.discovery(model="Z9"))
         self.assertEqual(code, 0)
-        self.assertEqual(tomllib.loads(self.devices.read_text())["fp2"], {"name": "", "driver": ""})
+        self.assertEqual(
+            tomllib.loads((self.devices / "fp2.toml").read_text()), {"name": "", "driver": ""}
+        )
         self.assertIn("Modèle inconnu", out)
         self.assertTrue(homekit.pairing_file("fp2").exists())
 
@@ -632,7 +638,7 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
     async def test_already_paired_accessory(self):
         code, _out = await self.run_cli(self.discovery(paired=True))
         self.assertEqual(code, 1)
-        self.assertNotIn("fp2", tomllib.loads(self.devices.read_text()))
+        self.assertFalse((self.devices / "fp2.toml").exists())
         self.assertFalse(homekit.pairing_file("fp2").exists())
 
 

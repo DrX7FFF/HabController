@@ -25,14 +25,19 @@ def load_driver(name: str):
     return module.Driver
 
 
-def load_devices(path: Path = CONFIG_DIR / "devices.toml") -> dict:
-    conf = tomllib.loads(path.read_text(encoding="utf-8"))
+def load_devices(path: Path = CONFIG_DIR / "devices") -> dict:
+    if not path.is_dir():
+        raise FileNotFoundError(path)
     devices = {}
-    for dev_id, params in conf.items():
+    for config_path in sorted(path.glob("*.toml")):
+        dev_id = config_path.stem
+        params = tomllib.loads(config_path.read_text(encoding="utf-8"))
         params = dict(params)
         driver_name = params.pop("driver", "")
         if not driver_name:  # équipement déclaré (ex. par pair.py) mais pas encore configuré
-            log.warning("%s : pilote à renseigner dans %s, équipement ignoré", dev_id, path.name)
+            log.warning(
+                "%s : pilote à renseigner dans %s, équipement ignoré", dev_id, config_path.name
+            )
             continue
         if not params.get("name"):
             params["name"] = dev_id
@@ -41,12 +46,12 @@ def load_devices(path: Path = CONFIG_DIR / "devices.toml") -> dict:
 
 
 def check_new_device(
-    dev_id: str, driver: str = "", path: Path = CONFIG_DIR / "devices.toml"
+    dev_id: str, driver: str = "", path: Path = CONFIG_DIR / "devices"
 ) -> None:
     """Vérifie qu'on peut déclarer cet équipement ; lève ValueError sinon."""
     if not re.fullmatch(r"[A-Za-z0-9_-]+", dev_id):
         raise ValueError(f"identifiant invalide « {dev_id} » (lettres, chiffres, _, - seulement)")
-    if dev_id in tomllib.loads(path.read_text(encoding="utf-8")):
+    if (path / f"{dev_id}.toml").exists():
         raise ValueError(f"l'équipement « {dev_id} » existe déjà dans {path.name}")
     if driver:
         load_driver(driver)
@@ -57,9 +62,9 @@ def add_device(
     driver: str = "",
     name: str = "",
     comment: str = "",
-    path: Path = CONFIG_DIR / "devices.toml",
+    path: Path = CONFIG_DIR / "devices",
 ) -> None:
-    """Ajoute la section de l'équipement en fin de devices.toml (commentaires conservés).
+    """Crée un fichier TOML pour l'équipement dans le dossier devices.
 
     Le pilote et le nom vides sont marqués « à renseigner » ; load_devices ignore l'équipement
     tant que le pilote n'est pas renseigné.
@@ -68,10 +73,8 @@ def add_device(
     todo = "  # à renseigner"
     lines = [f"# {comment}"] if comment else []
     lines += [
-        f"[{dev_id}]",
         f"name = {json.dumps(name, ensure_ascii=False)}" + ("" if name else todo),
         f"driver = {json.dumps(driver)}" + ("" if driver else todo),
     ]
-    text = path.read_text(encoding="utf-8")
-    separator = "" if text.endswith("\n\n") else "\n" if text.endswith("\n") else "\n\n"
-    path.write_text(text + separator + "\n".join(lines) + "\n", encoding="utf-8")
+    path.mkdir(parents=True, exist_ok=True)
+    (path / f"{dev_id}.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
