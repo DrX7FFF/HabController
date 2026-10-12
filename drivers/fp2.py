@@ -11,7 +11,11 @@ sous `zone`. Chaque appareil se configure dans
 
     [zonemapping]
     0 = "Global"
-    1 = "salon"      # accès : fp2.zone.salon ; sans alias : fp2.zone[3]
+    1 = "salon"      # accès : fp2.zone.salon ou fp2.zone[1] ; sans alias : fp2.zone[3]
+
+Lecture : fp2.zone.<alias> ou fp2.zone[<index>] (l'index est traduit en alias s'il en a un).
+Déclencheur : @on_change("fp2.zone.<alias>") ; l'index n'est utilisable que pour une zone sans
+alias (@on_change("fp2.zone.3")), car l'état ne contient qu'une clé par capteur.
 
 Équipement créé et appairé par pair.py.
 """
@@ -299,7 +303,7 @@ class Zones:
         return self._device.state().get(f"zone.{name}")
 
     def __getitem__(self, index: int):
-        return self.__getattr__(str(index))
+        return self.__getattr__(str(self._device._aliases.get(index, index)))
 
 
 Driver = FP2  # convention : le chargeur cherche ce nom
