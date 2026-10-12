@@ -1,21 +1,23 @@
 """Aqara FP2 (HomeKit) : capteurs de présence et luminosité, par événements.
 
-État : {"reachable": bool, "zoneGlobal": bool, "zone1": bool, ..., "illuminance": float}.
+État : {"reachable": bool, "zone.<alias ou index>": bool, ...}.
 Chaque capteur de présence est repéré par son « Sensor Index » (caractéristique Aqara), comme
-dans node-red-contrib-fp2 : l'index 0 est la présence globale (zoneGlobal, non renommable), les
-autres s'appellent zone1, zone2... Chaque appareil se configure dans
+dans node-red-contrib-fp2 : l'index 0 est la présence globale, comme les autres zones accessibles
+sous `zone`. Chaque appareil se configure dans
 `config/devices/<id>.toml`. Pour le FP2 :
 
     name = "FP2"
     driver = "fp2"
-    zone1 = "salon"      # index 1 -> attribut « salon » ; une zone non listée garde « zoneN »
+
+    [zonemapping]
+    0 = "Global"
+    1 = "salon"      # accès : fp2.zone.salon ; sans alias : fp2.zone[3]
 
 Équipement créé et appairé par pair.py.
 """
 
 import asyncio
 import logging
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -34,10 +36,6 @@ FIND_TIMEOUT = 30  # s, attente de l'accessoire sur le réseau (mDNS)
 OCCUPANCY = normalize_uuid(Types.OCCUPANCY_DETECTED)
 LIGHT_LEVEL = normalize_uuid(Types.LIGHT_LEVEL_CURRENT)
 SENSOR_INDEX = normalize_uuid("C8622A33-826A-4DD3-9BE9-D496361F29BB")  # propre à Aqara
-GLOBAL = "zoneGlobal"  # index 0 : présence globale
-RESERVED = {"reachable", "illuminance", GLOBAL}
-ZONE_KEY = re.compile(r"zone([1-9]\d*)")  # clés zoneN du fichier FP2
-NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 Key = tuple[int, int]  # (aid, iid) : une caractéristique HomeKit
 
@@ -52,37 +50,16 @@ class Entity:
 class Mapping:
     entities: dict[Key, Entity] = field(default_factory=dict)
     event_keys: set[Key] = field(default_factory=set)
-    warnings: list[str] = field(default_factory=list)
-
-
-def parse_aliases(zones: dict[str, Any]) -> dict[int, str]:
-    """Paramètres « zoneN = nom » du fichier FP2 -> {index: nom} ; lève ValueError si invalides."""
-    aliases: dict[int, str] = {}
-    for key, alias in zones.items():
-        if key == GLOBAL:
-            raise ValueError(f"{GLOBAL} (index 0) n'est pas renommable")
-        match = ZONE_KEY.fullmatch(key)
-        if not match:
-            raise ValueError(f"paramètre inconnu « {key} » (attendu zone1, zone2...)")
-        if not isinstance(alias, str) or not NAME.fullmatch(alias):
-            raise ValueError(f"{key} : nom invalide « {alias} » (lettres, chiffres et _)")
-        taken = alias in RESERVED or alias in aliases.values()
-        if taken or (ZONE_KEY.fullmatch(alias) and alias != key):
-            raise ValueError(f"{key} : nom « {alias} » réservé ou déjà utilisé")
-        aliases[int(match[1])] = alias
-    return aliases
 
 
 def _zone_name(index: int | None, key: Key, aliases: dict[int, str]) -> str:
     if index is None:  # capteur sans « Sensor Index » : repli sur ses identifiants HomeKit
-        return f"zone_{key[0]}_{key[1]}"
-    if index == 0:
-        return GLOBAL
-    return aliases.get(index, f"zone{index}")
+        return f"zone.{key[0]}_{key[1]}"
+    return f"zone.{aliases.get(index, index)}"
 
 
 def build_mapping(accessories: list[dict], aliases: dict[int, str] | None = None) -> Mapping:
-    """Un attribut par capteur de présence (zoneGlobal, zone1...) et un pour la luminosité."""
+    """Associe chaque capteur à son attribut et relève les capteurs de luminosité."""
     aliases = aliases or {}
     mapping = Mapping()
     light: list[Key] = []
@@ -106,9 +83,6 @@ def build_mapping(accessories: list[dict], aliases: dict[int, str] | None = None
                         light.append(key)
             for key in sensors:
                 attr = _zone_name(index, key, aliases)
-                if attr in {entity.attr for entity in mapping.entities.values()}:
-                    mapping.warnings.append(f"capteur {key} ignoré : « {attr} » déjà utilisé")
-                    continue
                 mapping.entities[key] = Entity(attr, bool)
 
     for key in light:
@@ -124,17 +98,23 @@ class FP2(Device):
 
     capabilities = frozenset({"presence", "illuminance"})
 
+    @staticmethod
+    def config_lines() -> list[str]:
+        return ["", "[zonemapping]", '0 = "Global"']
+
     def __init__(
         self,
         id: str,
         name: str,
         capabilities: list[str] | None = None,
         find_timeout: float = FIND_TIMEOUT,
-        **zones: str,  # zone1 = "salon", zone2 = "cuisine"... (fichier FP2)
+        zonemapping: dict[str, Any] | None = None,
     ):
         super().__init__(id, name, capabilities)
         self._find_timeout = find_timeout
-        self._aliases = parse_aliases(zones)
+        self._aliases = {
+            int(index): alias for index, alias in (zonemapping or {}).items() if index.isdigit()
+        }
         self._subscribed: set[Key] = set()  # abonnements actifs sur la connexion courante
         self._mapping = Mapping()
         self._values: dict[str, bool | float] = {}  # dernières valeurs connues, par attribut
@@ -218,8 +198,6 @@ class FP2(Device):
         est conservé tel quel.
         """
         mapping = build_mapping(await pairing.list_accessories_and_characteristics(), self._aliases)
-        for warning in mapping.warnings:
-            log.warning("%s : mapping incomplet, %s", self.name, warning)
         if removed := self._subscribed - mapping.event_keys:
             await pairing.unsubscribe(removed)
             self._subscribed -= removed

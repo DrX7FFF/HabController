@@ -241,11 +241,16 @@ class EquipmentTest(AutomationTestCase):
             automation.salon._nope  # noqa: B018
 
     def test_read_is_live_state_none_when_unknown(self):
-        fp = FakeDevice("fp2", {"reachable": True, "illuminance": 42.5})
+        fp = FakeDevice(
+            "fp2",
+            {"reachable": True, "illuminance": 42.5, "zone.cuisine": True, "zone.3": False},
+        )
         automation.bind({"fp2": fp})
         eq = automation.fp2
         self.assertEqual(eq.illuminance, 42.5)
         self.assertTrue(eq.reachable)
+        self.assertTrue(eq.zone.cuisine)
+        self.assertFalse(eq.zone[3])
         fp._state = {"reachable": False}  # injoignable : l'attribut disparaît
         self.assertIsNone(eq.illuminance)
         self.assertFalse(eq.reachable)
@@ -306,23 +311,23 @@ class EquipmentTest(AutomationTestCase):
         self.assertIsNone(automation.fantome.power)
 
     async def test_script_style_from_the_docs(self):
-        fp = FakeDevice("fp2", {"reachable": True, "illuminance": 10.0, "zoneGlobal": False})
+        fp = FakeDevice("fp2", {"reachable": True, "illuminance": 10.0, "zone.Global": False})
         salon, cuisine = FakeDevice("salon"), FakeDevice("cuisine")
 
-        @automation.on_change("fp2.zoneGlobal", to=True)
+        @automation.on_change("fp2.zone.Global", to=True)
         async def eclairage(event):
             if automation.fp2.reachable and automation.fp2.illuminance < 50:
                 automation.salon.power = "on"
                 automation.cuisine.power = "on"
 
         automation.bind({"fp2": fp, "salon": salon, "cuisine": cuisine})
-        fp.update(zoneGlobal=True)
+        fp.update(**{"zone.Global": True})
         await self.idle()
         self.assertEqual((salon.commands, cuisine.commands), ([("power", "on")], [("power", "on")]))
         fp._state = {"reachable": False}  # injoignable : ne plante pas, ne fait rien
         fp._notify()
-        fp.update(reachable=True, illuminance=80.0, zoneGlobal=False)
-        fp.update(zoneGlobal=True)
+        fp.update(**{"reachable": True, "illuminance": 80.0, "zone.Global": False})
+        fp.update(**{"zone.Global": True})
         await self.idle()
         self.assertEqual(len(salon.commands), 1)  # assez de lumière : pas de nouvelle commande
 
@@ -336,7 +341,7 @@ class PresenceRuleTest(AutomationTestCase):
         importlib.reload(presence)  # ré-enregistre la règle après le nettoyage de setUp
         self.salon = FakeDevice("salon", {"power": "off"})
         self.cuisine = FakeDevice("cuisine", {"power": "off"})
-        self.fp = fp2.FP2(id="fp2", name="FP2")
+        self.fp = fp2.FP2(id="fp2", name="FP2", zonemapping={"0": "Global"})
         automation.bind({"salon": self.salon, "cuisine": self.cuisine, "fp2": self.fp})
         self.pairing = FakePairing()
         task = asyncio.create_task(self.fp._serve(self.pairing))

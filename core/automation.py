@@ -5,11 +5,13 @@ s'importent par leur identifiant depuis config/devices/, avec le déclencheur et
 
     from core.automation import cuisine, fp2, log, on_change, salon
 
-    @on_change("fp2.zoneGlobal")              # « équipement.attribut » ; « fp2 » seul = tout l'état
+    @on_change("fp2.zone.Global")             # « équipement.attribut » ; « fp2 » seul = tout l'état
     async def eclairage(event):               # event.old, event.new, event.changed
         if fp2.reachable and fp2.illuminance < 50:   # lecture : état mémorisé, jamais le matériel
             salon.power = "on"                # écriture : commande envoyée en tâche de fond
             cuisine.power = "on"
+
+    cuisine_detectee = fp2.zone.cuisine       # ou fp2.zone[3] sans alias
 
 Lecture : fp2.illuminance vaut None si l'équipement est injoignable (l'attribut disparaît de son
 état) ou si le nom n'existe pas : à tester avant de comparer. Écriture : salon.power = "on" ne
@@ -18,7 +20,7 @@ d'un même équipement partent dans l'ordre. Pour attendre la réponse, ou passe
 `ok = await salon.set("power", "on", 2)`, qui renvoie False si la commande n'a pas pu partir.
 Un nom d'équipement inconnu est signalé au démarrage.
 
-`to=` ne déclenche que vers une valeur donnée : @on_change("fp2.zoneGlobal", to=True).
+`to=` ne déclenche que vers une valeur donnée : @on_change("fp2.zone.Global", to=True).
 Un attribut absent de l'état (équipement injoignable) n'est pas un changement : on garde la
 dernière valeur connue, et rien ne se déclenche tant que la valeur revient identique.
 Les événements d'une même fonction sont traités dans l'ordre ; une erreur dans une
@@ -56,6 +58,8 @@ class Equipment:
     def __getattr__(self, name: str):
         if name.startswith("_"):
             raise AttributeError(name)
+        if name == "zone":
+            return Zone(self)
         return None if self._device is None else self._device.state().get(name)
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -82,6 +86,20 @@ class Equipment:
             await self.set(name, value)
         except ValueError as err:  # commande ou valeur refusée par le pilote : erreur du script
             log.warning("%s : commande %s=%r refusée (%s)", self._id, name, value, err)
+
+
+class Zone:
+    __slots__ = ("_equipment",)
+
+    def __init__(self, equipment: Equipment):
+        self._equipment = equipment
+
+    def __getattr__(self, name: str):
+        device = self._equipment._device
+        return None if device is None else device.state().get(f"zone.{name}")
+
+    def __getitem__(self, index: int):
+        return self.__getattr__(str(index))
 
 
 _equipments: dict[str, Equipment] = {}  # un objet unique par nom, créé à l'import des scripts

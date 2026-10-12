@@ -76,5 +76,9 @@ def add_device(
         f"name = {json.dumps(name, ensure_ascii=False)}" + ("" if name else todo),
         f"driver = {json.dumps(driver)}" + ("" if driver else todo),
     ]
+    if driver:
+        config_lines = getattr(load_driver(driver), "config_lines", None)
+        if config_lines:
+            lines += config_lines()
     path.mkdir(parents=True, exist_ok=True)
     (path / f"{dev_id}.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")

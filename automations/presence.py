@@ -3,7 +3,7 @@
 from core.automation import cuisine, on_change, salon
 
 
-@on_change("fp2.zoneGlobal")
+@on_change("fp2.zone.Global")
 async def eclairage(event):
     etat = "on" if event.new else "off"
     salon.power = etat
