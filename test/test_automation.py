@@ -241,21 +241,24 @@ class EquipmentTest(AutomationTestCase):
             automation.salon._nope  # noqa: B018
 
     def test_read_is_live_state_none_when_unknown(self):
-        fp = FakeDevice(
-            "fp2",
-            {"reachable": True, "illuminance": 42.5, "zone.cuisine": True, "zone.3": False},
-        )
+        fp = fp2.FP2(id="fp2", name="FP2")
+        fp._connected = True
+        fp._synced = True
+        fp._values = {"illuminance": 42.5, "zone.cuisine": True, "zone.3": False}
         automation.bind({"fp2": fp})
         eq = automation.fp2
         self.assertEqual(eq.illuminance, 42.5)
         self.assertTrue(eq.reachable)
         self.assertTrue(eq.zone.cuisine)
         self.assertFalse(eq.zone[3])
-        fp._state = {"reachable": False}  # injoignable : l'attribut disparaît
+        fp._connected = False  # injoignable : les attributs disparaissent
+        fp._synced = False
         self.assertIsNone(eq.illuminance)
         self.assertFalse(eq.reachable)
         self.assertIsNone(eq.nexistepas)  # faute de frappe : None, sans erreur
-        fp.update(reachable=True, illuminance=10.0)
+        fp._connected = True
+        fp._synced = True
+        fp._values["illuminance"] = 10.0
         self.assertEqual(eq.illuminance, 10.0)  # suit l'état en direct
 
     async def test_assignment_sends_command_without_waiting(self):

@@ -40,5 +40,9 @@ class Device:
         """État courant, lu en mémoire : ne doit jamais interroger l'équipement."""
         raise NotImplementedError
 
+    def get_attribute(self, name: str):
+        """Lit un attribut exposé par le driver à partir de l'état courant."""
+        return self.state().get(name)
+
     async def set(self, name: str, value: str | int, transition: int | None = None) -> None:
         raise NotImplementedError

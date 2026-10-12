@@ -124,6 +124,11 @@ class FP2(Device):
         self._backoff = RETRY_MIN
         self._tasks: set[asyncio.Task] = set()
 
+    def get_attribute(self, name: str):
+        if name == "zone":
+            return Zones(self)
+        return super().get_attribute(name)
+
     # --- cycle de vie -------------------------------------------------------
 
     async def start(self) -> None:
@@ -282,6 +287,19 @@ class FP2(Device):
 
     async def set(self, name: str, value: str | int, transition: int | None = None) -> None:
         raise ValueError(f"{self.name} est un capteur : aucune commande")
+
+
+class Zones:
+    __slots__ = ("_device",)
+
+    def __init__(self, device: FP2):
+        self._device = device
+
+    def __getattr__(self, name: str):
+        return self._device.state().get(f"zone.{name}")
+
+    def __getitem__(self, index: int):
+        return self.__getattr__(str(index))
 
 
 Driver = FP2  # convention : le chargeur cherche ce nom
