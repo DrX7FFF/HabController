@@ -9,16 +9,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_fp2 import FakePairing, presence_key, until  # noqa: E402
+from test_fp2 import FakePairing, make_fp2, presence_key, until  # noqa: E402
 
 from core import automation  # noqa: E402
 from core.base import Device, DeviceError  # noqa: E402
-from drivers import fp2  # noqa: E402
 
 
 class FakeDevice(Device):
     def __init__(self, id, state=None):
-        super().__init__(id, id)
+        super().__init__(id)
+        self.configure(id)
         self._state = dict(state or {})
         self.commands: list[tuple] = []
         self.fail: Exception | None = None
@@ -241,7 +241,7 @@ class EquipmentTest(AutomationTestCase):
             automation.salon._nope  # noqa: B018
 
     def test_read_is_live_state_none_when_unknown(self):
-        fp = fp2.FP2(id="fp2", name="FP2")
+        fp = make_fp2()
         fp._connected = True
         fp._synced = True
         fp._values = {"illuminance": 42.5, "zone.cuisine": True, "zone.3": False}
@@ -344,7 +344,7 @@ class PresenceRuleTest(AutomationTestCase):
         importlib.reload(presence)  # ré-enregistre la règle après le nettoyage de setUp
         self.salon = FakeDevice("salon", {"power": "off"})
         self.cuisine = FakeDevice("cuisine", {"power": "off"})
-        self.fp = fp2.FP2(id="fp2", name="FP2", zonemapping={"0": "Global"})
+        self.fp = make_fp2(zonemapping={0: "Global"})
         automation.bind({"salon": self.salon, "cuisine": self.cuisine, "fp2": self.fp})
         self.pairing = FakePairing()
         task = asyncio.create_task(self.fp._serve(self.pairing))

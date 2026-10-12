@@ -1,8 +1,0 @@
-# HomeKit : Presence-Sensor-FP2-D61A, modèle PS-S02E
-name = "FP2-MainRoom"  # à renseigner
-driver = "fp2"
-
-[zonemapping]
-0 = "Global"
-1 = "salon"
-2 = "cuisine"

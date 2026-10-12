@@ -28,14 +28,13 @@ class YeelightBulb(Device):
 
     def __init__(
         self,
-        id: str,
-        name: str,
         host: str,
         port: int = 55443,
         transition: int = 300,
+        name: str = "",
         capabilities: list[str] | None = None,
     ):
-        super().__init__(id, name, capabilities)
+        super().__init__(name, capabilities)
         self.transition = transition  # durée par défaut des transitions (ms)
         self._host = host
         self._port = port

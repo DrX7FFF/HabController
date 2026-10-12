@@ -1,13 +1,11 @@
 import importlib
 import json
-import logging
+import pkgutil
 import re
-import tomllib
 from pathlib import Path
 
 from core import CONFIG_DIR
-
-log = logging.getLogger(__name__)
+from core.base import Device
 
 
 def load_driver(name: str):
@@ -25,23 +23,18 @@ def load_driver(name: str):
     return module.Driver
 
 
-def load_devices(path: Path = CONFIG_DIR / "devices") -> dict:
-    if not path.is_dir():
-        raise FileNotFoundError(path)
+def load_devices(package: str = "devices") -> dict:
+    """Importe chaque `devices/<id>.py` : il doit définir une variable `<id>` (instance de Device)."""
     devices = {}
-    for config_path in sorted(path.glob("*.toml")):
-        dev_id = config_path.stem
-        params = tomllib.loads(config_path.read_text(encoding="utf-8"))
-        params = dict(params)
-        driver_name = params.pop("driver", "")
-        if not driver_name:  # équipement déclaré (ex. par pair.py) mais pas encore configuré
-            log.warning(
-                "%s : pilote à renseigner dans %s, équipement ignoré", dev_id, config_path.name
-            )
+    for info in sorted(pkgutil.iter_modules(importlib.import_module(package).__path__)):
+        dev_id = info.name
+        if dev_id.startswith("_"):
             continue
-        if not params.get("name"):
-            params["name"] = dev_id
-        devices[dev_id] = load_driver(driver_name)(id=dev_id, **params)
+        device = getattr(importlib.import_module(f"{package}.{dev_id}"), dev_id, None)
+        if not isinstance(device, Device):
+            raise ValueError(f"{package}/{dev_id}.py doit définir `{dev_id} = <pilote>(...)`")
+        device.configure(dev_id)
+        devices[dev_id] = device
     return devices
 
 

@@ -3,15 +3,12 @@
 État : {"reachable": bool, "zone.<alias ou index>": bool, ...}.
 Chaque capteur de présence est repéré par son « Sensor Index » (caractéristique Aqara), comme
 dans node-red-contrib-fp2 : l'index 0 est la présence globale, comme les autres zones accessibles
-sous `zone`. Chaque appareil se configure dans
-`config/devices/<id>.toml`. Pour le FP2 :
+sous `zone`. Chaque appareil se déclare dans `devices/<id>.py` :
 
-    name = "FP2"
-    driver = "fp2"
+    from drivers.fp2 import FP2
 
-    [zonemapping]
-    0 = "Global"
-    1 = "salon"      # accès : fp2.zone.salon ou fp2.zone[1] ; sans alias : fp2.zone[3]
+    fp2 = FP2(name="FP2", zonemapping={0: "Global", 1: "salon"})
+    # accès : fp2.zone.salon ou fp2.zone[1] ; sans alias : fp2.zone[3]
 
 Lecture : fp2.zone.<alias> ou fp2.zone[<index>] (l'index est traduit en alias s'il en a un).
 Déclencheur : @on_change("fp2.zone.<alias>") ; l'index n'est utilisable que pour une zone sans
@@ -24,7 +21,6 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
 
 from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
@@ -108,16 +104,15 @@ class FP2(Device):
 
     def __init__(
         self,
-        id: str,
-        name: str,
+        name: str = "",
         capabilities: list[str] | None = None,
         find_timeout: float = FIND_TIMEOUT,
-        zonemapping: dict[str, Any] | None = None,
+        zonemapping: dict[int, str] | None = None,
     ):
-        super().__init__(id, name, capabilities)
+        super().__init__(name, capabilities)
         self._find_timeout = find_timeout
         self._aliases = {
-            int(index): alias for index, alias in (zonemapping or {}).items() if index.isdigit()
+            int(index): alias for index, alias in (zonemapping or {}).items() if str(index).isdigit()
         }
         self._subscribed: set[Key] = set()  # abonnements actifs sur la connexion courante
         self._mapping = Mapping()

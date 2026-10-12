@@ -68,6 +68,12 @@ def accessories(indexes=(0, 1)):
     return [{"aid": 1, "services": services}]
 
 
+def make_fp2(dev_id="fp2", **kwargs):
+    device = fp2.FP2(name="FP2", **kwargs)
+    device.configure(dev_id)  # normalement fait par load_devices()
+    return device
+
+
 class FakePairing:
     def __init__(self):
         self.accessories = accessories()
@@ -180,7 +186,7 @@ class MappingTest(unittest.TestCase):
 
 class DriverTest(unittest.IsolatedAsyncioTestCase):
     async def start(self, pairing, **zones):
-        driver = fp2.FP2(id="fp2", name="FP2", **zones)
+        driver = make_fp2(**zones)
         self.states: list[dict] = []
         driver.subscribe(self.states.append)
         task = asyncio.create_task(driver._serve(pairing))
@@ -288,7 +294,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         async def fake_controller():
             yield object()
 
-        driver = fp2.FP2(id="fp2", name="FP2")
+        driver = make_fp2()
         with (
             mock.patch.object(fp2, "RETRY_MIN", 0.01),
             mock.patch.object(fp2, "open_controller", fake_controller),
@@ -304,13 +310,13 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(driver.state().get("zone.0"))
 
     async def test_set_refused(self):
-        driver = fp2.FP2(id="fp2", name="FP2")
+        driver = make_fp2()
         with self.assertRaises(ValueError):
             await driver.set("power", "on")
 
     async def test_stop_after_start_unreachable_pairing_missing(self):
         # sans appairage enregistré : erreur claire journalisée, pas de boucle infinie
-        driver = fp2.FP2(id="inconnu_test", name="FP2")
+        driver = make_fp2("inconnu_test")
         with (
             tempfile.TemporaryDirectory() as tmp,
             mock.patch.object(homekit, "PAIRING_DIR", Path(tmp)),
@@ -334,7 +340,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         async def fake_controller():
             yield object()
 
-        driver = fp2.FP2(id="fp2", name="FP2")
+        driver = make_fp2()
         with (
             mock.patch.object(fp2, "RETRY_MIN", 0.01),
             mock.patch.object(fp2, "open_controller", fake_controller),
@@ -461,25 +467,39 @@ class AddDeviceTest(unittest.TestCase):
             with self.subTest(dev_id=dev_id, driver=driver), self.assertRaises(ValueError):
                 core_devices.add_device(dev_id, driver, path=self.path)
 
-    def test_load_devices_passes_zone_aliases(self):
-        (self.path / "fp2.toml").write_text(
-            'name = "FP2"\ndriver = "fp2"\n\n[zonemapping]\n1 = "salon"\n2 = "cuisine"\ne2 = "ignored"\n'
-        )
-        self.assertEqual(
-            core_devices.load_devices(self.path)["fp2"]._aliases, {1: "salon", 2: "cuisine"}
-        )
 
-    def test_load_devices_skips_unconfigured_and_defaults_name(self):
-        core_devices.add_device("porte", path=self.path)  # pilote à renseigner
-        core_devices.add_device("fp2", "fp2", path=self.path)  # nom à renseigner
-        (self.path / "salon.toml").write_text('name = "Salon"\ndriver = "fp2"\n')
-        with self.assertLogs("core.devices", "WARNING") as logs:
-            devices = core_devices.load_devices(self.path)
-        self.assertEqual(set(devices), {"salon", "fp2"})
-        self.assertIn("porte", logs.output[0])
-        self.assertIsInstance(devices["fp2"], fp2.FP2)
-        self.assertEqual(devices["fp2"].name, "fp2")  # nom vide : l'identifiant sert de nom
+class LoadDevicesTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.package = f"devs_{id(self)}"
+        self.path = Path(tmp.name) / self.package
+        self.path.mkdir()
+        sys.path.insert(0, tmp.name)
+        self.addCleanup(sys.path.remove, tmp.name)
+
+    def write(self, name, text):
+        (self.path / f"{name}.py").write_text(text, encoding="utf-8")
+
+    def test_id_from_file_name_and_default_name(self):
+        self.write("fp2", "from drivers.fp2 import FP2\nfp2 = FP2(zonemapping={1: 'salon'})\n")
+        self.write("_ignore", "raise RuntimeError\n")
+        devices = core_devices.load_devices(self.package)
+        self.assertEqual(set(devices), {"fp2"})
+        self.assertEqual((devices["fp2"].id, devices["fp2"].name), ("fp2", "fp2"))
+        self.assertEqual(devices["fp2"]._aliases, {1: "salon"})
         self.assertEqual(devices["fp2"].state(), {"reachable": False})
+
+    def test_variable_missing_or_wrong_type(self):
+        self.write("salon", "x = 1\n")
+        with self.assertRaises(ValueError):
+            core_devices.load_devices(self.package)
+
+    def test_repo_devices_load(self):
+        devices = core_devices.load_devices()
+        self.assertEqual(set(devices), {"salon", "cuisine", "fp2"})
+        self.assertEqual(devices["salon"].name, "Salon")
+        self.assertEqual(devices["fp2"]._aliases, {0: "Global", 1: "salon", 2: "cuisine"})
 
 
 def service(model="PS-S02D"):
@@ -582,7 +602,6 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("modèle PS-S02D", config_path.read_text(encoding="utf-8"))
         self.assertTrue(homekit.pairing_file("fp2").exists())
         self.assertNotIn("Modèle inconnu", out)
-        self.assertIn("fp2", core_devices.load_devices(self.devices))
         # second appel : refusé, rien n'est modifié
         self.assertEqual((await self.run_cli(self.discovery()))[0], 1)
 

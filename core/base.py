@@ -10,13 +10,19 @@ class Device:
 
     capabilities: frozenset[str] = frozenset()
 
-    def __init__(self, id: str, name: str, capabilities: list[str] | None = None):
-        self.id = id
+    def __init__(self, name: str = "", capabilities: list[str] | None = None):
+        self.id = ""  # affecté par configure() : le chargeur le déduit du nom du fichier
         self.name = name
         if capabilities is not None:  # surcharge possible dans la configuration de l'équipement
             self.capabilities = frozenset(capabilities)
         self._listeners: list[Callable[[dict], None]] = []
         self._last_notified: dict | None = None
+
+    def configure(self, dev_id: str) -> None:
+        """Appelé par le chargeur, avant start() : identifiant, et nom par défaut."""
+        self.id = dev_id
+        if not self.name:
+            self.name = dev_id
 
     def subscribe(self, callback: Callable[[dict], None]) -> None:
         """callback(state) est appelé à chaque changement d'état de l'équipement."""
