@@ -1,20 +1,28 @@
 """Automatisations : fonctions déclenchées par les changements d'état des équipements.
 
-Un fichier par sujet dans automations/, chargé au démarrage (comme drivers/). Une seule ligne
-d'import suffit :
+Un fichier par sujet dans automations/, chargé au démarrage (comme drivers/). Les équipements
+s'importent par leur identifiant dans devices.toml, avec le déclencheur et le journal :
 
-    from core.automation import devices, log, on_change
+    from core.automation import cuisine, fp2, log, on_change, salon
 
-    @on_change("fp2.presence_0")              # « équipement.attribut » ; « fp2 » seul = tout l'état
-    async def salon(event):                   # event.old, event.new, event.changed
-        await devices["salon"].set("power", "on" if event.new else "off")
+    @on_change("fp2.zoneGlobal")              # « équipement.attribut » ; « fp2 » seul = tout l'état
+    async def eclairage(event):               # event.old, event.new, event.changed
+        if fp2.reachable and fp2.illuminance < 50:   # lecture : état mémorisé, jamais le matériel
+            salon.power = "on"                # écriture : commande envoyée en tâche de fond
+            cuisine.power = "on"
 
-`to=` ne déclenche que vers une valeur donnée : @on_change("fp2.presence_0", to=True).
+Lecture : fp2.illuminance vaut None si l'équipement est injoignable (l'attribut disparaît de son
+état) ou si le nom n'existe pas : à tester avant de comparer. Écriture : salon.power = "on" ne
+bloque pas et ne lève rien si l'équipement est injoignable (c'est journalisé) ; les commandes
+d'un même équipement partent dans l'ordre. Pour attendre la réponse, ou passer une transition :
+`ok = await salon.set("power", "on", 2)`, qui renvoie False si la commande n'a pas pu partir.
+Un nom d'équipement inconnu est signalé au démarrage.
+
+`to=` ne déclenche que vers une valeur donnée : @on_change("fp2.zoneGlobal", to=True).
 Un attribut absent de l'état (équipement injoignable) n'est pas un changement : on garde la
 dernière valeur connue, et rien ne se déclenche tant que la valeur revient identique.
-Les commandes sont envoyées sans se soucier de l'état de l'équipement : s'il est injoignable,
-c'est journalisé et le script continue (set() renvoie alors False). Les événements d'une même
-fonction sont traités dans l'ordre ; une erreur dans une automatisation n'arrête pas les autres.
+Les événements d'une même fonction sont traités dans l'ordre ; une erreur dans une
+automatisation n'arrête pas les autres.
 """
 
 import asyncio
@@ -34,26 +42,63 @@ AUTOMATIONS_DIR = ROOT / "automations"
 _ANY = object()  # « to » non précisé (None et False sont des valeurs valides)
 
 
-class _Commands:
-    """Équipement vu par les automatisations : une commande vers un équipement injoignable
-    est journalisée, jamais levée. Le reste (state(), id, name...) est celui de l'équipement."""
+class Equipment:
+    """Un équipement vu par les automatisations : fp2.illuminance lit son état mémorisé,
+    salon.power = "on" lui envoie une commande (voir l'en-tête du module)."""
 
-    def __init__(self, device: Device):
-        self._device = device
+    __slots__ = ("_device", "_id", "_lock")
+
+    def __init__(self, dev_id: str):
+        self._id = dev_id
+        self._device: Device | None = None  # renseigné par bind()
+        self._lock = asyncio.Lock()
+
+    def __getattr__(self, name: str):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return None if self._device is None else self._device.state().get(name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+            return
+        _spawn_task(self._send(name, value), f"{self._id}.{name}")
 
     async def set(self, name: str, value: str | int, transition: int | None = None) -> bool:
-        try:
-            await self._device.set(name, value, transition)
-        except DeviceError as err:
-            log.warning("%s : commande %s=%s non envoyée (%s)", self._device.id, name, value, err)
+        """Envoie la commande et attend la réponse ; False si elle n'a pas pu partir."""
+        if self._device is None:
+            log.warning("%s : équipement inconnu, commande %s=%s ignorée", self._id, name, value)
             return False
+        async with self._lock:  # les commandes d'un même équipement partent dans l'ordre
+            try:
+                await self._device.set(name, value, transition)
+            except DeviceError as err:
+                log.warning("%s : commande %s=%s non envoyée (%s)", self._id, name, value, err)
+                return False
         return True
 
-    def __getattr__(self, attr: str):
-        return getattr(self._device, attr)
+    async def _send(self, name: str, value: Any) -> None:
+        try:
+            await self.set(name, value)
+        except ValueError as err:  # commande ou valeur refusée par le pilote : erreur du script
+            log.warning("%s : commande %s=%r refusée (%s)", self._id, name, value, err)
 
 
-devices: dict[str, _Commands] = {}  # rempli au démarrage : devices["salon"].set(...)
+_equipments: dict[str, Equipment] = {}  # un objet unique par nom, créé à l'import des scripts
+devices: dict[str, Equipment] = {}  # équipements existants, par identifiant : devices["salon"]
+
+
+def _equipment(dev_id: str) -> Equipment:
+    if dev_id not in _equipments:
+        _equipments[dev_id] = Equipment(dev_id)
+    return _equipments[dev_id]
+
+
+def __getattr__(name: str) -> Equipment:
+    """`from core.automation import salon` : tout nom d'équipement s'importe (vérifié par bind)."""
+    if name.startswith("_"):
+        raise AttributeError(name)
+    return _equipment(name)
 
 
 @dataclass(frozen=True)
@@ -122,10 +167,14 @@ class _Watcher:
             _spawn(handler, event)
 
 
-def _spawn(handler: Handler, event: Event) -> None:
-    task = asyncio.get_running_loop().create_task(_run(handler, event), name=handler.name)
+def _spawn_task(coro, name: str) -> None:
+    task = asyncio.get_running_loop().create_task(coro, name=name)
     _tasks.add(task)
     task.add_done_callback(_done)
+
+
+def _spawn(handler: Handler, event: Event) -> None:
+    _spawn_task(_run(handler, event), handler.name)
 
 
 async def _run(handler: Handler, event: Event) -> None:
@@ -145,7 +194,15 @@ def _done(task: asyncio.Task) -> None:
 def bind(devs: dict[str, Device]) -> None:
     """Abonne les automatisations déclarées aux équipements (avant leur démarrage)."""
     devices.clear()
-    devices.update({dev_id: _Commands(dev) for dev_id, dev in devs.items()})
+    for equipment in _equipments.values():
+        equipment._device = None
+        equipment._lock = asyncio.Lock()
+    for dev_id, dev in devs.items():
+        devices[dev_id] = _equipment(dev_id)
+        devices[dev_id]._device = dev
+    for dev_id, equipment in _equipments.items():
+        if equipment._device is None:
+            log.error("équipement inconnu « %s » utilisé dans les automatisations", dev_id)
     by_device: dict[str, list[Handler]] = {}
     for handler in _handlers:
         if handler.device not in devs:
@@ -166,6 +223,8 @@ def load_automations(devs: dict[str, Device]) -> None:
 
 
 async def stop_automations() -> None:
-    for task in _tasks:
-        task.cancel()
-    await asyncio.gather(*_tasks, return_exceptions=True)
+    while _tasks:  # une tâche annulée peut en avoir lancé d'autres
+        tasks = list(_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)

@@ -22,6 +22,7 @@ class FakeDevice(Device):
         self._state = dict(state or {})
         self.commands: list[tuple] = []
         self.fail: Exception | None = None
+        self.delays: list[float] = []  # attente simulée, consommée une commande à la fois
 
     def state(self):
         return dict(self._state)
@@ -36,6 +37,8 @@ class FakeDevice(Device):
         self._notify()
 
     async def set(self, name, value, transition=None):
+        if self.delays:
+            await asyncio.sleep(self.delays.pop(0))
         if self.fail:
             raise self.fail
         self.commands.append((name, value))
@@ -46,6 +49,7 @@ class FakeDevice(Device):
 class AutomationTestCase(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         automation._handlers.clear()
+        automation._equipments.clear()
         automation.devices.clear()
 
     async def asyncTearDown(self):
@@ -53,7 +57,8 @@ class AutomationTestCase(unittest.IsolatedAsyncioTestCase):
         automation._handlers.clear()
 
     async def idle(self):
-        await asyncio.gather(*automation._tasks, return_exceptions=True)
+        while automation._tasks:  # les tâches peuvent en lancer d'autres (commandes)
+            await asyncio.gather(*list(automation._tasks), return_exceptions=True)
 
 
 class OnChangeTest(AutomationTestCase):
@@ -169,12 +174,6 @@ class OnChangeTest(AutomationTestCase):
         await self.idle()
         self.assertEqual(salon.commands, [("power", 2)])
 
-    async def test_commands_wrapper_passes_through(self):
-        bulb = FakeDevice("salon", {"power": "on"})
-        automation.bind({"salon": bulb})
-        self.assertEqual(automation.devices["salon"].state(), {"power": "on"})
-        self.assertEqual(automation.devices["salon"].id, "salon")
-
     async def test_invalid_command_is_not_swallowed(self):
         fp = FakeDevice("fp2", {"n": 0})
         bulb = FakeDevice("salon")
@@ -221,6 +220,111 @@ class OnChangeTest(AutomationTestCase):
             @automation.on_change("fp2.x")
             def not_async(event):
                 pass
+
+
+class EquipmentTest(AutomationTestCase):
+    """Écriture simplifiée : fp2.illuminance, salon.power = "on"."""
+
+    def test_import_by_name_is_the_same_object_as_devices(self):
+        from core.automation import salon  # noqa: PLC0415
+
+        automation.bind({"salon": FakeDevice("salon")})
+        self.assertIs(salon, automation.devices["salon"])
+        self.assertIs(salon, automation.salon)
+
+    def test_private_and_dunder_names_are_not_equipments(self):
+        for name in ("__nope__", "_nope"):
+            with self.subTest(name=name), self.assertRaises(AttributeError):
+                getattr(automation, name)
+        automation.bind({"salon": FakeDevice("salon")})
+        with self.assertRaises(AttributeError):
+            automation.salon._nope  # noqa: B018
+
+    def test_read_is_live_state_none_when_unknown(self):
+        fp = FakeDevice("fp2", {"reachable": True, "illuminance": 42.5})
+        automation.bind({"fp2": fp})
+        eq = automation.fp2
+        self.assertEqual(eq.illuminance, 42.5)
+        self.assertTrue(eq.reachable)
+        fp._state = {"reachable": False}  # injoignable : l'attribut disparaît
+        self.assertIsNone(eq.illuminance)
+        self.assertFalse(eq.reachable)
+        self.assertIsNone(eq.nexistepas)  # faute de frappe : None, sans erreur
+        fp.update(reachable=True, illuminance=10.0)
+        self.assertEqual(eq.illuminance, 10.0)  # suit l'état en direct
+
+    async def test_assignment_sends_command_without_waiting(self):
+        bulb = FakeDevice("salon")
+        automation.bind({"salon": bulb})
+        automation.salon.power = "on"
+        self.assertEqual(bulb.commands, [])  # pas encore parti : l'écriture ne bloque pas
+        await self.idle()
+        self.assertEqual(bulb.commands, [("power", "on")])
+
+    async def test_assignments_keep_order_per_device(self):
+        bulb = FakeDevice("salon")
+        bulb.delays = [0.05, 0]  # la première commande est la plus lente
+        automation.bind({"salon": bulb})
+        automation.salon.power = "on"
+        automation.salon.bright = 80
+        await self.idle()
+        self.assertEqual(bulb.commands, [("power", "on"), ("bright", 80)])
+
+    async def test_unreachable_device_is_logged_not_raised(self):
+        bulb = FakeDevice("salon")
+        bulb.fail = DeviceError("injoignable")
+        automation.bind({"salon": bulb})
+        with self.assertLogs("core.automation", "WARNING") as logs:
+            automation.salon.power = "on"
+            await self.idle()
+        self.assertIn("injoignable", logs.output[0])
+
+    async def test_refused_command_is_a_warning(self):
+        bulb = FakeDevice("salon")
+        bulb.fail = ValueError("power attend on/off")
+        automation.bind({"salon": bulb})
+        with self.assertLogs("core.automation", "WARNING") as logs:
+            automation.salon.power = "oups"
+            await self.idle()
+        self.assertIn("refusée", logs.output[0])
+
+    async def test_awaited_set_returns_success(self):
+        bulb = FakeDevice("salon")
+        automation.bind({"salon": bulb})
+        self.assertTrue(await automation.salon.set("power", "on"))
+        bulb.fail = DeviceError("injoignable")
+        with self.assertLogs("core.automation", "WARNING"):
+            self.assertFalse(await automation.salon.set("power", "off"))
+
+    async def test_unknown_name_is_reported_at_bind(self):
+        automation.fantome  # noqa: B018  (import d'un équipement qui n'existe pas)
+        with self.assertLogs("core.automation", "ERROR") as logs:
+            automation.bind({"salon": FakeDevice("salon")})
+        self.assertIn("fantome", logs.output[0])
+        with self.assertLogs("core.automation", "WARNING"):
+            await automation.fantome.set("power", "on")
+        self.assertIsNone(automation.fantome.power)
+
+    async def test_script_style_from_the_docs(self):
+        fp = FakeDevice("fp2", {"reachable": True, "illuminance": 10.0, "zoneGlobal": False})
+        salon, cuisine = FakeDevice("salon"), FakeDevice("cuisine")
+
+        @automation.on_change("fp2.zoneGlobal", to=True)
+        async def eclairage(event):
+            if automation.fp2.reachable and automation.fp2.illuminance < 50:
+                automation.salon.power = "on"
+                automation.cuisine.power = "on"
+
+        automation.bind({"fp2": fp, "salon": salon, "cuisine": cuisine})
+        fp.update(zoneGlobal=True)
+        await self.idle()
+        self.assertEqual((salon.commands, cuisine.commands), ([("power", "on")], [("power", "on")]))
+        fp._state = {"reachable": False}  # injoignable : ne plante pas, ne fait rien
+        fp._notify()
+        fp.update(reachable=True, illuminance=80.0, zoneGlobal=False)
+        fp.update(zoneGlobal=True)
+        await self.idle()
+        self.assertEqual(len(salon.commands), 1)  # assez de lumière : pas de nouvelle commande
 
 
 class PresenceRuleTest(AutomationTestCase):
