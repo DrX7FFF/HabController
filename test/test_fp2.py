@@ -20,7 +20,7 @@ from aiohomekit.exceptions import AccessoryDisconnectedError, AccessoryNotFoundE
 from aiohomekit.zeroconf import HomeKitService  # noqa: E402
 
 import pair as pair_cli  # noqa: E402
-from core import devices as core_devices  # noqa: E402
+from core import ROOT, devices as core_devices  # noqa: E402
 from core import homekit  # noqa: E402
 from drivers import fp2  # noqa: E402
 
@@ -538,7 +538,8 @@ class DriverForModelTest(unittest.TestCase):
         self.assertEqual(pair_cli.driver_for_model("PS-S02D", self.path), "")
 
     def test_repo_mapping_points_to_existing_driver(self):
-        models = tomllib.loads((core_devices.CONFIG_DIR / "homekit_models.toml").read_text())
+        models = tomllib.loads((ROOT / "drivers" / "homekit_models.toml").read_text())
+        self.assertEqual(pair_cli.driver_for_model("PS-S02D"), "fp2")
         for driver in models["models"].values():
             core_devices.load_driver(driver)
 

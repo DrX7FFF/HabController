@@ -1,7 +1,7 @@
 """Appaire un équipement HomeKit, enregistre l'appairage et le déclare dans config/devices.toml.
 
 Usage : .venv/bin/python pair.py <id> [--timeout 10]
-L'équipement est ajouté sans nom ; son pilote est déduit du modèle (config/homekit_models.toml),
+L'équipement est ajouté sans nom ; son pilote est déduit du modèle (drivers/homekit_models.toml),
 sinon il reste à renseigner dans devices.toml. Le code HomeKit (XXX-XX-XXX) est saisi sans écho.
 Redémarrer HabController ensuite.
 """
@@ -14,12 +14,12 @@ import sys
 import tomllib
 from pathlib import Path
 
-from core import CONFIG_DIR
+from core import ROOT
 from core.devices import add_device, check_new_device, load_driver
 from core.homekit import ERRORS, PIN, discover, open_controller, pair, pairing_file
 
 
-def driver_for_model(model: str, path: Path = CONFIG_DIR / "homekit_models.toml") -> str:
+def driver_for_model(model: str, path: Path = ROOT / "drivers" / "homekit_models.toml") -> str:
     """Pilote associé au modèle HomeKit, ou "" si le modèle est inconnu."""
     try:
         models = tomllib.loads(path.read_text(encoding="utf-8")).get("models", {})
