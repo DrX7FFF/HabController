@@ -13,7 +13,15 @@ import getpass
 from pathlib import Path
 
 from core.devices import add_device, check_new_device, driver_for_model
-from drivers.homekit import ERRORS, PIN, discover, open_controller, pair_accessory, pairing_file
+from drivers.homekit import (
+    ERRORS,
+    PIN,
+    discover,
+    open_controller,
+    pair_accessory,
+    pairing_file,
+    read_pairing_file,
+)
 
 HELP = "appairer un accessoire HomeKit (découverte mDNS, code XXX-XX-XXX)"
 MODELS = Path(__file__).with_name("models.toml")
@@ -74,6 +82,9 @@ async def run(args: argparse.Namespace) -> int:
             return 1
 
     print(f"Appairage enregistré dans {path}.")
+    for field, value in read_pairing_file(args.id).items():
+        if field != "hap":  # les clés restent dans le fichier
+            print(f"  {field} : {value}")
     if not driver:
         print(
             f"Modèle inconnu : déclarer l'équipement dans devices/{args.id}.py avec le bon pilote."

@@ -373,12 +373,47 @@ class HomekitFilesTest(unittest.IsolatedAsyncioTestCase):
 
         discovery = SimpleNamespace(async_start_pairing=mock.AsyncMock(return_value=finish))
         path = await homekit.pair_accessory(discovery, "fp2", "123-45-678")
-        saved = json.loads(path.read_text())
-        self.assertEqual(saved["AccessoryPairingID"], "AA:BB:CC:DD:EE:FF")
-        self.assertFalse(set(saved) & set(homekit.ENDPOINT_KEYS))
+        saved = tomllib.loads(path.read_text())
+        self.assertEqual(saved["hap"]["AccessoryPairingID"], "AA:BB:CC:DD:EE:FF")
+        self.assertFalse(set(saved["hap"]) & set(homekit.ENDPOINT_KEYS))
+        self.assertEqual(homekit.load_pairing("fp2"), saved["hap"])
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         self.assertTrue(pairing.closed)
         discovery.async_start_pairing.assert_awaited_once_with("fp2")
+
+    async def test_pair_records_accessory_info(self):
+        pairing = FakePairing()
+        info_service = {
+            "iid": 1,
+            "type": f"{0x3E:08X}{BASE}",
+            "characteristics": [
+                char(2, 0x20, "Aqara", ["pr"]),
+                char(3, 0x21, "PS-S02D", ["pr"]),
+                char(4, 0x30, "SN123", ["pr"]),
+                char(5, 0x52, "1.2.3", ["pr"]),
+                char(6, 0x23, "Presence-Sensor-FP2", ["pr"]),
+            ],
+        }
+        pairing.accessories[0]["services"].insert(0, info_service)
+
+        async def finish(_pin):
+            return pairing
+
+        discovery = SimpleNamespace(async_start_pairing=mock.AsyncMock(return_value=finish))
+        path = await homekit.pair_accessory(discovery, "fp2", "123-45-678")
+        saved = tomllib.loads(path.read_text())
+        self.assertEqual(
+            {k: saved[k] for k in ("manufacturer", "model", "serial", "firmware", "name")},
+            {
+                "manufacturer": "Aqara",
+                "model": "PS-S02D",
+                "serial": "SN123",
+                "firmware": "1.2.3",
+                "name": "Presence-Sensor-FP2",
+            },
+        )
+        self.assertIn("paired", saved)
+        self.assertNotIn("hardware", saved)  # absent de l'accessoire : pas de ligne vide
 
     async def test_pair_refuses_bad_pin(self):
         with self.assertRaises(ValueError):
