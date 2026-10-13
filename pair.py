@@ -1,8 +1,9 @@
-"""Appaire un équipement HomeKit, enregistre l'appairage et le déclare le fichier de device.
+"""Appaire un équipement HomeKit, enregistre l'appairage et crée devices/<id>.py.
 
 Usage : .venv/bin/python pair.py <id> [--timeout 10]
 L'équipement est ajouté sans nom ; son pilote est déduit du modèle (drivers/homekit_models.toml),
-sinon il reste à renseigner dans le fichier de l'équipement. Le code HomeKit (XXX-XX-XXX) est saisi sans écho.
+sinon aucun fichier n'est créé : l'équipement est à déclarer à la main dans devices/.
+Le code HomeKit (XXX-XX-XXX) est saisi sans écho.
 Redémarrer HabController ensuite.
 """
 
@@ -90,6 +91,11 @@ async def run(args: argparse.Namespace) -> int:
             return 1
 
     print(f"Appairage enregistré dans {path}.")
+    if not driver:
+        print(
+            f"Modèle inconnu : déclarer l'équipement dans devices/{args.id}.py avec le bon pilote."
+        )
+        return 0
     try:
         add_device(
             args.id, driver, comment=f"HomeKit : {description.name}, modèle {description.model}"
@@ -97,16 +103,14 @@ async def run(args: argparse.Namespace) -> int:
     except ValueError as err:
         print(f"Équipement non ajouté : {err}")
         return 1
-    print(f"Équipement « {args.id} » créé avec fichier de configuration {args.id}.toml.")
-    if not driver:
-        print(f"Modèle inconnu : renseigner le pilote dans le fichier de configuration")
+    print(f"Équipement « {args.id} » créé : devices/{args.id}.py.")
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Appairer un équipement HomeKit.")
     parser.add_argument(
-        "id", help="identifiant de l'équipement (nom du fichier de configuration)"
+        "id", help="identifiant de l'équipement (nom du fichier devices/<id>.py)"
     )
     parser.add_argument("--timeout", type=float, default=10, help="durée de découverte en secondes")
     try:

@@ -1,10 +1,10 @@
 import importlib
 import json
+import keyword
 import pkgutil
-import re
 from pathlib import Path
 
-from core import CONFIG_DIR
+from core import ROOT
 from core.base import Device
 
 
@@ -26,7 +26,8 @@ def load_driver(name: str):
 def load_devices(package: str = "devices") -> dict:
     """Importe chaque `devices/<id>.py` : il doit définir une variable `<id>` (instance de Device)."""
     devices = {}
-    for info in sorted(pkgutil.iter_modules(importlib.import_module(package).__path__)):
+    modules = pkgutil.iter_modules(importlib.import_module(package).__path__)
+    for info in sorted(modules, key=lambda module: module.name):
         dev_id = info.name
         if dev_id.startswith("_"):
             continue
@@ -38,13 +39,13 @@ def load_devices(package: str = "devices") -> dict:
     return devices
 
 
-def check_new_device(
-    dev_id: str, driver: str = "", path: Path = CONFIG_DIR / "devices"
-) -> None:
+def check_new_device(dev_id: str, driver: str = "", path: Path = ROOT / "devices") -> None:
     """Vérifie qu'on peut déclarer cet équipement ; lève ValueError sinon."""
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", dev_id):
-        raise ValueError(f"identifiant invalide « {dev_id} » (lettres, chiffres, _, - seulement)")
-    if (path / f"{dev_id}.toml").exists():
+    if not dev_id.isidentifier() or keyword.iskeyword(dev_id) or dev_id.startswith("_"):
+        raise ValueError(
+            f"identifiant invalide « {dev_id} » (nom de variable Python, sans « _ » initial)"
+        )
+    if (path / f"{dev_id}.py").exists():
         raise ValueError(f"l'équipement « {dev_id} » existe déjà dans {path.name}")
     if driver:
         load_driver(driver)
@@ -52,26 +53,25 @@ def check_new_device(
 
 def add_device(
     dev_id: str,
-    driver: str = "",
+    driver: str,
     name: str = "",
     comment: str = "",
-    path: Path = CONFIG_DIR / "devices",
+    path: Path = ROOT / "devices",
 ) -> None:
-    """Crée un fichier TOML pour l'équipement dans le dossier devices.
-
-    Le pilote et le nom vides sont marqués « à renseigner » ; load_devices ignore l'équipement
-    tant que le pilote n'est pas renseigné.
-    """
+    """Crée devices/<id>.py : `<id> = <Pilote>(...)`, avec les réglages par défaut du pilote."""
     check_new_device(dev_id, driver, path)
-    todo = "  # à renseigner"
+    if not driver:
+        raise ValueError("pilote requis")
+    cls = load_driver(driver)
+    args = [f"name={json.dumps(name, ensure_ascii=False)}"] if name else []
+    config_args = getattr(cls, "config_args", None)
+    if config_args:
+        args += config_args()
     lines = [f"# {comment}"] if comment else []
     lines += [
-        f"name = {json.dumps(name, ensure_ascii=False)}" + ("" if name else todo),
-        f"driver = {json.dumps(driver)}" + ("" if driver else todo),
+        f"from drivers.{driver} import {cls.__name__}",
+        "",
+        f"{dev_id} = {cls.__name__}({', '.join(args)})",
     ]
-    if driver:
-        config_lines = getattr(load_driver(driver), "config_lines", None)
-        if config_lines:
-            lines += config_lines()
     path.mkdir(parents=True, exist_ok=True)
-    (path / f"{dev_id}.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (path / f"{dev_id}.py").write_text("\n".join(lines) + "\n", encoding="utf-8")

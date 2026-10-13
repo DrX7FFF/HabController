@@ -102,8 +102,9 @@ class FP2(Device):
     illuminance = Attribute[float](readonly=True)
 
     @staticmethod
-    def config_lines() -> list[str]:
-        return ["", "[zonemapping]", '0 = "Global"']
+    def config_args() -> list[str]:
+        """Arguments écrits par add_device() dans devices/<id>.py."""
+        return ['zonemapping={0: "Global"}']
 
     def __init__(
         self,

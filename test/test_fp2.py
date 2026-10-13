@@ -431,41 +431,43 @@ class AddDeviceTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.path = Path(tmp.name) / "devices"
         self.path.mkdir()
-        (self.path / "salon.toml").write_text(
-            '# commentaire\nname = "Salon"\ndriver = "yeelight"\nhost = "1.2.3.4"\n'
-        )
+        (self.path / "salon.py").write_text("salon = None\n")
 
     def test_add_with_driver_and_name(self):
-        core_devices.add_device("fp2", "fp2", 'Présence "salon"', path=self.path)
-        text = (self.path / "fp2.toml").read_text(encoding="utf-8")
-        conf = tomllib.loads(text)
+        core_devices.add_device("fp2", "fp2", 'Présence "salon"', "HomeKit : X", path=self.path)
+        text = (self.path / "fp2.py").read_text(encoding="utf-8")
         self.assertEqual(
-            conf,
-            {"name": 'Présence "salon"', "driver": "fp2", "zonemapping": {"0": "Global"}},
+            text,
+            "# HomeKit : X\n"
+            "from drivers.fp2 import FP2\n\n"
+            'fp2 = FP2(name="Présence \\"salon\\"", zonemapping={0: "Global"})\n',
         )
-        self.assertEqual(
-            tomllib.loads((self.path / "salon.toml").read_text(encoding="utf-8"))["host"],
-            "1.2.3.4",
-        )
+        self.assertEqual((self.path / "salon.py").read_text(), "salon = None\n")
 
-    def test_add_without_driver_nor_name(self):
-        core_devices.add_device("porte", comment="HomeKit : Porte, modèle X1", path=self.path)
-        text = (self.path / "porte.toml").read_text(encoding="utf-8")
-        self.assertIn("# HomeKit : Porte, modèle X1\n", text)
-        self.assertIn('name = ""  # à renseigner', text)
-        self.assertIn('driver = ""  # à renseigner', text)
-        self.assertEqual(tomllib.loads(text), {"name": "", "driver": ""})
+    def test_generated_file_loads_as_a_device(self):
+        package = self.path.parent / "devs_generated"
+        core_devices.add_device("capteur", "fp2", path=package)
+        sys.path.insert(0, str(package.parent))
+        self.addCleanup(sys.path.remove, str(package.parent))
+        devices = core_devices.load_devices("devs_generated")
+        self.assertEqual(set(devices), {"capteur"})
+        self.assertEqual(devices["capteur"]._aliases, {0: "Global"})
 
     def test_refuses_duplicates_bad_id_unknown_driver(self):
         for dev_id, driver in (
             ("salon", "fp2"),
-            ("salon", ""),
-            ("a b", ""),
+            ("a b", "fp2"),
+            ("a-b", "fp2"),
+            ("1abc", "fp2"),
+            ("_x", "fp2"),
+            ("class", "fp2"),
             ("../x", "fp2"),
             ("neuf", "nexistepas"),
+            ("neuf", ""),
         ):
             with self.subTest(dev_id=dev_id, driver=driver), self.assertRaises(ValueError):
                 core_devices.add_device(dev_id, driver, path=self.path)
+        self.assertEqual([f.name for f in self.path.iterdir()], ["salon.py"])
 
 
 class LoadDevicesTest(unittest.TestCase):
@@ -550,14 +552,14 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(tmp.cleanup)
         self.devices = Path(tmp.name) / "devices"
         self.devices.mkdir()
-        (self.devices / "salon.toml").write_text('name = "Salon"\ndriver = "fp2"\n')
+        (self.devices / "salon.py").write_text("salon = None\n")
         patcher = mock.patch.object(homekit, "PAIRING_DIR", Path(tmp.name) / "homekit")
         patcher.start()
         self.addCleanup(patcher.stop)
         # valeurs par défaut de chemin figées à la définition : on les redirige explicitement
         for func, defaults in (
             (core_devices.check_new_device, ("", self.devices)),
-            (core_devices.add_device, ("", "", "", self.devices)),
+            (core_devices.add_device, ("", "", self.devices)),
         ):
             patcher = mock.patch.object(func, "__defaults__", defaults)
             patcher.start()
@@ -594,23 +596,20 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
     async def test_known_model_fills_driver(self):
         code, out = await self.run_cli(self.discovery())
         self.assertEqual(code, 0)
-        config_path = self.devices / "fp2.toml"
-        conf = tomllib.loads(config_path.read_text())
-        self.assertEqual(
-            conf, {"name": "", "driver": "fp2", "zonemapping": {"0": "Global"}}
-        )
-        self.assertIn("modèle PS-S02D", config_path.read_text(encoding="utf-8"))
+        config_path = self.devices / "fp2.py"
+        text = config_path.read_text(encoding="utf-8")
+        self.assertIn("from drivers.fp2 import FP2", text)
+        self.assertIn('fp2 = FP2(zonemapping={0: "Global"})', text)
+        self.assertIn("modèle PS-S02D", text)
         self.assertTrue(homekit.pairing_file("fp2").exists())
         self.assertNotIn("Modèle inconnu", out)
         # second appel : refusé, rien n'est modifié
         self.assertEqual((await self.run_cli(self.discovery()))[0], 1)
 
-    async def test_unknown_model_leaves_driver_empty(self):
+    async def test_unknown_model_creates_no_device_file(self):
         code, out = await self.run_cli(self.discovery(model="Z9"))
         self.assertEqual(code, 0)
-        self.assertEqual(
-            tomllib.loads((self.devices / "fp2.toml").read_text()), {"name": "", "driver": ""}
-        )
+        self.assertFalse((self.devices / "fp2.py").exists())
         self.assertIn("Modèle inconnu", out)
         self.assertTrue(homekit.pairing_file("fp2").exists())
 
