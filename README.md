@@ -9,6 +9,15 @@ Habitation domotique home mad
 .venv/bin/python pair.py fp2
 ```
 
+## Pairing Zigbee
+HabController arrêté (la clé n'accepte qu'un programme à la fois) :
+```batch
+.venv/bin/python pairzigbee.py prise_salon --duration 120
+```
+Port de la clé : config/zigbee.toml. Équipements connus : data/zigbee/zigbee.db.
+Pilotes Zigbee dans drivers/zigbee/ (un par fonction : plug, ...) ; modèle -> pilote dans
+drivers/zigbee_models.toml.
+
 
 ## détection clé USB SonOff Dongle Plus MG24 
 ❯ lsusb | grep -i "Silicon"

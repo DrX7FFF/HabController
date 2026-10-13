@@ -499,7 +499,7 @@ class LoadDevicesTest(unittest.TestCase):
 
     def test_repo_devices_load(self):
         devices = core_devices.load_devices()
-        self.assertEqual(set(devices), {"salon", "cuisine", "fp2"})
+        self.assertEqual(set(devices), {"salon", "cuisine", "fp2", "prise_salon"})
         self.assertEqual(devices["salon"].name, "Salon")
         self.assertEqual(devices["fp2"]._aliases, {0: "Global", 1: "salon", 2: "cuisine"})
 
@@ -530,18 +530,23 @@ class DriverForModelTest(unittest.TestCase):
 
     def test_lookup(self):
         self.path.write_text('[models]\n"PS-S02D" = "fp2"\n"X1" = "nexistepas"\n')
-        self.assertEqual(pair_cli.driver_for_model("PS-S02D", self.path), "fp2")
-        self.assertEqual(pair_cli.driver_for_model("inconnu", self.path), "")
+        self.assertEqual(core_devices.driver_for_model("PS-S02D", self.path), "fp2")
+        self.assertEqual(core_devices.driver_for_model("inconnu", self.path), "")
         with contextlib.redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(pair_cli.driver_for_model("X1", self.path), "")  # pilote absent
+            self.assertEqual(core_devices.driver_for_model("X1", self.path), "")  # pilote absent
         self.assertIn("inutilisable", out.getvalue())
 
     def test_missing_file(self):
-        self.assertEqual(pair_cli.driver_for_model("PS-S02D", self.path), "")
+        self.assertEqual(core_devices.driver_for_model("PS-S02D", self.path), "")
 
     def test_repo_mapping_points_to_existing_driver(self):
         models = tomllib.loads((ROOT / "drivers" / "homekit_models.toml").read_text())
-        self.assertEqual(pair_cli.driver_for_model("PS-S02D"), "fp2")
+        self.assertEqual(core_devices.driver_for_model("PS-S02D", pair_cli.MODELS), "fp2")
+        for driver in models["models"].values():
+            core_devices.load_driver(driver)
+
+    def test_zigbee_mapping_points_to_existing_driver(self):
+        models = tomllib.loads((ROOT / "drivers" / "zigbee_models.toml").read_text())
         for driver in models["models"].values():
             core_devices.load_driver(driver)
 
@@ -559,7 +564,7 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         # valeurs par défaut de chemin figées à la définition : on les redirige explicitement
         for func, defaults in (
             (core_devices.check_new_device, ("", self.devices)),
-            (core_devices.add_device, ("", "", self.devices)),
+            (core_devices.add_device, ("", "", self.devices, None)),
         ):
             patcher = mock.patch.object(func, "__defaults__", defaults)
             patcher.start()
@@ -585,7 +590,7 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         with (
             mock.patch.object(pair_cli, "open_controller", fake_controller),
             mock.patch.object(pair_cli, "discover", mock.AsyncMock(return_value=[discovery])),
-            mock.patch.object(pair_cli, "driver_for_model", lambda m: known.get(m, "")),
+            mock.patch.object(pair_cli, "driver_for_model", lambda m, _path: known.get(m, "")),
             mock.patch("builtins.input", return_value="1"),
             mock.patch("getpass.getpass", return_value="123-45-678"),
             contextlib.redirect_stdout(io.StringIO()) as out,

@@ -33,6 +33,8 @@ def setup() -> None:
     root.setLevel(logging.INFO)
     root.addHandler(console)
     root.addHandler(_file_handler("system.log"))
+    for library in ("zigpy", "bellows"):  # très bavardes en INFO : seulement les problèmes
+        logging.getLogger(library).setLevel(logging.WARNING)
 
     scripts = logging.getLogger("automations")
     scripts.setLevel(logging.DEBUG)

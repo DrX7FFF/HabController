@@ -12,28 +12,12 @@ import asyncio
 import dataclasses
 import getpass
 import sys
-import tomllib
-from pathlib import Path
 
 from core import ROOT
-from core.devices import add_device, check_new_device, load_driver
+from core.devices import add_device, check_new_device, driver_for_model
 from core.homekit import ERRORS, PIN, discover, open_controller, pair, pairing_file
 
-
-def driver_for_model(model: str, path: Path = ROOT / "drivers" / "homekit_models.toml") -> str:
-    """Pilote associé au modèle HomeKit, ou "" si le modèle est inconnu."""
-    try:
-        models = tomllib.loads(path.read_text(encoding="utf-8")).get("models", {})
-    except FileNotFoundError:
-        return ""
-    driver = models.get(model, "")
-    if driver:
-        try:
-            load_driver(driver)
-        except ValueError as err:
-            print(f"Pilote « {driver} » associé au modèle {model} inutilisable : {err}")
-            return ""
-    return driver
+MODELS = ROOT / "drivers" / "homekit_models.toml"
 
 
 def choose(discoveries: list):
@@ -82,7 +66,7 @@ async def run(args: argparse.Namespace) -> int:
             return 1
         description = chosen.description
         driver = driver_for_model(
-            description.model
+            description.model, MODELS
         )  # avant l'appairage : rien ne doit échouer après
         try:
             path = await pair(chosen, args.id, ask_pin())

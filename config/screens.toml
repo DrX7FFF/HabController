@@ -11,3 +11,8 @@ device = "cuisine"
 title = "Cuisine"
 # widget = "onoff"
 widget = "white"
+
+[[blocks]]
+device = "prise_salon"
+title = "Prise salon"
+widget = "onoff"
