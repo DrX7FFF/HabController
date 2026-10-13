@@ -1,23 +1,23 @@
 """Appaire un équipement Zigbee via la clé USB et crée devices/<id>.py.
 
-Usage : .venv/bin/python pairzigbee.py <id> [--duration 120]
+Usage : ./habctrl pair zigbee <id> [--duration 120]
 HabController doit être arrêté (il occupe le port série de la clé).
 Le réseau est ouvert pendant `--duration` secondes : mettre l'équipement en mode appairage
 (souvent un appui long). Le premier équipement qui termine son interview est retenu.
-Son pilote est déduit du modèle (drivers/zigbee_models.toml), sinon aucun fichier n'est créé :
+Son pilote est déduit du modèle (drivers/zigbee/models.toml), sinon aucun fichier n'est créé :
 l'équipement est à déclarer à la main dans devices/ avec l'adresse IEEE affichée.
 Redémarrer HabController ensuite.
 """
 
 import argparse
 import asyncio
-import sys
+from pathlib import Path
 
-from core import ROOT
 from core.devices import add_device, check_new_device, driver_for_model
-from core.zigbee import ERRORS, describe, joined_devices, open_coordinator
+from drivers.zigbee import ERRORS, describe, joined_devices, open_coordinator
 
-MODELS = ROOT / "drivers" / "zigbee_models.toml"
+HELP = "appairer un équipement Zigbee (HabController arrêté : il occupe la clé)"
+MODELS = Path(__file__).with_name("models.toml")
 MAX_PERMIT = 254  # s, limite du protocole pour une ouverture du réseau
 INTERVIEW_WAIT = 60  # s, délai laissé à une interview commencée quand le réseau se referme
 SETTLE = 10  # s, avant de fermer la clé une fois l'équipement appairé
@@ -82,7 +82,7 @@ async def run(args: argparse.Namespace) -> int:
                 await asyncio.sleep(SETTLE)
     except ERRORS as err:
         print(f"Clé Zigbee inaccessible ({type(err).__name__} : {err}).")
-        print("Vérifier le port dans config/zigbee.toml, et que HabController est arrêté.")
+        print("Vérifier le port ([zigbee] de config/habctrl.toml) et que HabController est arrêté.")
         return 1
 
     if device is None:
@@ -98,7 +98,7 @@ async def run(args: argparse.Namespace) -> int:
     if not driver:
         print(
             f"\nModèle inconnu : déclarer l'équipement dans devices/{args.id}.py avec le bon "
-            f"pilote et {ieee_arg}, ou ajouter le modèle à drivers/zigbee_models.toml."
+            f"pilote et {ieee_arg}, ou ajouter le modèle à drivers/zigbee/models.toml."
         )
         return 0
     try:
@@ -122,20 +122,7 @@ def duration(text: str) -> int:
     return value
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Appairer un équipement Zigbee.")
-    parser.add_argument(
-        "id", help="identifiant de l'équipement (nom du fichier devices/<id>.py)"
-    )
+def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--duration", type=duration, default=120, help="ouverture du réseau en secondes"
     )
-    try:
-        return asyncio.run(run(parser.parse_args()))
-    except KeyboardInterrupt:
-        print("\nInterrompu.")
-        return 130
-
-
-if __name__ == "__main__":
-    sys.exit(main())

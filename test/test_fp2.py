@@ -19,10 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from aiohomekit.exceptions import AccessoryDisconnectedError, AccessoryNotFoundError  # noqa: E402
 from aiohomekit.zeroconf import HomeKitService  # noqa: E402
 
-import pair as pair_cli  # noqa: E402
+import drivers.homekit as homekit  # noqa: E402
 from core import ROOT, devices as core_devices  # noqa: E402
-from core import homekit  # noqa: E402
-from drivers import fp2  # noqa: E402
+from drivers.homekit import fp2, pair as pair_cli  # noqa: E402
 
 BASE = "-0000-1000-8000-0026BB765291"
 
@@ -272,7 +271,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         before = driver.state()
         pairing.accessories = accessories((0, 1, 2))
         pairing.read_error = AccessoryDisconnectedError("coupé")
-        with self.assertLogs("drivers.fp2", "WARNING"):
+        with self.assertLogs("drivers.homekit.fp2", "WARNING"):
             pairing.emit("config", 2)
             await until(lambda: not driver._tasks)
         self.assertEqual(driver.state(), before)  # ni valeurs vidées, ni mapping à moitié changé
@@ -299,7 +298,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(fp2, "RETRY_MIN", 0.01),
             mock.patch.object(fp2, "open_controller", fake_controller),
             mock.patch.object(fp2, "connect", fake_connect),
-            self.assertLogs("drivers.fp2", "WARNING"),
+            self.assertLogs("drivers.homekit.fp2", "WARNING"),
         ):
             driver._backoff = 0.01
             await driver.start()
@@ -321,7 +320,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
             tempfile.TemporaryDirectory() as tmp,
             mock.patch.object(homekit, "PAIRING_DIR", Path(tmp)),
         ):
-            with self.assertLogs("drivers.fp2", "ERROR"):
+            with self.assertLogs("drivers.homekit.fp2", "ERROR"):
                 await driver.start()
                 await until(lambda: not driver._tasks)
         await driver.stop()
@@ -345,7 +344,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(fp2, "RETRY_MIN", 0.01),
             mock.patch.object(fp2, "open_controller", fake_controller),
             mock.patch.object(fp2, "connect", fake_connect),
-            self.assertLogs("drivers.fp2", "WARNING"),
+            self.assertLogs("drivers.homekit.fp2", "WARNING"),
         ):
             driver._backoff = 0.01
             await driver.start()
@@ -370,7 +369,7 @@ class HomekitFilesTest(unittest.IsolatedAsyncioTestCase):
             return pairing
 
         discovery = SimpleNamespace(async_start_pairing=mock.AsyncMock(return_value=finish))
-        path = await homekit.pair(discovery, "fp2", "123-45-678")
+        path = await homekit.pair_accessory(discovery, "fp2", "123-45-678")
         saved = json.loads(path.read_text())
         self.assertEqual(saved["AccessoryPairingID"], "AA:BB:CC:DD:EE:FF")
         self.assertFalse(set(saved) & set(homekit.ENDPOINT_KEYS))
@@ -380,7 +379,7 @@ class HomekitFilesTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_pair_refuses_bad_pin(self):
         with self.assertRaises(ValueError):
-            await homekit.pair(SimpleNamespace(), "fp2", "12345678")
+            await homekit.pair_accessory(SimpleNamespace(), "fp2", "12345678")
 
     async def test_connect_takes_address_from_mdns(self):
         homekit.save_pairing(
@@ -434,19 +433,19 @@ class AddDeviceTest(unittest.TestCase):
         (self.path / "salon.py").write_text("salon = None\n")
 
     def test_add_with_driver_and_name(self):
-        core_devices.add_device("fp2", "fp2", 'Présence "salon"', "HomeKit : X", path=self.path)
+        core_devices.add_device("fp2", "homekit.fp2", 'Présence "salon"', "HomeKit : X", path=self.path)
         text = (self.path / "fp2.py").read_text(encoding="utf-8")
         self.assertEqual(
             text,
             "# HomeKit : X\n"
-            "from drivers.fp2 import FP2\n\n"
+            "from drivers.homekit.fp2 import FP2\n\n"
             'fp2 = FP2(name="Présence \\"salon\\"", zonemapping={0: "Global"})\n',
         )
         self.assertEqual((self.path / "salon.py").read_text(), "salon = None\n")
 
     def test_generated_file_loads_as_a_device(self):
         package = self.path.parent / "devs_generated"
-        core_devices.add_device("capteur", "fp2", path=package)
+        core_devices.add_device("capteur", "homekit.fp2", path=package)
         sys.path.insert(0, str(package.parent))
         self.addCleanup(sys.path.remove, str(package.parent))
         devices = core_devices.load_devices("devs_generated")
@@ -484,7 +483,7 @@ class LoadDevicesTest(unittest.TestCase):
         (self.path / f"{name}.py").write_text(text, encoding="utf-8")
 
     def test_id_from_file_name_and_default_name(self):
-        self.write("fp2", "from drivers.fp2 import FP2\nfp2 = FP2(zonemapping={1: 'salon'})\n")
+        self.write("fp2", "from drivers.homekit.fp2 import FP2\nfp2 = FP2(zonemapping={1: 'salon'})\n")
         self.write("_ignore", "raise RuntimeError\n")
         devices = core_devices.load_devices(self.package)
         self.assertEqual(set(devices), {"fp2"})
@@ -526,11 +525,11 @@ class DriverForModelTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.path = Path(tmp.name) / "homekit_models.toml"
+        self.path = Path(tmp.name) / "models.toml"
 
     def test_lookup(self):
-        self.path.write_text('[models]\n"PS-S02D" = "fp2"\n"X1" = "nexistepas"\n')
-        self.assertEqual(core_devices.driver_for_model("PS-S02D", self.path), "fp2")
+        self.path.write_text('[models]\n"PS-S02D" = "homekit.fp2"\n"X1" = "nexistepas"\n')
+        self.assertEqual(core_devices.driver_for_model("PS-S02D", self.path), "homekit.fp2")
         self.assertEqual(core_devices.driver_for_model("inconnu", self.path), "")
         with contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(core_devices.driver_for_model("X1", self.path), "")  # pilote absent
@@ -540,13 +539,13 @@ class DriverForModelTest(unittest.TestCase):
         self.assertEqual(core_devices.driver_for_model("PS-S02D", self.path), "")
 
     def test_repo_mapping_points_to_existing_driver(self):
-        models = tomllib.loads((ROOT / "drivers" / "homekit_models.toml").read_text())
-        self.assertEqual(core_devices.driver_for_model("PS-S02D", pair_cli.MODELS), "fp2")
+        models = tomllib.loads((ROOT / "drivers" / "homekit" / "models.toml").read_text())
+        self.assertEqual(core_devices.driver_for_model("PS-S02D", pair_cli.MODELS), "homekit.fp2")
         for driver in models["models"].values():
             core_devices.load_driver(driver)
 
     def test_zigbee_mapping_points_to_existing_driver(self):
-        models = tomllib.loads((ROOT / "drivers" / "zigbee_models.toml").read_text())
+        models = tomllib.loads((ROOT / "drivers" / "zigbee" / "models.toml").read_text())
         for driver in models["models"].values():
             core_devices.load_driver(driver)
 
@@ -586,7 +585,7 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
             yield object()
 
         args = SimpleNamespace(id="fp2", timeout=0)
-        known = {"PS-S02D": "fp2"} if models else {}
+        known = {"PS-S02D": "homekit.fp2"} if models else {}
         with (
             mock.patch.object(pair_cli, "open_controller", fake_controller),
             mock.patch.object(pair_cli, "discover", mock.AsyncMock(return_value=[discovery])),
@@ -603,7 +602,7 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(code, 0)
         config_path = self.devices / "fp2.py"
         text = config_path.read_text(encoding="utf-8")
-        self.assertIn("from drivers.fp2 import FP2", text)
+        self.assertIn("from drivers.homekit.fp2 import FP2", text)
         self.assertIn('fp2 = FP2(zonemapping={0: "Global"})', text)
         self.assertIn("modèle PS-S02D", text)
         self.assertTrue(homekit.pairing_file("fp2").exists())

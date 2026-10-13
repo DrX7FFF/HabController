@@ -1,6 +1,6 @@
 """Automatisations : fonctions déclenchées par les changements d'état des équipements.
 
-Un fichier par sujet dans automations/, chargé au démarrage (comme drivers/). Les équipements
+Un fichier par sujet dans config/automations/, chargé au démarrage. Les équipements
 s'importent depuis devices/, avec le déclencheur :
 
     import logging
@@ -10,7 +10,7 @@ s'importent depuis devices/, avec le déclencheur :
     from devices.cuisine import cuisine
     from devices.salon import salon
 
-    log = logging.getLogger(__name__)  # journal des scripts : data/logs/automations.log
+    log = logging.getLogger(__name__)  # journal des scripts : temp/automations.log
 
     @on_change("capteur.presence")            # « équipement.attribut » ; « capteur » = tout l'état
     async def eclairage(event):               # event.old, event.new, event.changed
@@ -39,13 +39,13 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from core import ROOT
+from core import CONFIG_DIR
 from core.base import Device, DeviceError, spawn_task, tasks as _tasks
 
 log = logging.getLogger(__name__)
 __all__ = ["on_change"]
 
-AUTOMATIONS_DIR = ROOT / "automations"
+AUTOMATIONS_DIR = CONFIG_DIR / "automations"
 _ANY = object()  # « to » non précisé (None et False sont des valeurs valides)
 
 
@@ -140,7 +140,7 @@ def bind(devs: dict[str, Device]) -> None:
 
 
 def load_automations(devs: dict[str, Device]) -> None:
-    """Charge automations/*.py (sauf les fichiers commençant par _) puis les abonne."""
+    """Charge config/automations/*.py (sauf les fichiers commençant par _) puis les abonne."""
     for path in sorted(AUTOMATIONS_DIR.glob("*.py")):
         if not path.name.startswith("_"):
             importlib.import_module(f"automations.{path.stem}")

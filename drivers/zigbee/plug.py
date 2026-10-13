@@ -3,7 +3,7 @@
 État : {"connected": bool, "power": "on" | "off" | "unreachable",
         "active_power": W, "voltage": V, "current": A, "energy": kWh}
 Les mesures n'apparaissent que si l'équipement a les clusters correspondants (0x0b04, 0x0702).
-Chaque prise se déclare dans `devices/<id>.py` (créé par pairzigbee.py) :
+Chaque prise se déclare dans `devices/<id>.py` (créé par `./habctrl pair zigbee <id>`) :
 
     from drivers.zigbee.plug import Plug
 
@@ -15,7 +15,7 @@ Chaque prise se déclare dans `devices/<id>.py` (créé par pairzigbee.py) :
 import logging
 
 from core.base import Attribute
-from core.zigbee import ZigbeeDevice, find_cluster, read, setup_reporting
+from drivers.zigbee import ZigbeeDevice, find_cluster, read, setup_reporting
 
 log = logging.getLogger(__name__)
 

@@ -3,11 +3,14 @@ from pathlib import Path
 
 from core import CONFIG_DIR
 
-# Widgets reconnus dans screens.toml.
+# Widgets reconnus dans config/dashboard/screens.toml.
 WIDGETS = {"onoff", "white", "rgb"}
 
 
-def load_blocks(devices: dict, path: Path = CONFIG_DIR / "screens.toml") -> list[dict]:
+SCREENS = CONFIG_DIR / "dashboard" / "screens.toml"
+
+
+def load_blocks(devices: dict, path: Path = SCREENS) -> list[dict]:
     conf = tomllib.loads(path.read_text(encoding="utf-8"))
     blocks = []
     for block in conf.get("blocks", []):

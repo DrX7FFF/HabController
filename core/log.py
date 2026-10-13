@@ -1,7 +1,7 @@
 """Journaux : un pour la vie du système, un pour les scripts d'automatisation.
 
-- Système (pilotes, connexions, serveur, moteur d'automatisation) : console + data/logs/system.log
-- Scripts (automations/*.py) : data/logs/automations.log seulement, jamais dans la console
+- Système (pilotes, connexions, serveur, moteur d'automatisation) : console + temp/system.log
+- Scripts (config/automations/*.py) : temp/automations.log seulement, jamais dans la console
 
 Un script se journalise avec `log = logging.getLogger(__name__)` : son nom (automations.<script>)
 suffit à l'envoyer dans le bon fichier.
@@ -10,15 +10,14 @@ suffit à l'envoyer dans le bon fichier.
 import logging
 from logging.handlers import RotatingFileHandler
 
-from core import DATA_DIR
+from core import TEMP_DIR
 
-LOG_DIR = DATA_DIR / "logs"
 FORMAT = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s : %(message)s")
 
 
 def _file_handler(name: str) -> RotatingFileHandler:
     handler = RotatingFileHandler(
-        LOG_DIR / name, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+        TEMP_DIR / name, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
     )
     handler.setFormatter(FORMAT)
     return handler
@@ -26,7 +25,7 @@ def _file_handler(name: str) -> RotatingFileHandler:
 
 def setup() -> None:
     """À appeler une fois, avant le chargement des équipements et des automatisations."""
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
     console = logging.StreamHandler()
     console.setFormatter(FORMAT)
     root = logging.getLogger()

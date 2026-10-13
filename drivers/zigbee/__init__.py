@@ -1,19 +1,22 @@
 """Zigbee : coordinateur (clé USB EmberZNet via bellows/zigpy), commun à tous les pilotes Zigbee.
 
-Le réseau (clés, canal) est mémorisé dans la clé elle-même ; la liste des équipements et leur
-description (endpoints, clusters) dans data/zigbee/zigbee.db (hors dépôt). Un équipement est
-repéré par son adresse IEEE, déclarée dans devices/<id>.py.
+Le réseau (clés, canal) est mémorisé dans la clé elle-même. La base zigpy contient la liste des
+équipements, leur interview (endpoints, clusters) et des sauvegardes du réseau qui permettent de
+le reconstruire sur une nouvelle clé : c'est de la configuration. zigpy l'utilise dans temp/
+(peut être en RAM) ; une copie cohérente est gardée dans config/pairing/zigbee.db, écrite à
+l'arrêt de la clé et une fois par jour, et reprise au démarrage si temp/ est vide.
+Un équipement est repéré par son adresse IEEE, déclarée dans devices/<id>.py.
 
 Une seule clé pour tous les équipements : le coordinateur est partagé (`coordinator`), démarré
 au premier équipement Zigbee et relancé si la clé décroche. Le port série ne s'ouvre qu'une
-fois : pairzigbee.py et HabController ne doivent pas tourner en même temps.
+fois : l'appairage (./habctrl pair zigbee) et HabController ne doivent pas tourner ensemble.
 """
 
 import asyncio
 import logging
-import tomllib
+import shutil
+import sqlite3
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from bellows.ash import AshException
 from bellows.zigbee.application import ControllerApplication
@@ -28,22 +31,24 @@ from zigpy.types import EUI64
 from zigpy.zcl import AttributeReportedEvent, AttributeUpdatedEvent, ReportingConfig
 from zigpy.zcl.foundation import Status
 
-from core import CONFIG_DIR, DATA_DIR
+from core import PAIRING_DIR, TEMP_DIR, settings
 from core.base import DeviceError, NetworkDevice
 
 log = logging.getLogger(__name__)
 
 ERRORS = (ZigbeeException, RadioException, AshException, OSError)  # protocole ou liaison série
-DB_FILE = DATA_DIR / "zigbee" / "zigbee.db"
+DB_FILE = TEMP_DIR / "zigbee.db"  # base vivante, utilisée par zigpy
+SNAPSHOT = PAIRING_DIR / "zigbee.db"  # copie de sauvegarde, dans la configuration
+SNAPSHOT_PERIOD = 24 * 3600  # s
 RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à chaque échec)
 RETRY_MAX = 60
 
 
-def load_config(path: Path = CONFIG_DIR / "zigbee.toml") -> dict:
-    """Configuration zigpy : port de la clé (config/zigbee.toml) et base des équipements."""
-    conf = tomllib.loads(path.read_text(encoding="utf-8"))
+def load_config() -> dict:
+    """Configuration zigpy : port de la clé ([zigbee] de habctrl.toml) et base des équipements."""
+    conf = settings("zigbee")
     if not conf.get("port"):
-        raise ValueError(f"{path.name} : « port » manquant")
+        raise ValueError("habctrl.toml : « port » manquant dans [zigbee]")
     return {
         CONF_DEVICE: {
             CONF_DEVICE_PATH: conf["port"],
@@ -57,13 +62,42 @@ def load_config(path: Path = CONFIG_DIR / "zigbee.toml") -> dict:
 async def open_coordinator():
     """Coordinateur démarré (réseau créé s'il n'existe pas encore), arrêté à la sortie."""
     config = load_config()
-    DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+    restore_snapshot()
     # new() charge la base avant de démarrer : sans elle, les équipements connus sont oubliés
     app = await ControllerApplication.new(config, auto_form=True)
     try:
         yield app
     finally:
         await app.shutdown()
+        save_snapshot()
+
+
+def restore_snapshot() -> None:
+    """Installation neuve ou temp/ vidé (RAM) : la base repart de la copie de config/pairing/."""
+    DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not DB_FILE.exists() and SNAPSHOT.exists():
+        shutil.copyfile(SNAPSHOT, DB_FILE)
+        log.info("Base Zigbee reprise de %s", SNAPSHOT)
+
+
+def save_snapshot() -> None:
+    """Copie cohérente de la base vivante (API de sauvegarde SQLite : sûre même en écriture)."""
+    if not DB_FILE.exists():
+        return
+    SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
+    tmp = SNAPSHOT.with_suffix(".tmp")
+    try:
+        source = sqlite3.connect(DB_FILE)
+        target = sqlite3.connect(tmp)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
+        tmp.replace(SNAPSHOT)
+    except (sqlite3.Error, OSError) as err:
+        log.warning("Sauvegarde de la base Zigbee impossible (%s)", err)
+        tmp.unlink(missing_ok=True)
 
 
 def joined_devices(app: ControllerApplication) -> list:
@@ -155,9 +189,13 @@ class Coordinator:
                     app.add_listener(self)
                     for device in self._devices.values():
                         device._attach(app)
-                    await self._lost.wait()
+                    while not self._lost.is_set():
+                        try:
+                            await asyncio.wait_for(self._lost.wait(), SNAPSHOT_PERIOD)
+                        except TimeoutError:
+                            await asyncio.to_thread(save_snapshot)
                     log.warning("Clé Zigbee déconnectée, réouverture")
-            except ValueError as err:  # config/zigbee.toml incorrect : inutile de réessayer
+            except ValueError as err:  # habctrl.toml incorrect : inutile de réessayer
                 log.error("Clé Zigbee : %s", err)
                 return
             except ERRORS as err:
@@ -245,7 +283,7 @@ class ZigbeeDevice(NetworkDevice):
         zdev = app.devices.get(self.ieee)
         if zdev is None:
             log.error(
-                "%s : %s inconnu du réseau Zigbee (lancer pairzigbee.py)", self.name, self.ieee
+                "%s : %s inconnu du réseau Zigbee (./habctrl pair zigbee)", self.name, self.ieee
             )
             return
         self.zdev = zdev

@@ -5,7 +5,7 @@ Chaque capteur de présence est repéré par son « Sensor Index » (caractéris
 dans node-red-contrib-fp2 : l'index 0 est la présence globale, comme les autres zones accessibles
 sous `zone`. Chaque appareil se déclare dans `devices/<id>.py` :
 
-    from drivers.fp2 import FP2
+    from drivers.homekit.fp2 import FP2
 
     fp2 = FP2(name="FP2", zonemapping={0: "Global", 1: "salon"})
     # accès : fp2.zone.salon ou fp2.zone[1] ; sans alias : fp2.zone[3]
@@ -14,7 +14,7 @@ Lecture : fp2.zone.<alias> ou fp2.zone[<index>] (l'index est traduit en alias s'
 Déclencheur : @on_change("fp2.zone.<alias>") ; l'index n'est utilisable que pour une zone sans
 alias (@on_change("fp2.zone.3")), car l'état ne contient qu'une clé par capteur.
 
-Équipement créé et appairé par pair.py.
+Équipement créé et appairé par `./habctrl pair homekit <id>`.
 """
 
 import asyncio
@@ -26,7 +26,7 @@ from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
 
 from core.base import Attribute, NetworkDevice
-from core.homekit import ERRORS, PairingError, connect, open_controller
+from drivers.homekit import ERRORS, PairingError, connect, open_controller
 
 log = logging.getLogger(__name__)
 

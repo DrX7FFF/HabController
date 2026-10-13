@@ -1,0 +1,5 @@
+# Modèle Zigbee annoncé par l'équipement (affiché à l'appairage) -> pilote
+# ("zigbee.plug" pour drivers/zigbee/plug.py).
+# Utilisé par `./habctrl pair zigbee` pour créer devices/<id>.py ; sinon déclaration à la main.
+[models]
+"TS011F" = "zigbee.plug"  # prise Tuya avec mesure de consommation

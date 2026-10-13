@@ -1,8 +1,9 @@
 """HomeKit (HAP) : appairage et connexion, communs à tous les pilotes HomeKit.
 
-L'appairage d'un équipement est enregistré dans data/homekit/<id>.json (en clair pour
-l'instant, droits 600, hors dépôt). L'adresse IP n'y figure jamais : à chaque connexion elle
-est résolue par mDNS à partir de l'identifiant HomeKit de l'accessoire.
+L'appairage d'un équipement est enregistré dans config/pairing/homekit/<id>.json (droits 600).
+Il est portable : l'adresse IP n'y figure jamais, elle est résolue par mDNS à chaque connexion
+à partir de l'identifiant HomeKit de l'accessoire. Copié sur une nouvelle installation, il reste
+valable tant que l'accessoire n'a pas été réinitialisé.
 """
 
 import asyncio
@@ -22,10 +23,10 @@ from aiohomekit.zeroconf import (
 )
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncZeroconf
 
-from core import DATA_DIR
+from core import PAIRING_DIR as CONFIG_PAIRING_DIR
 
 ERRORS = (HomeKitException, HttpException, OSError)  # erreurs du protocole ou du réseau
-PAIRING_DIR = DATA_DIR / "homekit"
+PAIRING_DIR = CONFIG_PAIRING_DIR / "homekit"
 PIN = re.compile(r"\d{3}-\d{2}-\d{3}")
 ENDPOINT_KEYS = ("AccessoryIP", "AccessoryIPs", "AccessoryPort", "AccessoryAddress")
 
@@ -45,7 +46,9 @@ def load_pairing(dev_id: str) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as err:
-        raise PairingError(f"appairage absent ({path}) : lancer pair.py") from err
+        raise PairingError(
+            f"appairage absent ({path}) : lancer ./habctrl pair homekit {dev_id}"
+        ) from err
     except json.JSONDecodeError as err:
         raise PairingError(f"fichier d'appairage illisible ({path})") from err
     if not isinstance(data, dict) or "AccessoryPairingID" not in data:
@@ -86,7 +89,7 @@ async def discover(controller: Controller, listen: float = 10.0) -> list:
     return [discovery async for discovery in controller.async_discover()]
 
 
-async def pair(discovery, dev_id: str, pin: str) -> Path:
+async def pair_accessory(discovery, dev_id: str, pin: str) -> Path:
     """Appaire l'accessoire et enregistre l'appairage (sans IP). Le code n'est jamais journalisé."""
     if not PIN.fullmatch(pin):
         raise ValueError("code attendu au format XXX-XX-XXX")

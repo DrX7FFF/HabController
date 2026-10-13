@@ -1,23 +1,22 @@
 """Appaire un équipement HomeKit, enregistre l'appairage et crée devices/<id>.py.
 
-Usage : .venv/bin/python pair.py <id> [--timeout 10]
-L'équipement est ajouté sans nom ; son pilote est déduit du modèle (drivers/homekit_models.toml),
+Usage : ./habctrl pair homekit <id> [--timeout 10]
+L'équipement est ajouté sans nom ; son pilote est déduit du modèle (drivers/homekit/models.toml),
 sinon aucun fichier n'est créé : l'équipement est à déclarer à la main dans devices/.
 Le code HomeKit (XXX-XX-XXX) est saisi sans écho.
 Redémarrer HabController ensuite.
 """
 
 import argparse
-import asyncio
 import dataclasses
 import getpass
-import sys
+from pathlib import Path
 
-from core import ROOT
 from core.devices import add_device, check_new_device, driver_for_model
-from core.homekit import ERRORS, PIN, discover, open_controller, pair, pairing_file
+from drivers.homekit import ERRORS, PIN, discover, open_controller, pair_accessory, pairing_file
 
-MODELS = ROOT / "drivers" / "homekit_models.toml"
+HELP = "appairer un accessoire HomeKit (découverte mDNS, code XXX-XX-XXX)"
+MODELS = Path(__file__).with_name("models.toml")
 
 
 def choose(discoveries: list):
@@ -69,7 +68,7 @@ async def run(args: argparse.Namespace) -> int:
             description.model, MODELS
         )  # avant l'appairage : rien ne doit échouer après
         try:
-            path = await pair(chosen, args.id, ask_pin())
+            path = await pair_accessory(chosen, args.id, ask_pin())
         except (ValueError, *ERRORS) as err:
             print(f"Échec de l'appairage ({type(err).__name__}).")  # sans détail : rien sur le code
             return 1
@@ -91,18 +90,5 @@ async def run(args: argparse.Namespace) -> int:
     return 0
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Appairer un équipement HomeKit.")
-    parser.add_argument(
-        "id", help="identifiant de l'équipement (nom du fichier devices/<id>.py)"
-    )
+def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--timeout", type=float, default=10, help="durée de découverte en secondes")
-    try:
-        return asyncio.run(run(parser.parse_args()))
-    except KeyboardInterrupt:
-        print("\nInterrompu.")
-        return 130
-
-
-if __name__ == "__main__":
-    sys.exit(main())

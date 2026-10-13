@@ -5,7 +5,7 @@ import pkgutil
 import tomllib
 from pathlib import Path
 
-from core import ROOT
+from core import CONFIG_DIR
 from core.base import Device
 
 
@@ -45,7 +45,7 @@ def load_devices(package: str = "devices") -> dict:
     return devices
 
 
-def check_new_device(dev_id: str, driver: str = "", path: Path = ROOT / "devices") -> None:
+def check_new_device(dev_id: str, driver: str = "", path: Path = CONFIG_DIR / "devices") -> None:
     """Vérifie qu'on peut déclarer cet équipement ; lève ValueError sinon."""
     if not dev_id.isidentifier() or keyword.iskeyword(dev_id) or dev_id.startswith("_"):
         raise ValueError(
@@ -78,7 +78,7 @@ def add_device(
     driver: str,
     name: str = "",
     comment: str = "",
-    path: Path = ROOT / "devices",
+    path: Path = CONFIG_DIR / "devices",
     args: list[str] | None = None,
 ) -> None:
     """Crée devices/<id>.py : `<id> = <Pilote>(...)`, avec `args` (ex. 'ieee="..."') puis les

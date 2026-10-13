@@ -1,5 +1,0 @@
-# Modèle HomeKit annoncé par l'accessoire (affiché par pair.py) -> pilote (drivers/<nom>.py).
-# Utilisé par pair.py pour renseigner automatiquement le pilote, sinon le pilote reste vide ;
-[models]
-"PS-S02D" = "fp2"  # Aqara FP2 (modèle à confirmer avec ce que pair.py affiche)
-"PS-S02E" = "fp2"

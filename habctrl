@@ -1,4 +1,11 @@
 #!/bin/bash
+# ./habctrl                          : lance HabController
+# ./habctrl pair <protocole> <id>    : appaire un équipement (./habctrl pair -h pour la liste)
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-$REPO_DIR/.venv/bin/python $REPO_DIR/main.py
+cd "$REPO_DIR" || exit 1
+if [ "$1" = "pair" ]; then
+    shift
+    exec .venv/bin/python -m core.pair "$@"
+fi
+exec .venv/bin/python main.py "$@"
