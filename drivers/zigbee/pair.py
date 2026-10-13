@@ -1,11 +1,12 @@
-"""Appaire un équipement Zigbee via la clé USB et crée devices/<id>.py.
+"""Appaire un équipement Zigbee via la clé USB : pairing/zigbee/<id>.toml et devices/<id>.py.
 
 Usage : ./habctrl pair zigbee <id> [--duration 120]
 HabController doit être arrêté (il occupe le port série de la clé).
 Le réseau est ouvert pendant `--duration` secondes : mettre l'équipement en mode appairage
 (souvent un appui long). Le premier équipement qui termine son interview est retenu.
-Son pilote est déduit du modèle (drivers/zigbee/models.toml), sinon aucun fichier n'est créé :
-l'équipement est à déclarer à la main dans devices/ avec l'adresse IEEE affichée.
+Le lien avec l'appareil physique est toujours enregistré (pairing/zigbee/<id>.toml). Le pilote
+est déduit du modèle (drivers/zigbee/models.toml) pour créer devices/<id>.py ; modèle inconnu :
+l'équipement logique est à déclarer à la main.
 Redémarrer HabController ensuite.
 """
 
@@ -14,7 +15,15 @@ import asyncio
 from pathlib import Path
 
 from core.devices import add_device, check_new_device, driver_for_model
-from drivers.zigbee import ERRORS, describe, joined_devices, open_coordinator
+from drivers.zigbee import (
+    ERRORS,
+    describe,
+    joined_devices,
+    open_coordinator,
+    paired_ids,
+    pairing_file,
+    save_pairing,
+)
 
 HELP = "appairer un équipement Zigbee (HabController arrêté : il occupe la clé)"
 MODELS = Path(__file__).with_name("models.toml")
@@ -67,6 +76,10 @@ async def wait_device(app, duration: int):
 async def run(args: argparse.Namespace) -> int:
     try:
         check_new_device(args.id)
+        if pairing_file(args.id).exists():
+            raise ValueError(
+                f"un appairage existe déjà pour « {args.id} » ({pairing_file(args.id)})"
+            )
     except ValueError as err:
         print(f"Erreur : {err}")
         return 1
@@ -92,21 +105,21 @@ async def run(args: argparse.Namespace) -> int:
     print("\n".join(describe(device)))
     if device.ieee in known:
         print("Équipement déjà connu du réseau : réappairé.")
+    if others := paired_ids(device.ieee):
+        print(f"Attention : cet appareil est déjà rattaché à {', '.join(others)}.")
 
-    ieee_arg = f'ieee="{device.ieee}"'
+    path = save_pairing(args.id, device)
+    print(f"Appairage enregistré dans {path}.")
     driver = driver_for_model(device.model or "", MODELS)
     if not driver:
         print(
             f"\nModèle inconnu : déclarer l'équipement dans devices/{args.id}.py avec le bon "
-            f"pilote et {ieee_arg}, ou ajouter le modèle à drivers/zigbee/models.toml."
+            "pilote, ou ajouter le modèle à drivers/zigbee/models.toml."
         )
         return 0
     try:
         add_device(
-            args.id,
-            driver,
-            comment=f"Zigbee : {device.manufacturer}, modèle {device.model}",
-            args=[ieee_arg],
+            args.id, driver, comment=f"Zigbee : {device.manufacturer}, modèle {device.model}"
         )
     except ValueError as err:
         print(f"Équipement non ajouté : {err}")

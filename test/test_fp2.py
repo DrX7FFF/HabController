@@ -566,7 +566,7 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         # valeurs par défaut de chemin figées à la définition : on les redirige explicitement
         for func, defaults in (
             (core_devices.check_new_device, ("", self.devices)),
-            (core_devices.add_device, ("", "", self.devices, None)),
+            (core_devices.add_device, ("", "", self.devices)),
         ):
             patcher = mock.patch.object(func, "__defaults__", defaults)
             patcher.start()

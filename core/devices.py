@@ -79,17 +79,13 @@ def add_device(
     name: str = "",
     comment: str = "",
     path: Path = CONFIG_DIR / "devices",
-    args: list[str] | None = None,
 ) -> None:
-    """Crée devices/<id>.py : `<id> = <Pilote>(...)`, avec `args` (ex. 'ieee="..."') puis les
-    réglages par défaut du pilote."""
+    """Crée devices/<id>.py : `<id> = <Pilote>(...)`, avec les réglages par défaut du pilote."""
     check_new_device(dev_id, driver, path)
     if not driver:
         raise ValueError("pilote requis")
     cls = load_driver(driver)
-    args = list(args or [])
-    if name:
-        args.insert(0, f"name={json.dumps(name, ensure_ascii=False)}")
+    args = [f"name={json.dumps(name, ensure_ascii=False)}"] if name else []
     config_args = getattr(cls, "config_args", None)
     if config_args:
         args += config_args()

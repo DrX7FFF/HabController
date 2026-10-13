@@ -3,9 +3,12 @@
 Le réseau (clés, canal) est mémorisé dans la clé elle-même. La base zigpy contient la liste des
 équipements, leur interview (endpoints, clusters) et des sauvegardes du réseau qui permettent de
 le reconstruire sur une nouvelle clé : c'est de la configuration. zigpy l'utilise dans temp/
-(peut être en RAM) ; une copie cohérente est gardée dans pairing/zigbee.db, écrite à
+(peut être en RAM) ; une copie cohérente est gardée dans pairing/zigbee/zigbee.db, écrite à
 l'arrêt de la clé et une fois par jour, et reprise au démarrage si temp/ est vide.
-Un équipement est repéré par son adresse IEEE, déclarée dans devices/<id>.py.
+
+Comme pour HomeKit, l'équipement logique (devices/<id>.py) ne contient aucune adresse : le lien
+avec l'appareil physique est pairing/zigbee/<id>.toml (IEEE, fabricant, modèle, clusters),
+écrit par l'appairage. Remplacer l'appareil ne change que ce fichier.
 
 Une seule clé pour tous les équipements : le coordinateur est partagé (`coordinator`), démarré
 au premier équipement Zigbee et relancé si la clé décroche. Le port série ne s'ouvre qu'une
@@ -13,10 +16,15 @@ fois : l'appairage (./habctrl pair zigbee) et HabController ne doivent pas tourn
 """
 
 import asyncio
+import json
 import logging
+import re
 import shutil
 import sqlite3
+import tomllib
 from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
 
 from bellows.ash import AshException
 from bellows.zigbee.application import ControllerApplication
@@ -26,6 +34,8 @@ from zigpy.config import (
     CONF_DEVICE_BAUDRATE,
     CONF_DEVICE_PATH,
 )
+from zigpy.application import ControllerApplication as ZigpyApplication
+from zigpy.device import Device as ZigpyDevice
 from zigpy.exceptions import RadioException, ZigbeeException
 from zigpy.types import EUI64
 from zigpy.zcl import AttributeReportedEvent, AttributeUpdatedEvent, ReportingConfig
@@ -38,10 +48,81 @@ log = logging.getLogger(__name__)
 
 ERRORS = (ZigbeeException, RadioException, AshException, OSError)  # protocole ou liaison série
 DB_FILE = TEMP_DIR / "zigbee.db"  # base vivante, utilisée par zigpy
-SNAPSHOT = PAIRING_DIR / "zigbee.db"  # copie de sauvegarde, dans la configuration
+PAIRING = PAIRING_DIR / "zigbee"  # un fichier <id>.toml par équipement, et l'instantané
+SNAPSHOT = PAIRING / "zigbee.db"  # copie de sauvegarde de la base, dans la configuration
 SNAPSHOT_PERIOD = 24 * 3600  # s
 RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à chaque échec)
 RETRY_MAX = 60
+
+
+class PairingError(Exception):
+    """Appairage absent ou illisible pour cet équipement."""
+
+
+def pairing_file(dev_id: str) -> Path:
+    if not re.fullmatch(r"[\w-]+", dev_id) or dev_id == "zigbee":
+        raise ValueError(f"identifiant invalide « {dev_id} »")
+    return PAIRING / f"{dev_id}.toml"
+
+
+def _clusters(clusters) -> str:
+    return json.dumps([f"0x{cid:04x}" for cid in sorted(clusters)])
+
+
+def save_pairing(dev_id: str, zdev) -> Path:
+    """Enregistre le lien entre l'équipement logique `dev_id` et l'appareil physique `zdev`."""
+    lines = [
+        f"# Appairage Zigbee de « {dev_id} » : lien entre l'équipement logique (devices/{dev_id}.py)",
+        "# et l'appareil physique. Écrit par ./habctrl pair zigbee.",
+        "",
+        f'ieee = "{zdev.ieee}"',
+        f"manufacturer = {json.dumps(zdev.manufacturer or '', ensure_ascii=False)}",
+        f"model = {json.dumps(zdev.model or '', ensure_ascii=False)}",
+        f"paired = {datetime.now().replace(microsecond=0).isoformat()}",
+    ]
+    for ep_id, endpoint in sorted(zdev.endpoints.items()):
+        if ep_id == 0:  # endpoint ZDO : présent partout, sans intérêt ici
+            continue
+        lines += [
+            "",
+            f"[endpoints.{ep_id}]",
+            f"in = {_clusters(endpoint.in_clusters)}",
+            f"out = {_clusters(endpoint.out_clusters)}",
+        ]
+    path = pairing_file(dev_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def load_pairing(dev_id: str) -> dict:
+    """Appairage de l'équipement, avec son adresse convertie (clé « ieee » : EUI64)."""
+    path = pairing_file(dev_id)
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as err:
+        raise PairingError(
+            f"appairage absent ({path}) : lancer ./habctrl pair zigbee {dev_id}"
+        ) from err
+    except tomllib.TOMLDecodeError as err:
+        raise PairingError(f"fichier d'appairage illisible ({path}) : {err}") from err
+    try:
+        data["ieee"] = EUI64.convert(data["ieee"])
+    except (KeyError, AssertionError, ValueError) as err:
+        raise PairingError(f"adresse IEEE absente ou invalide dans {path}") from err
+    return data
+
+
+def paired_ids(ieee: EUI64) -> list[str]:
+    """Équipements logiques déjà rattachés à cet appareil physique."""
+    found = []
+    for path in sorted(PAIRING.glob("*.toml")):
+        try:
+            if load_pairing(path.stem)["ieee"] == ieee:
+                found.append(path.stem)
+        except (PairingError, ValueError):
+            continue
+    return found
 
 
 def load_config() -> dict:
@@ -100,7 +181,7 @@ def save_snapshot() -> None:
         tmp.unlink(missing_ok=True)
 
 
-def joined_devices(app: ControllerApplication) -> list:
+def joined_devices(app: ZigpyApplication) -> list:
     """Équipements du réseau, sans le coordinateur."""
     coordinator_ieee = app.state.node_info.ieee
     return [device for ieee, device in app.devices.items() if ieee != coordinator_ieee]
@@ -158,20 +239,22 @@ class Coordinator:
     """
 
     def __init__(self):
-        self.app: ControllerApplication | None = None
+        self.app: ZigpyApplication | None = None
         self._devices: dict[EUI64, "ZigbeeDevice"] = {}
         self._task: asyncio.Task | None = None
         self._lost: asyncio.Event | None = None
 
-    def register(self, device: "ZigbeeDevice") -> None:
-        self._devices[device.ieee] = device
+    def register(self, device: "ZigbeeDevice", ieee: EUI64) -> None:
+        if (other := self._devices.get(ieee)) is not None and other is not device:
+            log.error("%s et %s sont appairés au même appareil %s", other.id, device.id, ieee)
+        self._devices[ieee] = device
         if self._task is None:
             self._task = asyncio.get_running_loop().create_task(self._run(), name="zigbee")
         elif self.app is not None:
             device._attach(self.app)
 
-    async def unregister(self, device: "ZigbeeDevice") -> None:
-        self._devices.pop(device.ieee, None)
+    async def unregister(self, ieee: EUI64) -> None:
+        self._devices.pop(ieee, None)
         if not self._devices and self._task is not None:
             self._task.cancel()
             await asyncio.gather(self._task, return_exceptions=True)
@@ -246,12 +329,9 @@ class ZigbeeDevice(NetworkDevice):
 
     POLL = 300  # s, période de lecture par défaut
 
-    def __init__(self, ieee: str, name: str = "", poll: float | None = None):
+    def __init__(self, name: str = "", poll: float | None = None):
         super().__init__(name)
-        try:
-            self.ieee = EUI64.convert(ieee)
-        except (AssertionError, ValueError) as err:
-            raise ValueError(f"adresse IEEE invalide « {ieee} »") from err
+        self.ieee: EUI64 | None = None  # lue dans pairing/zigbee/<id>.toml au démarrage
         self.poll = self.POLL if poll is None else poll
         self.zdev = None  # objet zigpy de l'équipement, tant que la clé est ouverte
         self._unsubscribe: list = []
@@ -260,10 +340,17 @@ class ZigbeeDevice(NetworkDevice):
     # --- cycle de vie -------------------------------------------------------
 
     async def start(self) -> None:
-        coordinator.register(self)
+        try:
+            ieee: EUI64 = load_pairing(self.id)["ieee"]
+        except PairingError as err:
+            log.error("%s : %s", self.name, err)
+            return  # reste injoignable
+        self.ieee = ieee
+        coordinator.register(self, ieee)
 
     async def stop(self) -> None:
-        await coordinator.unregister(self)
+        if self.ieee is not None:
+            await coordinator.unregister(self.ieee)
         self._detach()
 
     def _spawn(self, coro) -> asyncio.Task:
@@ -277,11 +364,13 @@ class ZigbeeDevice(NetworkDevice):
         if not task.cancelled() and (err := task.exception()):
             log.error("%s : erreur inattendue", self.name, exc_info=err)
 
-    def _attach(self, app: ControllerApplication) -> None:
+    def _attach(self, app: ZigpyApplication) -> None:
         """Clé ouverte ou équipement réinterviewé : écoute et lecture de l'objet zigpy courant."""
         self._detach()
+        if self.ieee is None:
+            return
         zdev = app.devices.get(self.ieee)
-        if zdev is None:
+        if not isinstance(zdev, ZigpyDevice):
             log.error(
                 "%s : %s inconnu du réseau Zigbee (./habctrl pair zigbee)", self.name, self.ieee
             )

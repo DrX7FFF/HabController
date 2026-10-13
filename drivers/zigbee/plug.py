@@ -3,11 +3,12 @@
 État : {"connected": bool, "power": "on" | "off" | "unreachable",
         "active_power": W, "voltage": V, "current": A, "energy": kWh}
 Les mesures n'apparaissent que si l'équipement a les clusters correspondants (0x0b04, 0x0702).
-Chaque prise se déclare dans `devices/<id>.py` (créé par `./habctrl pair zigbee <id>`) :
+Chaque prise se déclare dans `devices/<id>.py`, sans adresse : le lien avec l'appareil
+physique est pairing/zigbee/<id>.toml. Les deux sont créés par `./habctrl pair zigbee <id>` :
 
     from drivers.zigbee.plug import Plug
 
-    prise_salon = Plug(ieee="a4:c1:38:d6:d7:c6:db:f6", name="Prise salon")
+    prise_salon = Plug(name="Prise salon")
 
 Écriture : prise_salon.power = "on" | "off" | "toggle", comme une ampoule.
 """
@@ -53,8 +54,8 @@ class Plug(ZigbeeDevice):
     current = Attribute[float](readonly=True)
     energy = Attribute[float](readonly=True)
 
-    def __init__(self, ieee: str, name: str = "", poll: float | None = None):
-        super().__init__(ieee, name, poll)
+    def __init__(self, name: str = "", poll: float | None = None):
+        super().__init__(name, poll)
         self._values: dict[str, str | float] = {}
         self._scales: dict[str, float] = {}  # état -> facteur, pour les mesures disponibles
         self._by_zcl: dict[tuple[int, str], str] = {
