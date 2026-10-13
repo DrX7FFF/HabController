@@ -13,6 +13,7 @@ import pkgutil
 import sys
 
 import drivers
+from core import check_config
 
 
 def protocols() -> dict:
@@ -35,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
         module.add_arguments(command)
         command.set_defaults(run=module.run)
     args = parser.parse_args(argv)
+    check_config()
     try:
         return asyncio.run(args.run(args))
     except KeyboardInterrupt:

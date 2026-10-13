@@ -1,12 +1,15 @@
 """Tests Zigbee sans clé : instantané de la base, état de la prise, commande d'appairage."""
 
 import sqlite3
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+# configuration de test (test/config/), jamais celle de l'installation
+os.environ["HABCTRL_CONFIG"] = str(Path(__file__).resolve().parent / "config")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import drivers.zigbee as zigbee  # noqa: E402

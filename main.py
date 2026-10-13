@@ -7,12 +7,14 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ValidationError
 
+from core import check_config
 from core.automation import load_automations, stop_automations
 from core.base import DeviceError
 from core.devices import load_devices
 from core.log import setup as setup_logging
 from core.widgets import load_blocks
 
+check_config()
 setup_logging()
 devices = load_devices()
 blocks = load_blocks(devices)

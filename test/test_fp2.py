@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import stat
+import os
 import sys
 import tempfile
 import tomllib
@@ -14,6 +15,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+# configuration de test (test/config/), jamais celle de l'installation
+os.environ["HABCTRL_CONFIG"] = str(Path(__file__).resolve().parent / "config")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aiohomekit.exceptions import AccessoryDisconnectedError, AccessoryNotFoundError  # noqa: E402
@@ -496,7 +499,7 @@ class LoadDevicesTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             core_devices.load_devices(self.package)
 
-    def test_repo_devices_load(self):
+    def test_config_devices_load(self):
         devices = core_devices.load_devices()
         self.assertEqual(set(devices), {"salon", "cuisine", "fp2", "prise_salon"})
         self.assertEqual(devices["salon"].name, "Salon")

@@ -3,7 +3,7 @@
 Le réseau (clés, canal) est mémorisé dans la clé elle-même. La base zigpy contient la liste des
 équipements, leur interview (endpoints, clusters) et des sauvegardes du réseau qui permettent de
 le reconstruire sur une nouvelle clé : c'est de la configuration. zigpy l'utilise dans temp/
-(peut être en RAM) ; une copie cohérente est gardée dans config/pairing/zigbee.db, écrite à
+(peut être en RAM) ; une copie cohérente est gardée dans pairing/zigbee.db, écrite à
 l'arrêt de la clé et une fois par jour, et reprise au démarrage si temp/ est vide.
 Un équipement est repéré par son adresse IEEE, déclarée dans devices/<id>.py.
 
@@ -73,7 +73,7 @@ async def open_coordinator():
 
 
 def restore_snapshot() -> None:
-    """Installation neuve ou temp/ vidé (RAM) : la base repart de la copie de config/pairing/."""
+    """Installation neuve ou temp/ vidé (RAM) : la base repart de la copie de pairing/."""
     DB_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not DB_FILE.exists() and SNAPSHOT.exists():
         shutil.copyfile(SNAPSHOT, DB_FILE)

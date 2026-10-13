@@ -1,6 +1,6 @@
 """HomeKit (HAP) : appairage et connexion, communs à tous les pilotes HomeKit.
 
-L'appairage d'un équipement est enregistré dans config/pairing/homekit/<id>.json (droits 600).
+L'appairage d'un équipement est enregistré dans pairing/homekit/<id>.json (droits 600).
 Il est portable : l'adresse IP n'y figure jamais, elle est résolue par mDNS à chaque connexion
 à partir de l'identifiant HomeKit de l'accessoire. Copié sur une nouvelle installation, il reste
 valable tant que l'accessoire n'a pas été réinitialisé.

@@ -1,6 +1,5 @@
 .venv/
 __pycache__/
 temp/
-# Appairages (clés HomeKit, base Zigbee) : configuration à garder, mais secrète. Exclus de ce
-# dépôt public ; à versionner dans le dépôt privé quand config/ en sortira.
-config/pairing/
+# La configuration vit dans son propre dépôt privé (HabConfig, cloné à côté de celui-ci)
+/config/

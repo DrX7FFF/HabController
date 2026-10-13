@@ -1,0 +1,5 @@
+# Configuration de test (et d'exemple) : adresses fictives, aucun matériel.
+
+[zigbee]
+port = "/dev/serial/by-id/usb-exemple-if00-port0"
+baudrate = 115200

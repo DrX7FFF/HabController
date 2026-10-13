@@ -1,12 +1,13 @@
 """Emplacements : l'application (ce dépôt), la configuration et les fichiers temporaires.
 
-- config/ : tout ce qui décrit l'installation et qu'il faut garder pour la restaurer —
-  réglages (habctrl.toml), tableau de bord (dashboard/), équipements (devices/),
-  automatisations (automations/) et appairages (pairing/). Destinée à un dépôt privé.
+- Configuration (dépôt privé HabConfig) : tout ce qui décrit l'installation et suffit à la
+  restaurer — réglages (habctrl.toml), tableau de bord (dashboard/), équipements (devices/),
+  automatisations (automations/) et appairages (pairing/).
 - temp/ : 100 % jetable, peut être en RAM — journaux, base Zigbee vivante (recréée au
-  démarrage depuis l'instantané de config/pairing/).
+  démarrage depuis l'instantané de pairing/).
 
-Par défaut dans le dossier du projet ; HABCTRL_CONFIG et HABCTRL_TEMP les déplacent.
+Par défaut, la configuration est le dossier HabConfig cloné à côté de ce dépôt, et temp/ est
+dans le projet ; HABCTRL_CONFIG et HABCTRL_TEMP les déplacent.
 """
 
 import os
@@ -16,7 +17,7 @@ from pathlib import Path
 
 # calculé depuis l'emplacement du code : indépendant du dossier de lancement
 ROOT = Path(__file__).resolve().parent.parent
-CONFIG_DIR = Path(os.environ.get("HABCTRL_CONFIG") or ROOT / "config").resolve()
+CONFIG_DIR = Path(os.environ.get("HABCTRL_CONFIG") or ROOT.parent / "HabConfig").resolve()
 TEMP_DIR = Path(os.environ.get("HABCTRL_TEMP") or ROOT / "temp").resolve()
 PAIRING_DIR = CONFIG_DIR / "pairing"
 
@@ -26,8 +27,18 @@ if str(CONFIG_DIR) not in sys.path:
     sys.path.insert(1, str(CONFIG_DIR))
 
 
+def check_config() -> None:
+    """Arrête le programme avec un message clair si la configuration est introuvable."""
+    if not (CONFIG_DIR / "devices").is_dir():
+        sys.exit(
+            f"Configuration introuvable : {CONFIG_DIR}/devices/ n'existe pas.\n"
+            "Cloner le dépôt de configuration à côté de HabController (../HabConfig),"
+            " ou indiquer son chemin avec HABCTRL_CONFIG."
+        )
+
+
 def settings(section: str) -> dict:
-    """Une section de config/habctrl.toml ({} si absente)."""
+    """Une section de habctrl.toml ({} si absente)."""
     try:
         conf = tomllib.loads((CONFIG_DIR / "habctrl.toml").read_text(encoding="utf-8"))
     except FileNotFoundError:

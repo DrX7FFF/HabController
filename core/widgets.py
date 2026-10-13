@@ -3,7 +3,7 @@ from pathlib import Path
 
 from core import CONFIG_DIR
 
-# Widgets reconnus dans config/dashboard/screens.toml.
+# Widgets reconnus dans dashboard/screens.toml.
 WIDGETS = {"onoff", "white", "rgb"}
 
 

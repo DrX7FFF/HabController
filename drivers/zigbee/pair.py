@@ -82,7 +82,7 @@ async def run(args: argparse.Namespace) -> int:
                 await asyncio.sleep(SETTLE)
     except ERRORS as err:
         print(f"Clé Zigbee inaccessible ({type(err).__name__} : {err}).")
-        print("Vérifier le port ([zigbee] de config/habctrl.toml) et que HabController est arrêté.")
+        print("Vérifier le port ([zigbee] de habctrl.toml) et que HabController est arrêté.")
         return 1
 
     if device is None:

@@ -2,11 +2,14 @@
 
 import asyncio
 import importlib
+import os
 import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
+# configuration de test (test/config/), jamais celle de l'installation
+os.environ["HABCTRL_CONFIG"] = str(Path(__file__).resolve().parent / "config")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -318,7 +321,7 @@ class AttributeTest(AutomationTestCase):
 
 
 class PresenceRuleTest(AutomationTestCase):
-    """La règle réelle d'automations/presence.py, avec le vrai pilote FP2 et un faux appairage."""
+    """La règle d'automations/presence.py (configuration de test), avec le vrai pilote FP2 et un faux appairage."""
 
     async def asyncSetUp(self):
         from automations import presence

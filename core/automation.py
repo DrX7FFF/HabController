@@ -1,6 +1,6 @@
 """Automatisations : fonctions déclenchées par les changements d'état des équipements.
 
-Un fichier par sujet dans config/automations/, chargé au démarrage. Les équipements
+Un fichier par sujet dans automations/, chargé au démarrage. Les équipements
 s'importent depuis devices/, avec le déclencheur :
 
     import logging
@@ -140,7 +140,7 @@ def bind(devs: dict[str, Device]) -> None:
 
 
 def load_automations(devs: dict[str, Device]) -> None:
-    """Charge config/automations/*.py (sauf les fichiers commençant par _) puis les abonne."""
+    """Charge automations/*.py (sauf les fichiers commençant par _) puis les abonne."""
     for path in sorted(AUTOMATIONS_DIR.glob("*.py")):
         if not path.name.startswith("_"):
             importlib.import_module(f"automations.{path.stem}")

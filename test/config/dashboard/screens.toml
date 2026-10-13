@@ -1,15 +1,13 @@
 # Un bloc par widget affiché. "widget" : onoff | white | rgb
-# Un même équipement peut apparaître dans plusieurs blocs.
 
 [[blocks]]
 device = "salon"
-title = "Salon Light"
+title = "Salon"
 widget = "rgb"
 
 [[blocks]]
 device = "cuisine"
 title = "Cuisine"
-# widget = "onoff"
 widget = "white"
 
 [[blocks]]
