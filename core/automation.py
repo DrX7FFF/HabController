@@ -5,7 +5,7 @@ s'importent depuis devices/, avec le déclencheur :
 
     import logging
 
-    from core.automation import on_change
+    from core.automation import Event, on_change
     from devices.capteur import capteur
     from devices.cuisine import cuisine
     from devices.salon import salon
@@ -13,7 +13,7 @@ s'importent depuis devices/, avec le déclencheur :
     log = logging.getLogger(__name__)  # journal des scripts : temp/automations.log
 
     @on_change("capteur.presence")            # « équipement.attribut » ; « capteur » = tout l'état
-    async def eclairage(event):               # event.old, event.new, event.changed
+    async def eclairage(event: Event):        # event.old, event.new, event.changed
         if capteur.connected and capteur.presence:
             salon.power = "on"                # écriture : commande envoyée en tâche de fond
             cuisine.power = "on"
@@ -37,13 +37,13 @@ import importlib
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 from core import CONFIG_DIR
 from core.base import Device, DeviceError, spawn_task, tasks as _tasks
 
 log = logging.getLogger(__name__)
-__all__ = ["on_change"]
+__all__ = ["Event", "on_change"]
 
 AUTOMATIONS_DIR = CONFIG_DIR / "automations"
 _ANY = object()  # « to » non précisé (None et False sont des valeurs valides)
@@ -69,15 +69,16 @@ class Handler:
 
 
 _handlers: list[Handler] = []
+Rule = TypeVar("Rule", bound=Callable[[Event], Awaitable[None]])
 
 
-def on_change(target: str, *, to: Any = _ANY):
+def on_change(target: str, *, to: Any = _ANY) -> Callable[[Rule], Rule]:
     """Déclare une automatisation : target = « équipement » ou « équipement.attribut »."""
     device, _, attr = target.partition(".")
     if not device:
         raise ValueError(f"cible invalide « {target} » (attendu « équipement.attribut »)")
 
-    def register(func):
+    def register(func: Rule) -> Rule:
         if not asyncio.iscoroutinefunction(func):
             raise TypeError(f"{func.__name__} doit être une fonction async")
         name = f"{func.__module__.rpartition('.')[2]}.{func.__name__}"
