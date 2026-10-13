@@ -96,8 +96,6 @@ def build_mapping(accessories: list[dict], aliases: dict[int, str] | None = None
 class FP2(Device):
     """Capteur de présence FP2 : une connexion permanente, l'état vient des événements HomeKit."""
 
-    capabilities = frozenset({"presence", "illuminance"})
-
     reachable = Attribute[bool](readonly=True)
     illuminance = Attribute[float](readonly=True)
 
@@ -109,11 +107,10 @@ class FP2(Device):
     def __init__(
         self,
         name: str = "",
-        capabilities: list[str] | None = None,
         find_timeout: float = FIND_TIMEOUT,
         zonemapping: dict[int, str] | None = None,
     ):
-        super().__init__(name, capabilities)
+        super().__init__(name)
         self._find_timeout = find_timeout
         self._aliases = {
             int(index): alias for index, alias in (zonemapping or {}).items() if str(index).isdigit()

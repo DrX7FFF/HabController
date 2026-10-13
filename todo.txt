@@ -1,4 +1,7 @@
 ajouter log à chaque connexion d'un équipement
+remplacer le reachable par connected et le généraliser pour tous les devices (sur la classe de base ou sur une classe intermédiaire device_network)
+
+implémenter le zigbee
 
 A revoir :
 Sur le capteur FP2 : Un capteur sans index serait nommé zone_<aid>_<iid>.

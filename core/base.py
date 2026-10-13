@@ -26,15 +26,11 @@ class DeviceError(Exception):
 
 
 class Device:
-    """Base commune des pilotes : identité, capacités, état et commandes."""
+    """Base commune des pilotes : identité, état et commandes."""
 
-    capabilities: frozenset[str] = frozenset()
-
-    def __init__(self, name: str = "", capabilities: list[str] | None = None):
+    def __init__(self, name: str = ""):
         self.id = ""  # affecté par configure() : le chargeur le déduit du nom du fichier
         self.name = name
-        if capabilities is not None:  # surcharge possible dans la configuration de l'équipement
-            self.capabilities = frozenset(capabilities)
         self._listeners: list[Callable[[dict], None]] = []
         self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre
         self._last_notified: dict | None = None

@@ -11,6 +11,7 @@ log = logging.getLogger(__name__)
 
 ERRORS = (BulbException, OSError)  # erreurs du protocole ou du réseau
 PROPERTIES = ["power", "bright", "ct", "rgb"]
+SETTABLE = frozenset({"power", "brightness", "color_temp", "rgb"})
 RETRY_DELAY = 10  # s, entre deux tentatives de première connexion
 
 
@@ -24,8 +25,6 @@ def _effect(transition: int) -> dict:
 class YeelightBulb(Device):
     """Ampoule Yeelight : une connexion permanente, l'état vient des notifications."""
 
-    capabilities = frozenset({"power", "brightness", "color_temp", "rgb"})
-
     power = Attribute[str]()  # "on", "off", "toggle" (écriture) ; "unreachable" en lecture
     brightness = Attribute[int]()  # 1 à 100
     color_temp = Attribute[int]()  # Kelvin
@@ -37,9 +36,8 @@ class YeelightBulb(Device):
         port: int = 55443,
         transition: int = 300,
         name: str = "",
-        capabilities: list[str] | None = None,
     ):
-        super().__init__(name, capabilities)
+        super().__init__(name)
         self.transition = transition  # durée par défaut des transitions (ms)
         self._host = host
         self._port = port
@@ -111,18 +109,18 @@ class YeelightBulb(Device):
             return {"power": "unreachable"}
         props = self._props
         state = {"power": props.get("power", "unreachable")}
-        if "brightness" in self.capabilities and "bright" in props:
+        if "bright" in props:
             state["brightness"] = int(props["bright"])
-        if "color_temp" in self.capabilities and "ct" in props:
+        if "ct" in props:
             state["color_temp"] = int(props["ct"])
-        if "rgb" in self.capabilities and "rgb" in props:
+        if "rgb" in props:
             state["rgb"] = f"#{int(props['rgb']):06x}"
         return state
 
     # --- commandes ----------------------------------------------------------
 
     async def set(self, name: str, value: str | int, transition: int | None = None) -> None:
-        if name not in self.capabilities:
+        if name not in SETTABLE:
             raise ValueError(f"{self.name} ne gère pas « {name} »")
         if not (self._connected and self._synced):
             raise DeviceError(f"{self.name} : injoignable")
