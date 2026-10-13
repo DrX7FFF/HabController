@@ -14,7 +14,7 @@ s'importent depuis devices/, avec le déclencheur :
 
     @on_change("capteur.presence")            # « équipement.attribut » ; « capteur » = tout l'état
     async def eclairage(event):               # event.old, event.new, event.changed
-        if capteur.reachable and capteur.presence:
+        if capteur.connected and capteur.presence:
             salon.power = "on"                # écriture : commande envoyée en tâche de fond
             cuisine.power = "on"
 

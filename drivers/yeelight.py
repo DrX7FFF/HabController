@@ -5,7 +5,7 @@ import logging
 from yeelight import BulbException
 from yeelight.aio import KEY_CONNECTED, AsyncBulb
 
-from core.base import Attribute, Device, DeviceError
+from core.base import Attribute, NetworkDevice, DeviceError
 
 log = logging.getLogger(__name__)
 
@@ -22,10 +22,10 @@ def _effect(transition: int) -> dict:
     return {"effect": "smooth", "duration": max(30, transition)}
 
 
-class YeelightBulb(Device):
+class YeelightBulb(NetworkDevice):
     """Ampoule Yeelight : une connexion permanente, l'état vient des notifications."""
 
-    power = Attribute[str]()  # "on", "off", "toggle" (écriture) ; "unreachable" en lecture
+    power = Attribute[str]()  # "on", "off", "toggle" (écriture) ; "unreachable" en lecture si disconnecté
     brightness = Attribute[int]()  # 1 à 100
     color_temp = Attribute[int]()  # Kelvin
     rgb = Attribute[str]()  # "#rrggbb"
@@ -43,8 +43,6 @@ class YeelightBulb(Device):
         self._port = port
         self._bulb: AsyncBulb | None = None
         self._props: dict = {}  # dernières valeurs connues, noms du protocole Yeelight
-        self._connected = False
-        self._synced = False  # état lu au moins une fois depuis la connexion courante
         self._task: asyncio.Task | None = None
         self._refresh_task: asyncio.Task | None = None
 
@@ -104,17 +102,17 @@ class YeelightBulb(Device):
         self._synced = True
         self._notify()
 
-    def state(self) -> dict:
-        if not (self._connected and self._synced):
-            return {"power": "unreachable"}
-        props = self._props
-        state = {"power": props.get("power", "unreachable")}
-        if "bright" in props:
-            state["brightness"] = int(props["bright"])
-        if "ct" in props:
-            state["color_temp"] = int(props["ct"])
-        if "rgb" in props:
-            state["rgb"] = f"#{int(props['rgb']):06x}"
+    def _get_disconnected_state(self) -> dict:
+        return {"power": "unreachable"}
+
+    def _get_connected_state(self) -> dict:
+        state = {"power": self._props.get("power", "unreachable")}
+        if "bright" in self._props:
+            state["brightness"] = int(self._props["bright"])
+        if "ct" in self._props:
+            state["color_temp"] = int(self._props["ct"])
+        if "rgb" in self._props:
+            state["rgb"] = f"#{int(self._props['rgb']):06x}"
         return state
 
     # --- commandes ----------------------------------------------------------

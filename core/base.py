@@ -25,8 +25,36 @@ class DeviceError(Exception):
     """Équipement injoignable ou commande refusée."""
 
 
+class Attribute(Generic[T]):
+    """Attribut d'un équipement : lecture dans l'état mémorisé (None si absent, ex. injoignable),
+    écriture = commande envoyée en tâche de fond. Le nom est celui de la clé d'état."""
+
+    def __init__(self, readonly: bool = False):
+        self.readonly = readonly
+        self.name = ""
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.name = name
+
+    @overload
+    def __get__(self, obj: None, owner: type) -> "Attribute[T]": ...
+    @overload
+    def __get__(self, obj: "Device", owner: type) -> T | None: ...
+    def __get__(self, obj, owner=None):
+        if obj is None:
+            return self
+        return obj.state().get(self.name)
+
+    def __set__(self, obj: "Device", value: T) -> None:
+        if self.readonly:
+            raise AttributeError(f"{self.name} est en lecture seule")
+        obj._assign(self.name, value)  # pyright: ignore[reportArgumentType]
+
+
 class Device:
     """Base commune des pilotes : identité, état et commandes."""
+
+    connected = Attribute[bool](readonly=True)
 
     def __init__(self, name: str = ""):
         self.id = ""  # affecté par configure() : le chargeur le déduit du nom du fichier
@@ -90,27 +118,24 @@ class Device:
             log.warning("%s : commande %s=%r refusée (%s)", self.id, name, value, err)
 
 
-class Attribute(Generic[T]):
-    """Attribut d'un équipement : lecture dans l'état mémorisé (None si absent, ex. injoignable),
-    écriture = commande envoyée en tâche de fond. Le nom est celui de la clé d'état."""
+class NetworkDevice(Device):
+    """Base pour les équipements avec connexion réseau (HomeKit, WiFi, etc.)."""
 
-    def __init__(self, readonly: bool = False):
-        self.readonly = readonly
-        self.name = ""
+    def __init__(self, name: str = ""):
+        super().__init__(name)
+        self._connected = False
+        self._synced = False  # état lu au moins une fois depuis la connexion courante
 
-    def __set_name__(self, owner: type, name: str) -> None:
-        self.name = name
+    def state(self) -> dict:
+        """Retourne l'état : {"connected": False} si injoignable, sinon {"connected": True, ...}."""
+        if not (self._connected and self._synced):
+            return {"connected": False, **self._get_disconnected_state()}
+        return {"connected": True, **self._get_connected_state()}
 
-    @overload
-    def __get__(self, obj: None, owner: type) -> "Attribute[T]": ...
-    @overload
-    def __get__(self, obj: Device, owner: type) -> T | None: ...
-    def __get__(self, obj, owner=None):
-        if obj is None:
-            return self
-        return obj.state().get(self.name)
+    def _get_disconnected_state(self) -> dict:
+        """Valeurs par défaut quand injoignable. Peut être surchargé par les subclasses."""
+        return {}
 
-    def __set__(self, obj: Device, value: T) -> None:
-        if self.readonly:
-            raise AttributeError(f"{self.name} est en lecture seule")
-        obj._assign(self.name, value)  # pyright: ignore[reportArgumentType]
+    def _get_connected_state(self) -> dict:
+        """L'état quand connecté et synchronisé. À implémenter par les subclasses."""
+        return {}

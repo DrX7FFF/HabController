@@ -226,7 +226,7 @@ function build(b) {
   }
   el.append(title, ...parts.map(p => p.el));
   return { el, device: b.device, update: s => {
-    el.classList.toggle("down", s.power === "unreachable");
+    el.classList.toggle("down", s.connected === false);
     parts.forEach(p => p.set(s));
   } };
 }
@@ -248,7 +248,7 @@ function connect() {
   ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
   ws.onmessage = e => handle(JSON.parse(e.data));
   ws.onclose = () => {
-    views.forEach(v => v.update({ power: "unreachable" }));
+    views.forEach(v => v.update({ connected: false, power: "unreachable" }));
     show("Connexion au serveur perdue…");
     setTimeout(connect, 2000);
   };

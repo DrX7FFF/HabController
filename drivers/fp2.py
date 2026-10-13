@@ -1,6 +1,6 @@
 """Aqara FP2 (HomeKit) : capteurs de présence et luminosité, par événements.
 
-État : {"reachable": bool, "zone.<alias ou index>": bool, ...}.
+État : {"connected": bool, "zone.<alias ou index>": bool, ...}.
 Chaque capteur de présence est repéré par son « Sensor Index » (caractéristique Aqara), comme
 dans node-red-contrib-fp2 : l'index 0 est la présence globale, comme les autres zones accessibles
 sous `zone`. Chaque appareil se déclare dans `devices/<id>.py` :
@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
 
-from core.base import Attribute, Device
+from core.base import Attribute, NetworkDevice
 from core.homekit import ERRORS, PairingError, connect, open_controller
 
 log = logging.getLogger(__name__)
@@ -93,10 +93,9 @@ def build_mapping(accessories: list[dict], aliases: dict[int, str] | None = None
     return mapping
 
 
-class FP2(Device):
+class FP2(NetworkDevice):
     """Capteur de présence FP2 : une connexion permanente, l'état vient des événements HomeKit."""
 
-    reachable = Attribute[bool](readonly=True)
     illuminance = Attribute[float](readonly=True)
 
     @staticmethod
@@ -119,8 +118,6 @@ class FP2(Device):
         self._mapping = Mapping()
         self._values: dict[str, bool | float] = {}  # dernières valeurs connues, par attribut
         self._pairing = None  # défini une fois la première lecture faite
-        self._connected = False
-        self._synced = False  # valeurs lues au moins une fois depuis la connexion courante
         self._backoff = RETRY_MIN
         self._tasks: set[asyncio.Task] = set()
 
@@ -243,10 +240,8 @@ class FP2(Device):
     def _apply(self, updates: dict[Key, dict]) -> None:
         self._values.update(self._convert(self._mapping, updates))
 
-    def state(self) -> dict:
-        if not (self._connected and self._synced):
-            return {"reachable": False}
-        return {"reachable": True, **self._values}
+    def _get_connected_state(self) -> dict:
+        return self._values
 
     # --- événements de la bibliothèque (appelés dans la boucle asyncio) ------
 

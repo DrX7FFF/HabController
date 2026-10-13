@@ -67,7 +67,7 @@ class AutomationTestCase(unittest.IsolatedAsyncioTestCase):
 
 class OnChangeTest(AutomationTestCase):
     async def test_attribute_event(self):
-        fp = FakeDevice("fp2", {"reachable": False})
+        fp = FakeDevice("fp2", {"connected": False})
         events = []
 
         @automation.on_change("fp2.presence_0")
@@ -75,12 +75,12 @@ class OnChangeTest(AutomationTestCase):
             events.append(event)
 
         automation.bind({"fp2": fp})
-        fp.update(reachable=True, presence_0=False)  # premier état connu
+        fp.update(connected=True, presence_0=False)  # premier état connu
         await self.idle()
         fp.update(presence_0=True)
         await self.idle()
         fp.update(presence_0=True)  # inchangé : rien
-        fp.update(reachable=False)  # autre attribut : rien pour ce handler
+        fp.update(connected=False)  # autre attribut : rien pour ce handler
         await self.idle()
         self.assertEqual(
             [(e.old, e.new) for e in events],
@@ -121,7 +121,7 @@ class OnChangeTest(AutomationTestCase):
         self.assertEqual(events[0].changed, {"a", "b"})
 
     async def test_unreachable_is_not_a_change(self):
-        fp = FakeDevice("fp2", {"reachable": True, "presence_0": True})
+        fp = FakeDevice("fp2", {"connected": True, "presence_0": True})
         events = []
 
         @automation.on_change("fp2.presence_0")
@@ -129,14 +129,14 @@ class OnChangeTest(AutomationTestCase):
             events.append((event.old, event.new))
 
         automation.bind({"fp2": fp})
-        fp._state = {"reachable": False}  # coupure : l'attribut disparaît
+        fp._state = {"connected": False}  # coupure : l'attribut disparaît
         fp._notify()
-        fp.update(reachable=True, presence_0=True)  # retour, même valeur : rien
+        fp.update(connected=True, presence_0=True)  # retour, même valeur : rien
         await self.idle()
         self.assertEqual(events, [])
-        fp._state = {"reachable": False}
+        fp._state = {"connected": False}
         fp._notify()
-        fp.update(reachable=True, presence_0=False)  # a changé pendant la coupure
+        fp.update(connected=True, presence_0=False)  # a changé pendant la coupure
         await self.idle()
         self.assertEqual(events, [(True, False)])
 
@@ -235,13 +235,13 @@ class AttributeTest(AutomationTestCase):
         fp._synced = True
         fp._values = {"illuminance": 42.5, "zone.cuisine": True, "zone.3": False}
         self.assertEqual(fp.illuminance, 42.5)
-        self.assertTrue(fp.reachable)
+        self.assertTrue(fp.connected)
         self.assertTrue(fp.zone.cuisine)
         self.assertFalse(fp.zone[3])
         fp._connected = False  # injoignable : les attributs disparaissent
         fp._synced = False
         self.assertIsNone(fp.illuminance)
-        self.assertFalse(fp.reachable)
+        self.assertFalse(fp.connected)
         self.assertIsNone(fp.zone.nexistepas)
         fp._connected = True
         fp._synced = True
@@ -296,7 +296,7 @@ class AttributeTest(AutomationTestCase):
             await bulb.send("power", "oups")
 
     async def test_script_style_from_the_docs(self):
-        fp = FakeDevice("fp2", {"reachable": True, "illuminance": 10.0, "zone.Global": False})
+        fp = FakeDevice("fp2", {"connected": True, "illuminance": 10.0, "zone.Global": False})
         salon, cuisine = FakeBulb("salon"), FakeBulb("cuisine")
 
         @automation.on_change("fp2.zone.Global", to=True)
@@ -309,9 +309,9 @@ class AttributeTest(AutomationTestCase):
         fp.update(**{"zone.Global": True})
         await self.idle()
         self.assertEqual((salon.commands, cuisine.commands), ([("power", "on")], [("power", "on")]))
-        fp._state = {"reachable": False}  # injoignable : ne plante pas, ne fait rien
+        fp._state = {"connected": False}  # injoignable : ne plante pas, ne fait rien
         fp._notify()
-        fp.update(**{"reachable": True, "illuminance": 80.0, "zone.Global": False})
+        fp.update(**{"connected": True, "illuminance": 80.0, "zone.Global": False})
         fp.update(**{"zone.Global": True})
         await self.idle()
         self.assertEqual(len(salon.commands), 1)  # assez de lumière : pas de nouvelle commande

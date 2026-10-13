@@ -152,11 +152,11 @@ class MappingTest(unittest.TestCase):
 
     def test_aliases_are_scoped_to_zone(self):
         mapping = fp2.build_mapping(
-            accessories((0, 1, 2)), {0: "Global", 1: "reachable", 2: "zone2"}
+            accessories((0, 1, 2)), {0: "Global", 1: "connected", 2: "zone2"}
         )
         self.assertEqual(
             {entity.attr for entity in mapping.entities.values()},
-            {"zone.Global", "zone.reachable", "zone.zone2", "illuminance"},
+            {"zone.Global", "zone.connected", "zone.zone2", "illuminance"},
         )
 
     def test_attribute_follows_index_not_position(self):
@@ -204,7 +204,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         driver = await self.start(pairing)
         self.assertEqual(
             driver.state(),
-            {"reachable": True, "zone.0": False, "zone.1": True, "illuminance": 42.5},
+            {"connected": True, "zone.0": False, "zone.1": True, "illuminance": 42.5},
         )
         self.assertEqual(pairing.subscribed, {presence_key(0), presence_key(1), (1, 32)})
         self.assertEqual(len(self.states), 1)
@@ -229,12 +229,12 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         pairing = FakePairing()
         driver = await self.start(pairing)
         pairing.emit("availability", False)
-        self.assertEqual(driver.state(), {"reachable": False})
+        self.assertEqual(driver.state(), {"connected": False})
         pairing.values[presence_key(0)] = 1  # changé pendant la coupure
         pairing.emit("availability", True)
-        await until(lambda: driver.state().get("reachable"))
+        await until(lambda: driver.state().get("connected"))
         self.assertTrue(driver.state()["zone.0"])
-        self.assertEqual([s["reachable"] for s in self.states], [True, False, True])
+        self.assertEqual([s["connected"] for s in self.states], [True, False, True])
 
     async def test_config_change_rebuilds_mapping(self):
         pairing = FakePairing()
@@ -259,7 +259,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             driver.state(),
             {
-                "reachable": True,
+                "connected": True,
                 "zone.Global": False,
                 "zone.salon": True,
                 "illuminance": 42.5,
@@ -303,7 +303,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         ):
             driver._backoff = 0.01
             await driver.start()
-            await until(lambda: driver.state().get("reachable"))
+            await until(lambda: driver.state().get("connected"))
             second.emit("event", {presence_key(0): {"value": 1}})
         await driver.stop()
         self.assertEqual(second.subscribed, {presence_key(0), presence_key(1), (1, 32)})
@@ -349,7 +349,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         ):
             driver._backoff = 0.01
             await driver.start()
-            await until(lambda: driver.state().get("reachable"))
+            await until(lambda: driver.state().get("connected"))
         await driver.stop()
         self.assertEqual(len(attempts), 3)
 
@@ -490,7 +490,7 @@ class LoadDevicesTest(unittest.TestCase):
         self.assertEqual(set(devices), {"fp2"})
         self.assertEqual((devices["fp2"].id, devices["fp2"].name), ("fp2", "fp2"))
         self.assertEqual(devices["fp2"]._aliases, {1: "salon"})
-        self.assertEqual(devices["fp2"].state(), {"reachable": False})
+        self.assertEqual(devices["fp2"].state(), {"connected": False})
 
     def test_variable_missing_or_wrong_type(self):
         self.write("salon", "x = 1\n")
