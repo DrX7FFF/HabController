@@ -1,4 +1,24 @@
+import asyncio
+import logging
 from collections.abc import Callable
+from typing import Generic, TypeVar, overload
+
+log = logging.getLogger(__name__)
+T = TypeVar("T")
+
+tasks: set[asyncio.Task] = set()  # tâches de fond (commandes, automatisations), annulées à l'arrêt
+
+
+def _done(task: asyncio.Task) -> None:
+    tasks.discard(task)
+    if not task.cancelled() and (err := task.exception()):
+        log.error("%s : erreur inattendue", task.get_name(), exc_info=err)
+
+
+def spawn_task(coro, name: str) -> None:
+    task = asyncio.get_running_loop().create_task(coro, name=name)
+    tasks.add(task)
+    task.add_done_callback(_done)
 
 
 class DeviceError(Exception):
@@ -16,6 +36,7 @@ class Device:
         if capabilities is not None:  # surcharge possible dans la configuration de l'équipement
             self.capabilities = frozenset(capabilities)
         self._listeners: list[Callable[[dict], None]] = []
+        self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre
         self._last_notified: dict | None = None
 
     def configure(self, dev_id: str) -> None:
@@ -46,9 +67,54 @@ class Device:
         """État courant, lu en mémoire : ne doit jamais interroger l'équipement."""
         raise NotImplementedError
 
-    def get_attribute(self, name: str):
-        """Lit un attribut exposé par le driver à partir de l'état courant."""
-        return self.state().get(name)
-
     async def set(self, name: str, value: str | int, transition: int | None = None) -> None:
         raise NotImplementedError
+
+    async def send(self, name: str, value: str | int, transition: int | None = None) -> bool:
+        """set() à la suite des autres commandes : False (journalisé) si l'équipement n'a pas répondu.
+
+        Une commande refusée par le pilote (ValueError) est une erreur du script : elle remonte.
+        """
+        async with self._lock:
+            try:
+                await self.set(name, value, transition)
+            except DeviceError as err:
+                log.warning("%s : commande %s=%s non envoyée (%s)", self.id, name, value, err)
+                return False
+        return True
+
+    def _assign(self, name: str, value: str | int) -> None:
+        """Écriture `equipement.attribut = valeur` : commande en tâche de fond, sans bloquer."""
+        spawn_task(self._assign_task(name, value), f"{self.id}.{name}")
+
+    async def _assign_task(self, name: str, value: str | int) -> None:
+        try:
+            await self.send(name, value)
+        except ValueError as err:
+            log.warning("%s : commande %s=%r refusée (%s)", self.id, name, value, err)
+
+
+class Attribute(Generic[T]):
+    """Attribut d'un équipement : lecture dans l'état mémorisé (None si absent, ex. injoignable),
+    écriture = commande envoyée en tâche de fond. Le nom est celui de la clé d'état."""
+
+    def __init__(self, readonly: bool = False):
+        self.readonly = readonly
+        self.name = ""
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.name = name
+
+    @overload
+    def __get__(self, obj: None, owner: type) -> "Attribute[T]": ...
+    @overload
+    def __get__(self, obj: Device, owner: type) -> T | None: ...
+    def __get__(self, obj, owner=None):
+        if obj is None:
+            return self
+        return obj.state().get(self.name)
+
+    def __set__(self, obj: Device, value: T) -> None:
+        if self.readonly:
+            raise AttributeError(f"{self.name} est en lecture seule")
+        obj._assign(self.name, value)  # pyright: ignore[reportArgumentType]

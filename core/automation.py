@@ -1,11 +1,14 @@
 """Automatisations : fonctions déclenchées par les changements d'état des équipements.
 
 Un fichier par sujet dans automations/, chargé au démarrage (comme drivers/). Les équipements
-s'importent par leur identifiant depuis config/devices/, avec le déclencheur :
+s'importent depuis devices/, avec le déclencheur :
 
     import logging
 
-    from core.automation import capteur, cuisine, on_change, salon
+    from core.automation import on_change
+    from devices.capteur import capteur
+    from devices.cuisine import cuisine
+    from devices.salon import salon
 
     log = logging.getLogger(__name__)  # journal des scripts : data/logs/automations.log
 
@@ -16,11 +19,11 @@ s'importent par leur identifiant depuis config/devices/, avec le déclencheur :
             cuisine.power = "on"
 
 Lecture : un attribut vaut None si l'équipement est injoignable (l'attribut disparaît de son
-état) ou si le nom n'existe pas : à tester avant de l'utiliser. Écriture : salon.power = "on" ne
-bloque pas et ne lève rien si l'équipement est injoignable (c'est journalisé) ; les commandes
-d'un même équipement partent dans l'ordre. Pour attendre la réponse, ou passer une transition :
-`ok = await salon.set("power", "on", 2)`, qui renvoie False si la commande n'a pas pu partir.
-Un nom d'équipement inconnu est signalé au démarrage.
+état). Écriture : salon.power = "on" ne bloque pas et ne lève rien si l'équipement est
+injoignable (c'est journalisé) ; les commandes d'un même équipement partent dans l'ordre.
+Pour attendre la réponse, ou passer une transition : `ok = await salon.send("power", "on", 2)`,
+qui renvoie False si la commande n'a pas pu partir. Un équipement inconnu dans un @on_change
+est signalé au démarrage.
 
 `to=` ne déclenche que vers une valeur donnée : @on_change("capteur.presence", to=True).
 Un attribut absent de l'état (équipement injoignable) n'est pas un changement : on garde la
@@ -37,72 +40,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core import ROOT
-from core.base import Device, DeviceError
+from core.base import Device, DeviceError, spawn_task, tasks as _tasks
 
 log = logging.getLogger(__name__)
-__all__ = ["devices", "on_change"]
+__all__ = ["on_change"]
 
 AUTOMATIONS_DIR = ROOT / "automations"
 _ANY = object()  # « to » non précisé (None et False sont des valeurs valides)
-
-
-class Equipment:
-    """Un équipement vu par les automatisations : fp2.illuminance lit son état mémorisé,
-    salon.power = "on" lui envoie une commande (voir l'en-tête du module)."""
-
-    __slots__ = ("_device", "_id", "_lock")
-
-    def __init__(self, dev_id: str):
-        self._id = dev_id
-        self._device: Device | None = None  # renseigné par bind()
-        self._lock = asyncio.Lock()
-
-    def __getattr__(self, name: str):
-        if name.startswith("_"):
-            raise AttributeError(name)
-        return None if self._device is None else self._device.get_attribute(name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name.startswith("_"):
-            object.__setattr__(self, name, value)
-            return
-        _spawn_task(self._send(name, value), f"{self._id}.{name}")
-
-    async def set(self, name: str, value: str | int, transition: int | None = None) -> bool:
-        """Envoie la commande et attend la réponse ; False si elle n'a pas pu partir."""
-        if self._device is None:
-            log.warning("%s : équipement inconnu, commande %s=%s ignorée", self._id, name, value)
-            return False
-        async with self._lock:  # les commandes d'un même équipement partent dans l'ordre
-            try:
-                await self._device.set(name, value, transition)
-            except DeviceError as err:
-                log.warning("%s : commande %s=%s non envoyée (%s)", self._id, name, value, err)
-                return False
-        return True
-
-    async def _send(self, name: str, value: Any) -> None:
-        try:
-            await self.set(name, value)
-        except ValueError as err:  # commande ou valeur refusée par le pilote : erreur du script
-            log.warning("%s : commande %s=%r refusée (%s)", self._id, name, value, err)
-
-
-_equipments: dict[str, Equipment] = {}  # un objet unique par nom, créé à l'import des scripts
-devices: dict[str, Equipment] = {}  # équipements existants, par identifiant : devices["salon"]
-
-
-def _equipment(dev_id: str) -> Equipment:
-    if dev_id not in _equipments:
-        _equipments[dev_id] = Equipment(dev_id)
-    return _equipments[dev_id]
-
-
-def __getattr__(name: str) -> Equipment:
-    """`from core.automation import salon` : tout nom d'équipement s'importe (vérifié par bind)."""
-    if name.startswith("_"):
-        raise AttributeError(name)
-    return _equipment(name)
 
 
 @dataclass(frozen=True)
@@ -125,7 +69,6 @@ class Handler:
 
 
 _handlers: list[Handler] = []
-_tasks: set[asyncio.Task] = set()
 
 
 def on_change(target: str, *, to: Any = _ANY):
@@ -171,14 +114,8 @@ class _Watcher:
             _spawn(handler, event)
 
 
-def _spawn_task(coro, name: str) -> None:
-    task = asyncio.get_running_loop().create_task(coro, name=name)
-    _tasks.add(task)
-    task.add_done_callback(_done)
-
-
 def _spawn(handler: Handler, event: Event) -> None:
-    _spawn_task(_run(handler, event), handler.name)
+    spawn_task(_run(handler, event), handler.name)
 
 
 async def _run(handler: Handler, event: Event) -> None:
@@ -189,24 +126,8 @@ async def _run(handler: Handler, event: Event) -> None:
             log.warning("%s : %s : %s", handler.name, type(err).__name__, err)
 
 
-def _done(task: asyncio.Task) -> None:
-    _tasks.discard(task)
-    if not task.cancelled() and (err := task.exception()):
-        log.error("%s : erreur inattendue", task.get_name(), exc_info=err)
-
-
 def bind(devs: dict[str, Device]) -> None:
     """Abonne les automatisations déclarées aux équipements (avant leur démarrage)."""
-    devices.clear()
-    for equipment in _equipments.values():
-        equipment._device = None
-        equipment._lock = asyncio.Lock()
-    for dev_id, dev in devs.items():
-        devices[dev_id] = _equipment(dev_id)
-        devices[dev_id]._device = dev
-    for dev_id, equipment in _equipments.items():
-        if equipment._device is None:
-            log.error("équipement inconnu « %s » utilisé dans les automatisations", dev_id)
     by_device: dict[str, list[Handler]] = {}
     for handler in _handlers:
         if handler.device not in devs:

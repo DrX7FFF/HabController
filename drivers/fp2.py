@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
 
-from core.base import Device
+from core.base import Attribute, Device
 from core.homekit import ERRORS, PairingError, connect, open_controller
 
 log = logging.getLogger(__name__)
@@ -98,6 +98,9 @@ class FP2(Device):
 
     capabilities = frozenset({"presence", "illuminance"})
 
+    reachable = Attribute[bool](readonly=True)
+    illuminance = Attribute[float](readonly=True)
+
     @staticmethod
     def config_lines() -> list[str]:
         return ["", "[zonemapping]", '0 = "Global"']
@@ -123,10 +126,9 @@ class FP2(Device):
         self._backoff = RETRY_MIN
         self._tasks: set[asyncio.Task] = set()
 
-    def get_attribute(self, name: str):
-        if name == "zone":
-            return Zones(self)
-        return super().get_attribute(name)
+    @property
+    def zone(self) -> "Zones":
+        return Zones(self)
 
     # --- cycle de vie -------------------------------------------------------
 

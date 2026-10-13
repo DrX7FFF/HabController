@@ -5,7 +5,7 @@ import logging
 from yeelight import BulbException
 from yeelight.aio import KEY_CONNECTED, AsyncBulb
 
-from core.base import Device, DeviceError
+from core.base import Attribute, Device, DeviceError
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +25,11 @@ class YeelightBulb(Device):
     """Ampoule Yeelight : une connexion permanente, l'état vient des notifications."""
 
     capabilities = frozenset({"power", "brightness", "color_temp", "rgb"})
+
+    power = Attribute[str]()  # "on", "off", "toggle" (écriture) ; "unreachable" en lecture
+    brightness = Attribute[int]()  # 1 à 100
+    color_temp = Attribute[int]()  # Kelvin
+    rgb = Attribute[str]()  # "#rrggbb"
 
     def __init__(
         self,
