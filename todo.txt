@@ -4,3 +4,5 @@ implémenter le zigbee
 
 A revoir :
 Sur le capteur FP2 : Un capteur sans index serait nommé zone_<aid>_<iid>.
+
+Firebase : supprimer les anciennes données Node-RED (Dehumidifier, Home, Measure, System, Tracking)
