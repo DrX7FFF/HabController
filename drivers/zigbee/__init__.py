@@ -3,8 +3,10 @@
 Le réseau (clés, canal) est mémorisé dans la clé elle-même. La base zigpy contient la liste des
 équipements, leur interview (endpoints, clusters) et des sauvegardes du réseau qui permettent de
 le reconstruire sur une nouvelle clé : c'est de la configuration. zigpy l'utilise dans temp/
-(peut être en RAM) ; une copie cohérente est gardée dans pairing/zigbee/zigbee.db, écrite à
-l'arrêt de la clé et une fois par jour, et reprise au démarrage si temp/ est vide.
+(peut être en RAM) ; une copie cohérente est gardée dans pairing/zigbee/zigbee.db, écrite
+après chaque appairage (seul moment où la liste change) et reprise au démarrage si temp/ est
+vide. Changer de clé avec une copie ancienne peut obliger à réappairer les équipements : le
+compteur de trames du réseau, sauvegardé avec, a avancé depuis.
 
 Comme pour HomeKit, l'équipement logique (devices/<id>.py) ne contient aucune adresse : le lien
 avec l'appareil physique est pairing/zigbee/<id>.toml (IEEE, fabricant, modèle, clusters),
@@ -50,7 +52,6 @@ ERRORS = (ZigbeeException, RadioException, AshException, OSError)  # protocole o
 DB_FILE = TEMP_DIR / "zigbee.db"  # base vivante, utilisée par zigpy
 PAIRING = PAIRING_DIR / "zigbee"  # un fichier <id>.toml par équipement, et l'instantané
 SNAPSHOT = PAIRING / "zigbee.db"  # copie de sauvegarde de la base, dans la configuration
-SNAPSHOT_PERIOD = 24 * 3600  # s
 RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à chaque échec)
 RETRY_MAX = 60
 
@@ -103,7 +104,7 @@ def load_pairing(dev_id: str) -> dict:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as err:
         raise PairingError(
-            f"appairage absent ({path}) : lancer ./habctrl pair zigbee {dev_id}"
+            f"appairage absent ({path}) : lancer ./habctrl pair zigbee"
         ) from err
     except tomllib.TOMLDecodeError as err:
         raise PairingError(f"fichier d'appairage illisible ({path}) : {err}") from err
@@ -141,7 +142,7 @@ def load_config() -> dict:
 
 
 @asynccontextmanager
-async def open_coordinator():
+async def open_session():
     """Coordinateur démarré (réseau créé s'il n'existe pas encore), arrêté à la sortie."""
     config = load_config()
     restore_snapshot()
@@ -151,7 +152,6 @@ async def open_coordinator():
         yield app
     finally:
         await app.shutdown()
-        save_snapshot()
 
 
 def restore_snapshot() -> None:
@@ -264,18 +264,14 @@ class Coordinator:
         while True:
             self._lost = asyncio.Event()
             try:
-                async with open_coordinator() as app:
+                async with open_session() as app:
                     log.info("Clé Zigbee démarrée")
                     backoff = RETRY_MIN
                     self.app = app
                     app.add_listener(self)
                     for device in self._devices.values():
                         device._attach(app)
-                    while not self._lost.is_set():
-                        try:
-                            await asyncio.wait_for(self._lost.wait(), SNAPSHOT_PERIOD)
-                        except TimeoutError:
-                            await asyncio.to_thread(save_snapshot)
+                    await self._lost.wait()
                     log.warning("Clé Zigbee déconnectée, réouverture")
             except ValueError as err:  # habctrl.toml incorrect : inutile de réessayer
                 log.error("Clé Zigbee : %s", err)

@@ -22,7 +22,7 @@ from aiohomekit.exceptions import AccessoryDisconnectedError, AccessoryNotFoundE
 from aiohomekit.zeroconf import HomeKitService  # noqa: E402
 
 import drivers.homekit as homekit  # noqa: E402
-from core import ROOT, devices as core_devices  # noqa: E402
+from core import ROOT, devices as core_devices, pair as core_pair  # noqa: E402
 from drivers.homekit import fp2, pair as pair_cli  # noqa: E402
 
 BASE = "-0000-1000-8000-0026BB765291"
@@ -298,7 +298,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         driver = make_fp2()
         with (
             mock.patch.object(fp2, "RETRY_MIN", 0.01),
-            mock.patch.object(fp2, "open_controller", fake_controller),
+            mock.patch.object(fp2, "open_session", fake_controller),
             mock.patch.object(fp2, "connect", fake_connect),
             self.assertLogs("drivers.homekit.fp2", "WARNING"),
         ):
@@ -344,7 +344,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         driver = make_fp2()
         with (
             mock.patch.object(fp2, "RETRY_MIN", 0.01),
-            mock.patch.object(fp2, "open_controller", fake_controller),
+            mock.patch.object(fp2, "open_session", fake_controller),
             mock.patch.object(fp2, "connect", fake_connect),
             self.assertLogs("drivers.homekit.fp2", "WARNING"),
         ):
@@ -581,7 +581,8 @@ class DriverForModelTest(unittest.TestCase):
 
     def test_repo_mapping_points_to_existing_driver(self):
         models = tomllib.loads((ROOT / "drivers" / "homekit" / "models.toml").read_text())
-        self.assertEqual(core_devices.driver_for_model("PS-S02D", pair_cli.MODELS), "homekit.fp2")
+        table = pair_cli.Pairing().models
+        self.assertEqual(core_devices.driver_for_model("PS-S02D", table), "homekit.fp2")
         for driver in models["models"].values():
             core_devices.load_driver(driver)
 
@@ -620,22 +621,21 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
             async_start_pairing=mock.AsyncMock(return_value=finish),
         )
 
-    async def run_cli(self, discovery, models="PS-S02D"):
+    async def run_cli(self, discovery, models="PS-S02D", name="FP2"):
         @asynccontextmanager
         async def fake_controller():
             yield object()
 
-        args = SimpleNamespace(id="fp2", timeout=0)
         known = {"PS-S02D": "homekit.fp2"} if models else {}
         with (
-            mock.patch.object(pair_cli, "open_controller", fake_controller),
+            mock.patch.object(homekit, "open_session", fake_controller),
             mock.patch.object(pair_cli, "discover", mock.AsyncMock(return_value=[discovery])),
-            mock.patch.object(pair_cli, "driver_for_model", lambda m, _path: known.get(m, "")),
-            mock.patch("builtins.input", return_value="1"),
+            mock.patch.object(core_pair, "driver_for_model", lambda m, _path: known.get(m, "")),
+            mock.patch("builtins.input", return_value=name),
             mock.patch("getpass.getpass", return_value="123-45-678"),
             contextlib.redirect_stdout(io.StringIO()) as out,
         ):
-            code = await pair_cli.run(args)
+            code = await pair_cli.Pairing().run(0)
         return code, out.getvalue()
 
     async def test_known_model_fills_driver(self):
@@ -644,12 +644,17 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         config_path = self.devices / "fp2.py"
         text = config_path.read_text(encoding="utf-8")
         self.assertIn("from drivers.homekit.fp2 import FP2", text)
-        self.assertIn('fp2 = FP2(zonemapping={0: "Global"})', text)
+        self.assertIn('fp2 = FP2(name="FP2", zonemapping={0: "Global"})', text)
         self.assertIn("modèle PS-S02D", text)
         self.assertTrue(homekit.pairing_file("fp2").exists())
         self.assertNotIn("Modèle inconnu", out)
-        # second appel : refusé, rien n'est modifié
-        self.assertEqual((await self.run_cli(self.discovery()))[0], 1)
+        # second appel (accessoire réinitialisé) : reconnu, Entrée refait le lien
+        edited = "fp2 = None  # modifié à la main\n"
+        config_path.write_text(edited, encoding="utf-8")
+        code, out = await self.run_cli(self.discovery(), name="")
+        self.assertEqual(code, 0)
+        self.assertIn("Lien refait", out)
+        self.assertEqual(config_path.read_text(encoding="utf-8"), edited)
 
     async def test_unknown_model_creates_no_device_file(self):
         code, out = await self.run_cli(self.discovery(model="Z9"))
@@ -676,7 +681,6 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
             "port",
         ):
             self.assertIn(f"{name} :", out)
-        self.assertIn("non appairé", out)
 
     async def test_already_paired_accessory(self):
         code, _out = await self.run_cli(self.discovery(paired=True))

@@ -6,6 +6,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -16,7 +17,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import drivers.zigbee as zigbee  # noqa: E402
 from core import pair as pair_cli  # noqa: E402
+import drivers.zigbee.pair as zigbee_pair  # noqa: E402
 import drivers.zigbee.plug as zigbee_plug  # noqa: E402
+from core.devices import id_from_name  # noqa: E402
 from drivers.zigbee.plug import ELECTRICAL, METERING, ON_OFF, Plug  # noqa: E402
 from zigpy.types import EUI64  # noqa: E402
 
@@ -178,6 +181,53 @@ class PairingFileTest(unittest.IsolatedAsyncioTestCase):
 class PairCommandTest(unittest.TestCase):
     def test_protocols_found(self):
         self.assertEqual(set(pair_cli.protocols()), {"homekit", "zigbee"})
+
+    def test_id_from_name(self):
+        self.assertEqual(id_from_name("Prise salon"), "prise_salon")
+        self.assertEqual(id_from_name("Lampe d'entrée"), "lampe_d_entree")
+
+
+class PairRunTest(unittest.IsolatedAsyncioTestCase):
+    """Déroulé de ./habctrl pair zigbee, clé simulée : l'appareil s'est appairé."""
+
+    setUp = PairingFileTest.setUp
+    zdev = PairingFileTest.zdev
+
+    async def pair(self, *answers):
+        @asynccontextmanager
+        async def coordinator():
+            yield SimpleNamespace(devices={})
+
+        with (
+            mock.patch.object(zigbee, "open_session", coordinator),
+            mock.patch.object(zigbee_pair, "joined_devices", return_value=[]),
+            mock.patch.object(zigbee_pair, "wait_device", mock.AsyncMock(return_value=self.zdev())),
+            mock.patch.object(zigbee_pair, "SETTLE", 0),
+            mock.patch.object(zigbee_pair, "describe", return_value=[]),
+            mock.patch.object(zigbee_pair, "save_snapshot") as snapshot,
+            mock.patch.object(pair_cli, "add_device") as add,
+            mock.patch("builtins.input", side_effect=answers),
+            mock.patch("builtins.print"),
+        ):
+            code = await zigbee_pair.Pairing().run(1)
+        snapshot.assert_called_once()
+        return code, add
+
+    async def test_relink_keeps_logical_device(self):
+        zigbee.save_pairing("prise", self.zdev())
+        code, add = await self.pair("")  # Entrée : oui par défaut
+        self.assertEqual(code, 0)
+        add.assert_not_called()
+        self.assertEqual(zigbee.paired_ids(EUI64.convert(IEEE)), ["prise"])
+
+    async def test_refused_then_new_device(self):
+        zigbee.save_pairing("prise", self.zdev())
+        code, add = await self.pair("n", "", "Prise bureau")  # nom vide : redemandé
+        self.assertEqual(code, 0)
+        self.assertEqual(zigbee.paired_ids(EUI64.convert(IEEE)), ["prise_bureau"])
+        add.assert_called_once()
+        self.assertEqual(add.call_args.args[0], "prise_bureau")
+        self.assertEqual(add.call_args.kwargs["name"], "Prise bureau")
 
 
 if __name__ == "__main__":

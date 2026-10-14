@@ -65,7 +65,7 @@ def read_pairing_file(dev_id: str) -> dict:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as err:
         raise PairingError(
-            f"appairage absent ({path}) : lancer ./habctrl pair homekit {dev_id}"
+            f"appairage absent ({path}) : lancer ./habctrl pair homekit"
         ) from err
     except tomllib.TOMLDecodeError as err:
         raise PairingError(f"fichier d'appairage illisible ({path})") from err
@@ -77,6 +77,18 @@ def read_pairing_file(dev_id: str) -> dict:
 def load_pairing(dev_id: str) -> dict:
     """Clés d'appairage aiohomekit de l'équipement."""
     return read_pairing_file(dev_id)["hap"]
+
+
+def paired_ids(accessory_id: str) -> list[str]:
+    """Équipements logiques déjà rattachés à cet accessoire (identifiant HomeKit, ex. A8:01:…)."""
+    found = []
+    for path in sorted(PAIRING_DIR.glob("*.toml")):
+        try:
+            if read_pairing_file(path.stem)["hap"]["AccessoryPairingID"].lower() == accessory_id:
+                found.append(path.stem)
+        except (PairingError, ValueError):
+            continue
+    return found
 
 
 def save_pairing(dev_id: str, keys: dict, info: dict | None = None) -> Path:
@@ -126,7 +138,7 @@ async def accessory_info(pairing) -> dict:
 
 
 @asynccontextmanager
-async def open_controller():
+async def open_session():
     """Contrôleur HomeKit avec sa découverte mDNS, fermés à la sortie."""
     async with AsyncZeroconf() as zeroconf:
         # aiohomekit exige un navigateur mDNS déjà lancé : à créer avant le contrôleur

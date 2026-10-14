@@ -14,7 +14,7 @@ Lecture : fp2.zone.<alias> ou fp2.zone[<index>] (l'index est traduit en alias s'
 Déclencheur : @on_change("fp2.zone.<alias>") ; l'index n'est utilisable que pour une zone sans
 alias (@on_change("fp2.zone.3")), car l'état ne contient qu'une clé par capteur.
 
-Équipement créé et appairé par `./habctrl pair homekit <id>`.
+Équipement créé et appairé par `./habctrl pair homekit`.
 """
 
 import asyncio
@@ -26,7 +26,7 @@ from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
 
 from core.base import Attribute, NetworkDevice
-from drivers.homekit import ERRORS, PairingError, connect, open_controller
+from drivers.homekit import ERRORS, PairingError, connect, open_session
 
 log = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ class FP2(NetworkDevice):
         """Se connecte (adresse résolue par mDNS à chaque essai) et réessaie tant qu'il le faut."""
         while True:
             try:
-                async with open_controller() as controller:
+                async with open_session() as controller:
                     pairing = await connect(controller, self.id, self._find_timeout)
                     await self._serve(pairing)
             except PairingError as err:

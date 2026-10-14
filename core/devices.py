@@ -2,7 +2,9 @@ import importlib
 import json
 import keyword
 import pkgutil
+import re
 import tomllib
+import unicodedata
 from pathlib import Path
 
 from core import CONFIG_DIR
@@ -43,6 +45,21 @@ def load_devices(package: str = "devices") -> dict:
         device.configure(dev_id)
         devices[dev_id] = device
     return devices
+
+
+def id_from_name(name: str) -> str:
+    """Identifiant déduit du nom affiché : « Prise salon » → prise_salon."""
+    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return re.sub(r"\W+", "_", ascii_name.lower()).strip("_")
+
+
+def device_label(dev_id: str) -> str:
+    """« Nom (id) » d'un équipement de devices/, ou l'identifiant seul s'il est illisible."""
+    try:
+        name = getattr(importlib.import_module(f"devices.{dev_id}"), dev_id).name
+    except Exception:  # fichier absent ou en erreur : l'identifiant suffit à le désigner
+        return dev_id
+    return f"{name} ({dev_id})" if name else dev_id
 
 
 def check_new_device(dev_id: str, driver: str = "", path: Path = CONFIG_DIR / "devices") -> None:

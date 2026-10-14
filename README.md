@@ -19,15 +19,18 @@ Emplacements modifiables avec `HABCTRL_CONFIG` et `HABCTRL_TEMP`.
 ## Pairing
 ```batch
 ./habctrl pair -h                                  # protocoles disponibles
-./habctrl pair homekit fp2
-./habctrl pair zigbee prise_salon --duration 120   # HabController arrêté (il occupe la clé)
+./habctrl pair homekit                             # --duration : découverte mDNS (défaut 10 s)
+./habctrl pair zigbee                              # HabController arrêté (il occupe la clé)
 ```
 Le pilote est déduit du modèle (`drivers/<protocole>/models.toml`) et `devices/<id>.py`
-est créé. Redémarrer HabController ensuite.
+est créé. Le nom de l'équipement est demandé une fois l'appareil identifié (l'identifiant en
+est déduit) ; un appareil déjà rattaché (ex. après un changement de clé Zigbee ou une
+réinitialisation HomeKit) propose de refaire le lien avec son équipement existant.
+Redémarrer HabController ensuite.
 
 ## Restauration complète
 Cloner l'application et la configuration côte à côte, brancher la clé Zigbee, lancer. La base Zigbee est
-reprise de `pairing/zigbee.db` (écrite à l'arrêt et une fois par jour) ; les appairages
+reprise de `pairing/zigbee/zigbee.db` (écrite à chaque appairage) ; les appairages
 HomeKit restent valables tant que les accessoires n'ont pas été réinitialisés.
 
 ## détection clé USB SonOff Dongle Plus MG24

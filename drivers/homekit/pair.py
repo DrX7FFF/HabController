@@ -1,105 +1,51 @@
-"""Appaire un équipement HomeKit, enregistre l'appairage et crée devices/<id>.py.
+"""Appairage HomeKit (déroulé commun : core/pair.py).
 
-Usage : ./habctrl pair homekit <id> [--timeout 10]
-L'équipement est ajouté sans nom ; son pilote est déduit du modèle (drivers/homekit/models.toml),
-sinon aucun fichier n'est créé : l'équipement est à déclarer à la main dans devices/.
-Le code HomeKit (XXX-XX-XXX) est saisi sans écho.
-Redémarrer HabController ensuite.
+La découverte mDNS écoute pendant `--duration` secondes ; les accessoires déjà appairés sont
+ignorés (les réinitialiser pour les appairer). L'accessoire est reconnu par son identifiant
+HomeKit (ex. après une réinitialisation). Le code HomeKit (XXX-XX-XXX) est saisi sans écho.
 """
 
-import argparse
-import dataclasses
+import asyncio
 import getpass
+from dataclasses import fields
 from pathlib import Path
 
-from core.devices import add_device, check_new_device, driver_for_model
-from drivers.homekit import (
-    ERRORS,
-    PIN,
-    discover,
-    open_controller,
-    pair_accessory,
-    pairing_file,
-    read_pairing_file,
-)
-
-HELP = "appairer un accessoire HomeKit (découverte mDNS, code XXX-XX-XXX)"
-MODELS = Path(__file__).with_name("models.toml")
+from core import pair
+from drivers import homekit
+from drivers.homekit import PIN, discover, pair_accessory
 
 
-def choose(discoveries: list):
-    """Affiche tout ce que la découverte a vu, puis fait choisir un accessoire."""
-    for number, discovery in enumerate(discoveries, start=1):
-        state = "déjà appairé" if discovery.paired else "non appairé"
-        print(f"\n{number}. {discovery.description.name} [{state}]")
-        for field in dataclasses.fields(discovery.description):
-            print(f"     {field.name} : {getattr(discovery.description, field.name)}")
-    print()
+async def ask_pin() -> str:
     while True:
-        answer = input("Numéro de l'accessoire à appairer : ").strip()
-        if answer.isdigit() and 1 <= int(answer) <= len(discoveries):
-            return discoveries[int(answer) - 1]
-        print("Choix invalide.")
-
-
-def ask_pin() -> str:
-    while True:
-        pin = getpass.getpass("Code HomeKit (XXX-XX-XXX) : ")
+        pin = await asyncio.to_thread(getpass.getpass, "Code HomeKit (XXX-XX-XXX) : ")
         if PIN.fullmatch(pin):
             return pin
         print("Format invalide.")
 
 
-async def run(args: argparse.Namespace) -> int:
-    try:
-        check_new_device(args.id)
-        if pairing_file(args.id).exists():
-            raise ValueError(
-                f"un appairage existe déjà pour « {args.id} » ({pairing_file(args.id)})"
+class Pairing(pair.Pairing):
+    PROTOCOL = homekit
+    HELP = "appairer un accessoire HomeKit (découverte mDNS, code XXX-XX-XXX)"
+    SECRET_ERRORS = True
+
+    async def search(self, controller, duration: int) -> list[pair.Candidate]:
+        print(f"Recherche des accessoires HomeKit pendant {duration} s…")
+        candidates = []
+        for discovery in await discover(controller, duration):
+            desc = discovery.description
+            if discovery.paired:
+                print(f"{desc.name} : déjà appairé, ignoré (le réinitialiser pour l'appairer).")
+                continue
+            candidates.append(
+                pair.Candidate(
+                    uid=desc.id.lower(),
+                    model=desc.model,
+                    comment=f"HomeKit : {desc.name}, modèle {desc.model}",
+                    details=[f"{f.name} : {getattr(desc, f.name)}" for f in fields(desc)],
+                    device=discovery,
+                )
             )
-    except ValueError as err:
-        print(f"Erreur : {err}")
-        return 1
+        return candidates
 
-    async with open_controller() as controller:
-        print(f"Recherche des équipements HomeKit pendant {args.timeout:g} s…")
-        discoveries = await discover(controller, args.timeout)
-        if not discoveries:
-            print("Aucun équipement HomeKit trouvé sur le réseau.")
-            return 1
-        chosen = choose(discoveries)
-        if chosen.paired:
-            print("Cet équipement est déjà appairé : le réinitialiser avant de recommencer.")
-            return 1
-        description = chosen.description
-        driver = driver_for_model(
-            description.model, MODELS
-        )  # avant l'appairage : rien ne doit échouer après
-        try:
-            path = await pair_accessory(chosen, args.id, ask_pin())
-        except (ValueError, *ERRORS) as err:
-            print(f"Échec de l'appairage ({type(err).__name__}).")  # sans détail : rien sur le code
-            return 1
-
-    print(f"Appairage enregistré dans {path}.")
-    for field, value in read_pairing_file(args.id).items():
-        if field != "hap":  # les clés restent dans le fichier
-            print(f"  {field} : {value}")
-    if not driver:
-        print(
-            f"Modèle inconnu : déclarer l'équipement dans devices/{args.id}.py avec le bon pilote."
-        )
-        return 0
-    try:
-        add_device(
-            args.id, driver, comment=f"HomeKit : {description.name}, modèle {description.model}"
-        )
-    except ValueError as err:
-        print(f"Équipement non ajouté : {err}")
-        return 1
-    print(f"Équipement « {args.id} » créé : devices/{args.id}.py.")
-    return 0
-
-
-def add_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--timeout", type=float, default=10, help="durée de découverte en secondes")
+    async def link(self, controller, candidate: pair.Candidate, dev_id: str) -> Path:
+        return await pair_accessory(candidate.device, dev_id, await ask_pin())

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ./habctrl                          : lance HabController
-# ./habctrl pair <protocole> <id>    : appaire un équipement (./habctrl pair -h pour la liste)
+# ./habctrl pair <protocole> ...     : appaire un équipement (./habctrl pair -h pour la liste)
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO_DIR" || exit 1

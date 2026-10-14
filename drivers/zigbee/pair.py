@@ -1,35 +1,22 @@
-"""Appaire un équipement Zigbee via la clé USB : pairing/zigbee/<id>.toml et devices/<id>.py.
+"""Appairage Zigbee via la clé USB (déroulé commun : core/pair.py).
 
-Usage : ./habctrl pair zigbee <id> [--duration 120]
 HabController doit être arrêté (il occupe le port série de la clé).
 Le réseau est ouvert pendant `--duration` secondes : mettre l'équipement en mode appairage
-(souvent un appui long). Le premier équipement qui termine son interview est retenu.
-Le lien avec l'appareil physique est toujours enregistré (pairing/zigbee/<id>.toml). Le pilote
-est déduit du modèle (drivers/zigbee/models.toml) pour créer devices/<id>.py ; modèle inconnu :
-l'équipement logique est à déclarer à la main.
-Redémarrer HabController ensuite.
+(souvent un appui long). Le premier équipement qui termine son interview est retenu ; il est
+reconnu par son IEEE (ex. après un changement de clé). La copie de la base
+(pairing/zigbee/zigbee.db) est mise à jour.
 """
 
-import argparse
 import asyncio
 from pathlib import Path
 
-from core.devices import add_device, check_new_device, driver_for_model
-from drivers.zigbee import (
-    ERRORS,
-    describe,
-    joined_devices,
-    open_coordinator,
-    paired_ids,
-    pairing_file,
-    save_pairing,
-)
+from core import pair
+from drivers import zigbee
+from drivers.zigbee import describe, joined_devices, save_pairing, save_snapshot
 
-HELP = "appairer un équipement Zigbee (HabController arrêté : il occupe la clé)"
-MODELS = Path(__file__).with_name("models.toml")
 MAX_PERMIT = 254  # s, limite du protocole pour une ouverture du réseau
 INTERVIEW_WAIT = 60  # s, délai laissé à une interview commencée quand le réseau se referme
-SETTLE = 10  # s, avant de fermer la clé une fois l'équipement appairé
+SETTLE = 10  # s, laissés à l'équipement juste appairé avant de continuer
 
 
 class PairingListener:
@@ -73,69 +60,32 @@ async def wait_device(app, duration: int):
         await app.permit(0)  # referme le réseau sans attendre la fin du délai
 
 
-async def run(args: argparse.Namespace) -> int:
-    try:
-        check_new_device(args.id)
-        if pairing_file(args.id).exists():
-            raise ValueError(
-                f"un appairage existe déjà pour « {args.id} » ({pairing_file(args.id)})"
+class Pairing(pair.Pairing):
+    PROTOCOL = zigbee
+    HELP = "appairer un équipement Zigbee (HabController arrêté : il occupe la clé)"
+    DURATION = 120
+    MAX_DURATION = MAX_PERMIT
+    HINT = "Vérifier le port ([zigbee] de habctrl.toml) et que HabController est arrêté."
+
+    async def search(self, app, duration: int) -> list[pair.Candidate]:
+        print(f"Coordinateur démarré, {len(joined_devices(app))} équipement(s) déjà sur le réseau.")
+        device = await wait_device(app, duration)
+        if device is None:
+            return []
+        # juste après l'interview, l'équipement échange encore (ex. demande de mise à jour OTA)
+        await asyncio.sleep(SETTLE)
+        return [
+            pair.Candidate(
+                uid=device.ieee,
+                model=device.model or "",
+                comment=f"Zigbee : {device.manufacturer}, modèle {device.model}",
+                details=describe(device),
+                device=device,
             )
-    except ValueError as err:
-        print(f"Erreur : {err}")
-        return 1
+        ]
 
-    try:
-        async with open_coordinator() as app:
-            known = {device.ieee for device in joined_devices(app)}
-            print(f"Coordinateur démarré, {len(known)} équipement(s) déjà sur le réseau.")
-            device = await wait_device(app, args.duration)
-            if device is not None:
-                # juste après l'interview, l'équipement échange encore (ex. demande de mise à jour
-                # OTA) : fermer la clé tout de suite couperait la réponse en plein envoi
-                await asyncio.sleep(SETTLE)
-    except ERRORS as err:
-        print(f"Clé Zigbee inaccessible ({type(err).__name__} : {err}).")
-        print("Vérifier le port ([zigbee] de habctrl.toml) et que HabController est arrêté.")
-        return 1
+    async def link(self, app, candidate: pair.Candidate, dev_id: str) -> Path:
+        return save_pairing(dev_id, candidate.device)
 
-    if device is None:
-        print("Aucun équipement appairé.")
-        return 1
-    print()
-    print("\n".join(describe(device)))
-    if device.ieee in known:
-        print("Équipement déjà connu du réseau : réappairé.")
-    if others := paired_ids(device.ieee):
-        print(f"Attention : cet appareil est déjà rattaché à {', '.join(others)}.")
-
-    path = save_pairing(args.id, device)
-    print(f"Appairage enregistré dans {path}.")
-    driver = driver_for_model(device.model or "", MODELS)
-    if not driver:
-        print(
-            f"\nModèle inconnu : déclarer l'équipement dans devices/{args.id}.py avec le bon "
-            "pilote, ou ajouter le modèle à drivers/zigbee/models.toml."
-        )
-        return 0
-    try:
-        add_device(
-            args.id, driver, comment=f"Zigbee : {device.manufacturer}, modèle {device.model}"
-        )
-    except ValueError as err:
-        print(f"Équipement non ajouté : {err}")
-        return 1
-    print(f"Équipement « {args.id} » créé : devices/{args.id}.py.")
-    return 0
-
-
-def duration(text: str) -> int:
-    value = int(text)
-    if not 1 <= value <= MAX_PERMIT:
-        raise argparse.ArgumentTypeError(f"entre 1 et {MAX_PERMIT} secondes")
-    return value
-
-
-def add_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--duration", type=duration, default=120, help="ouverture du réseau en secondes"
-    )
+    def done(self) -> None:
+        save_snapshot()  # le réseau a changé : seule écriture de la copie
