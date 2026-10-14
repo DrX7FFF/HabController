@@ -5,3 +5,4 @@ zigpy
 bellows
 websockets
 aiohomekit
+google-auth[requests]

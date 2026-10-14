@@ -13,7 +13,7 @@ s'importent depuis devices/, avec le déclencheur :
     log = logging.getLogger(__name__)  # journal des scripts : temp/automations.log
 
     @on_change("capteur.presence")            # « équipement.attribut » ; « capteur » = tout l'état
-    async def eclairage(event: Event):        # event.old, event.new, event.changed
+    async def eclairage(event: Event):        # event.old, event.new, event.changed, event.time
         if capteur.connected and capteur.presence:
             salon.on = True                   # écriture : commande envoyée en tâche de fond
             cuisine.on = True
@@ -56,6 +56,7 @@ class Event:
     old: Any  # dernière valeur connue (None si jamais vue)
     new: Any
     changed: frozenset[str]  # attributs de l'équipement modifiés par ce changement
+    time: int  # horodatage du changement (ms depuis l'époque Unix), voir Device.changed_at
 
 
 @dataclass
@@ -91,10 +92,11 @@ def on_change(target: str, *, to: Any = _ANY) -> Callable[[Rule], Rule]:
 class _Watcher:
     """Suit l'état d'un équipement et lance les fonctions concernées à chaque changement."""
 
-    def __init__(self, dev_id: str, handlers: list[Handler], state: dict):
-        self.dev_id = dev_id
+    def __init__(self, device: Device, handlers: list[Handler]):
+        self.device = device
+        self.dev_id = device.id
         self.handlers = handlers
-        self.last: dict = dict(state)  # dernières valeurs connues, par attribut
+        self.last: dict = dict(device.state())  # dernières valeurs connues, par attribut
 
     def on_state(self, state: dict) -> None:
         changed = frozenset(a for a, v in state.items() if a not in self.last or self.last[a] != v)
@@ -102,14 +104,15 @@ class _Watcher:
             return
         old = dict(self.last)
         self.last.update(state)
+        when = self.device.changed_at or 0
         for handler in self.handlers:
             if handler.attr is None:
-                event = Event(self.dev_id, None, old, dict(self.last), changed)
+                event = Event(self.dev_id, None, old, dict(self.last), changed, when)
             elif handler.attr in changed:
                 new = state[handler.attr]
                 if handler.to is not _ANY and new != handler.to:
                     continue
-                event = Event(self.dev_id, handler.attr, old.get(handler.attr), new, changed)
+                event = Event(self.dev_id, handler.attr, old.get(handler.attr), new, changed, when)
             else:
                 continue
             _spawn(handler, event)
@@ -136,7 +139,7 @@ def bind(devs: dict[str, Device]) -> None:
             continue
         by_device.setdefault(handler.device, []).append(handler)
     for dev_id, handlers in by_device.items():
-        watcher = _Watcher(dev_id, handlers, devs[dev_id].state())
+        watcher = _Watcher(devs[dev_id], handlers)
         devs[dev_id].subscribe(watcher.on_state)
 
 

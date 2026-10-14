@@ -11,6 +11,8 @@ Habitation domotique home mad
   l'installation et suffit à la restaurer — `habctrl.toml` (réglages), `dashboard/`, `devices/`,
   `automations/`, `pairing/` (appairages HomeKit et instantané de la base Zigbee).
 - **temp/** : 100 % jetable (journaux, base Zigbee vivante), peut être en RAM.
+- **Secrets** (hors dépôt : `../HabSecrets`) : `firebase.json`, clé du compte de service
+  Firebase pour le datalog (section `[datalog]` de `habctrl.toml`, voir `core/datalog.py`).
 
 Emplacements modifiables avec `HABCTRL_CONFIG` et `HABCTRL_TEMP`.
 

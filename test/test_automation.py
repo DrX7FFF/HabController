@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -91,6 +92,21 @@ class OnChangeTest(AutomationTestCase):
         )
         self.assertEqual(events[1].changed, {"presence_0"})
         self.assertEqual((events[1].device, events[1].attr), ("fp2", "presence_0"))
+
+    async def test_event_carries_device_timestamp(self):
+        fp = FakeDevice("fp2", {"n": 0})
+        events = []
+
+        @automation.on_change("fp2.n")
+        async def handler(event):
+            events.append(event)
+
+        automation.bind({"fp2": fp})
+        before = time.time_ns() // 1_000_000
+        fp.update(n=1)
+        await self.idle()
+        self.assertEqual(events[0].time, fp.changed_at)
+        self.assertGreaterEqual(events[0].time, before)
 
     async def test_to_filter_accepts_false(self):
         fp = FakeDevice("fp2", {"presence_0": True})

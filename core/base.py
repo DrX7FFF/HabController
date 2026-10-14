@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import Generic, TypeVar, overload
 
@@ -71,6 +72,7 @@ class Device:
         self._listeners: list[Callable[[dict], None]] = []
         self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre
         self._last_notified: dict | None = None
+        self.changed_at: int | None = None  # ms depuis l'époque Unix, dernier changement d'état
 
     def configure(self, dev_id: str) -> None:
         """Appelé par le chargeur, avant start() : identifiant, et nom par défaut."""
@@ -83,10 +85,14 @@ class Device:
         self._listeners.append(callback)
 
     def _notify(self) -> None:
-        """À appeler après toute mise à jour de l'état ; ne diffuse que les vrais changements."""
+        """À appeler après toute mise à jour de l'état ; ne diffuse que les vrais changements.
+
+        Le changement est horodaté (changed_at) avant d'être diffusé.
+        """
         state = self.state()
         if state != self._last_notified:
             self._last_notified = state
+            self.changed_at = time.time_ns() // 1_000_000
             for callback in self._listeners:
                 callback(state)
 
