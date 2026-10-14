@@ -15,13 +15,13 @@ s'importent depuis devices/, avec le déclencheur :
     @on_change("capteur.presence")            # « équipement.attribut » ; « capteur » = tout l'état
     async def eclairage(event: Event):        # event.old, event.new, event.changed
         if capteur.connected and capteur.presence:
-            salon.power = "on"                # écriture : commande envoyée en tâche de fond
-            cuisine.power = "on"
+            salon.on = True                   # écriture : commande envoyée en tâche de fond
+            cuisine.on = True
 
 Lecture : un attribut vaut None si l'équipement est injoignable (l'attribut disparaît de son
-état). Écriture : salon.power = "on" ne bloque pas et ne lève rien si l'équipement est
+état). Écriture : salon.on = True ne bloque pas et ne lève rien si l'équipement est
 injoignable (c'est journalisé) ; les commandes d'un même équipement partent dans l'ordre.
-Pour attendre la réponse, ou passer une transition : `ok = await salon.send("power", "on", 2)`,
+Pour attendre la réponse, ou passer une transition : `ok = await salon.send("on", True, 2)`,
 qui renvoie False si la commande n'a pas pu partir. Un équipement inconnu dans un @on_change
 est signalé au démarrage.
 

@@ -2,17 +2,24 @@ import asyncio
 import contextlib
 import logging
 
-from yeelight import BulbException
+from yeelight import BulbException, Flow, RGBTransition, SceneClass, TemperatureTransition
 from yeelight.aio import KEY_CONNECTED, AsyncBulb
 
-from core.base import Attribute, NetworkDevice, DeviceError
+from core.base import Attribute, DeviceError, NetworkDevice, on_value
 
 log = logging.getLogger(__name__)
 
 ERRORS = (BulbException, OSError)  # erreurs du protocole ou du réseau
 PROPERTIES = ["power", "bright", "ct", "rgb"]
-SETTABLE = frozenset({"power", "brightness", "color_temp", "rgb"})
+SETTABLE = frozenset({"on", "brightness", "color_temp", "rgb"})
 RETRY_DELAY = 10  # s, entre deux tentatives de première connexion
+
+
+def _rgb(value: str) -> tuple[int, int, int]:
+    text = str(value).lstrip("#")
+    if len(text) != 6:
+        raise ValueError("rgb attend une couleur au format #rrggbb")
+    return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
 
 
 def _effect(transition: int) -> dict:
@@ -25,7 +32,7 @@ def _effect(transition: int) -> dict:
 class YeelightBulb(NetworkDevice):
     """Ampoule Yeelight : une connexion permanente, l'état vient des notifications."""
 
-    power = Attribute[str]()  # "on", "off", "toggle" (écriture) ; "unreachable" en lecture si disconnecté
+    on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
     brightness = Attribute[int]()  # 1 à 100
     color_temp = Attribute[int]()  # Kelvin
     rgb = Attribute[str]()  # "#rrggbb"
@@ -102,11 +109,10 @@ class YeelightBulb(NetworkDevice):
         self._synced = True
         self._notify()
 
-    def _get_disconnected_state(self) -> dict:
-        return {"power": "unreachable"}
-
     def _get_connected_state(self) -> dict:
-        state = {"power": self._props.get("power", "unreachable")}
+        state = {}
+        if "power" in self._props:  # le protocole Yeelight dit "on" / "off"
+            state["on"] = self._props["power"] == "on"
         if "bright" in self._props:
             state["brightness"] = int(self._props["bright"])
         if "ct" in self._props:
@@ -116,31 +122,70 @@ class YeelightBulb(NetworkDevice):
         return state
 
     # --- commandes ----------------------------------------------------------
+    # toggle, set_rgb et set_temp : en tâche de fond, comme salon.on = True. set_rgb et
+    # set_temp allument et règlent tout en un seul message (scène « color flow » d'une étape,
+    # la seule qui accepte une transition).
 
-    async def set(self, name: str, value: str | int, transition: int | None = None) -> None:
-        if name not in SETTABLE:
-            raise ValueError(f"{self.name} ne gère pas « {name} »")
+    def toggle(self, transition: int | None = None) -> None:
+        self._background("toggle", lambda: self.set("on", "toggle", transition))
+
+    def set_rgb(self, brightness: int, rgb: str, transition: int | None = None) -> None:
+        self._background(
+            f"set_rgb({brightness}, {rgb!r})", lambda: self._set_rgb(brightness, rgb, transition)
+        )
+
+    def set_temp(self, brightness: int, color_temp: int, transition: int | None = None) -> None:
+        self._background(
+            f"set_temp({brightness}, {color_temp})",
+            lambda: self._set_temp(brightness, color_temp, transition),
+        )
+
+    async def _set_rgb(self, brightness: int, rgb: str, transition: int | None) -> None:
+        red, green, blue = _rgb(rgb)
+        step = RGBTransition(red, green, blue, self._duration(transition), int(brightness))
+        rgb_value = str((red << 16) | (green << 8) | blue)  # format du protocole
+        await self._scene(step, bright=str(int(brightness)), rgb=rgb_value)
+
+    async def _set_temp(self, brightness: int, color_temp: int, transition: int | None) -> None:
+        step = TemperatureTransition(int(color_temp), self._duration(transition), int(brightness))
+        await self._scene(step, bright=str(int(brightness)), ct=str(int(color_temp)))
+
+    async def _scene(self, step, **props: str) -> None:
+        self._check_reachable()
+        try:
+            await self._bulb.async_set_scene(SceneClass.CF, Flow(1, Flow.actions.stay, [step]))
+        except ERRORS as err:
+            raise DeviceError(f"{self.name} : {err}") from err
+        self._props.update(power="on", **props)
+        self._notify()
+
+    def _duration(self, transition: int | None) -> int:
+        return self.transition if transition is None else transition
+
+    def _check_reachable(self) -> None:
         if not (self._connected and self._synced):
             raise DeviceError(f"{self.name} : injoignable")
-        fx = _effect(self.transition if transition is None else transition)
+
+    async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
+        if name not in SETTABLE:
+            raise ValueError(f"{self.name} ne gère pas « {name} »")
+        self._check_reachable()
+        fx = _effect(self._duration(transition))
         try:
             await self._apply(name, value, fx)
         except ERRORS as err:
             raise DeviceError(f"{self.name} : {err}") from err
         self._notify()
 
-    async def _apply(self, name: str, value: str | int, fx: dict) -> None:
+    async def _apply(self, name: str, value: bool | str | int, fx: dict) -> None:
         bulb = self._bulb
-        if name == "power":
-            if value == "toggle":
-                value = "off" if self._props.get("power") == "on" else "on"
-            if value == "on":
+        if name == "on":
+            on = on_value(value, self._props.get("power") == "on")
+            if on:
                 await bulb.async_turn_on(**fx)
-            elif value == "off":
-                await bulb.async_turn_off(**fx)
             else:
-                raise ValueError("power attend « on », « off » ou « toggle »")
-            self._props["power"] = value
+                await bulb.async_turn_off(**fx)
+            self._props["power"] = "on" if on else "off"
         elif name == "brightness":
             await bulb.async_set_brightness(int(value), **fx)
             self._props["bright"] = str(int(value))
@@ -148,10 +193,7 @@ class YeelightBulb(NetworkDevice):
             await bulb.async_set_color_temp(int(value), **fx)
             self._props["ct"] = str(int(value))
         elif name == "rgb":
-            text = str(value).lstrip("#")
-            if len(text) != 6:
-                raise ValueError("rgb attend une couleur au format #rrggbb")
-            red, green, blue = (int(text[i : i + 2], 16) for i in (0, 2, 4))
+            red, green, blue = _rgb(str(value))
             await bulb.async_set_rgb(red, green, blue, **fx)
             self._props["rgb"] = str((red << 16) | (green << 8) | blue)
 

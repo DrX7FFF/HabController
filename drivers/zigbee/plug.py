@@ -1,6 +1,6 @@
 """Prise ou relais Zigbee : marche/arrêt, et mesures électriques si l'équipement en fait.
 
-État : {"connected": bool, "power": "on" | "off" | "unreachable",
+État : {"connected": bool, "on": bool,
         "active_power": W, "voltage": V, "current": A, "energy": kWh}
 Les mesures n'apparaissent que si l'équipement a les clusters correspondants (0x0b04, 0x0702).
 Chaque prise se déclare dans `devices/<id>.py`, sans adresse : le lien avec l'appareil
@@ -10,12 +10,12 @@ physique est pairing/zigbee/<id>.toml. Les deux sont créés par `./habctrl pair
 
     prise_salon = Plug(name="Prise salon")
 
-Écriture : prise_salon.power = "on" | "off" | "toggle", comme une ampoule.
+Écriture : prise_salon.on = True | False | "toggle", comme une ampoule.
 """
 
 import logging
 
-from core.base import Attribute
+from core.base import Attribute, on_value
 from drivers.zigbee import ZigbeeDevice, find_cluster, read, setup_reporting
 
 log = logging.getLogger(__name__)
@@ -38,17 +38,19 @@ MODEL_DIVISORS = {
 # Envoi spontané : attribut -> (intervalle min s, max s, écart minimal en valeur brute)
 REPORTS = {
     ON_OFF: {"on_off": (0, 600, 1)},
-    ELECTRICAL: {"active_power": (5, 300, 1), "rms_voltage": (30, 600, 1), "rms_current": (5, 300, 1)},
+    ELECTRICAL: {
+        "active_power": (5, 300, 1),
+        "rms_voltage": (30, 600, 1),
+        "rms_current": (5, 300, 1),
+    },
     METERING: {"current_summ_delivered": (30, 600, 1)},
 }
 
 
 class Plug(ZigbeeDevice):
-    """Prise Zigbee : relue toutes les minutes (beaucoup de prises n'envoient pas leurs mesures)."""
+    """Prise Zigbee : marche/arrêt et mesures, envoyées spontanément par la prise."""
 
-    POLL = 60
-
-    power = Attribute[str]()  # "on", "off", "toggle" (écriture) ; "unreachable" si injoignable
+    on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
     active_power = Attribute[float](readonly=True)
     voltage = Attribute[float](readonly=True)
     current = Attribute[float](readonly=True)
@@ -56,7 +58,7 @@ class Plug(ZigbeeDevice):
 
     def __init__(self, name: str = "", poll: float | None = None):
         super().__init__(name, poll)
-        self._values: dict[str, str | float] = {}
+        self._values: dict[str, bool | float] = {}
         self._scales: dict[str, float] = {}  # état -> facteur, pour les mesures disponibles
         self._by_zcl: dict[tuple[int, str], str] = {
             (cluster_id, attr): key for key, (cluster_id, attr, _, _) in MEASURES.items()
@@ -89,28 +91,22 @@ class Plug(ZigbeeDevice):
 
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
         if cluster_id == ON_OFF and name == "on_off":
-            self._values["power"] = "on" if value else "off"
+            self._values["on"] = bool(value)
         elif (key := self._by_zcl.get((cluster_id, name))) and key in self._scales:
             self._values[key] = round(value * self._scales[key], 3)
 
-    def _get_disconnected_state(self) -> dict:
-        return {"power": "unreachable"}
-
     def _get_connected_state(self) -> dict:
-        return {"power": "unreachable", **self._values}
+        return dict(self._values)
 
     # --- commandes ----------------------------------------------------------
 
-    async def set(self, name: str, value: str | int, transition: int | None = None) -> None:
-        if name != "power":
+    async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
+        if name != "on":
             raise ValueError(f"{self.name} ne gère pas « {name} »")
-        if value == "toggle":
-            value = "off" if self._values.get("power") == "on" else "on"
-        if value not in ("on", "off"):
-            raise ValueError("power attend « on », « off » ou « toggle »")
+        on = on_value(value, self._values.get("on") is True)
         cluster = find_cluster(self.zdev, ON_OFF) if self.zdev is not None else None
-        await self._command(cluster, value)
-        self._values["power"] = value
+        await self._command(cluster, "on" if on else "off")  # commandes ZCL « on » / « off »
+        self._values["on"] = on
         self._notify()
 
 

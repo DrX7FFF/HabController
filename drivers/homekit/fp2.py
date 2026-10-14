@@ -108,7 +108,9 @@ class FP2(NetworkDevice):
         super().__init__(name)
         self._find_timeout = find_timeout
         self._aliases = {
-            int(index): alias for index, alias in (zonemapping or {}).items() if str(index).isdigit()
+            int(index): alias
+            for index, alias in (zonemapping or {}).items()
+            if str(index).isdigit()
         }
         self._subscribed: set[Key] = set()  # abonnements actifs sur la connexion courante
         self._mapping = Mapping()
@@ -275,7 +277,7 @@ class FP2(NetworkDevice):
 
     # --- commandes ----------------------------------------------------------
 
-    async def set(self, name: str, value: str | int, transition: int | None = None) -> None:
+    async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
         raise ValueError(f"{self.name} est un capteur : aucune commande")
 
 

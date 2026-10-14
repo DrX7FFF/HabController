@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Generic, TypeVar, overload
 
 log = logging.getLogger(__name__)
@@ -23,6 +23,15 @@ def spawn_task(coro, name: str) -> None:
 
 class DeviceError(Exception):
     """Équipement injoignable ou commande refusée."""
+
+
+def on_value(value: bool | str | int, current: bool | None) -> bool:
+    """Valeur demandée pour l'attribut `on` : True, False, ou "toggle" (inverse l'état connu)."""
+    if value == "toggle":
+        return not current
+    if isinstance(value, bool):
+        return value
+    raise ValueError("on attend True, False ou « toggle »")
 
 
 class Attribute(Generic[T]):
@@ -91,11 +100,11 @@ class Device:
         """État courant, lu en mémoire : ne doit jamais interroger l'équipement."""
         raise NotImplementedError
 
-    async def set(self, name: str, value: str | int, transition: int | None = None) -> None:
+    async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
         raise NotImplementedError
 
-    async def send(self, name: str, value: str | int, transition: int | None = None) -> bool:
-        """set() à la suite des autres commandes : False (journalisé) si l'équipement n'a pas répondu.
+    async def send(self, name: str, value: bool | str | int, transition: int | None = None) -> bool:
+        """set() après les autres commandes : False (journalisé) si l'équipement n'a pas répondu.
 
         Une commande refusée par le pilote (ValueError) est une erreur du script : elle remonte.
         """
@@ -107,15 +116,25 @@ class Device:
                 return False
         return True
 
-    def _assign(self, name: str, value: str | int) -> None:
+    def _assign(self, name: str, value: bool | str | int) -> None:
         """Écriture `equipement.attribut = valeur` : commande en tâche de fond, sans bloquer."""
-        spawn_task(self._assign_task(name, value), f"{self.id}.{name}")
+        self._background(f"{name}={value!r}", lambda: self.set(name, value))
 
-    async def _assign_task(self, name: str, value: str | int) -> None:
-        try:
-            await self.send(name, value)
-        except ValueError as err:
-            log.warning("%s : commande %s=%r refusée (%s)", self.id, name, value, err)
+    def _background(self, label: str, command: Callable[[], Awaitable[None]]) -> None:
+        """Lance command() en tâche de fond, après les commandes précédentes de l'équipement.
+
+        Équipement injoignable ou commande refusée : journalisé, rien ne remonte au script.
+        """
+        spawn_task(self._background_task(label, command), f"{self.id}.{label}")
+
+    async def _background_task(self, label: str, command: Callable[[], Awaitable[None]]) -> None:
+        async with self._lock:
+            try:
+                await command()
+            except DeviceError as err:
+                log.warning("%s : commande %s non envoyée (%s)", self.id, label, err)
+            except ValueError as err:
+                log.warning("%s : commande %s refusée (%s)", self.id, label, err)
 
 
 class NetworkDevice(Device):

@@ -3,7 +3,6 @@
 import asyncio
 import contextlib
 import io
-import json
 import stat
 import os
 import sys
@@ -314,7 +313,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
     async def test_set_refused(self):
         driver = make_fp2()
         with self.assertRaises(ValueError):
-            await driver.set("power", "on")
+            await driver.set("on", True)
 
     async def test_stop_after_start_unreachable_pairing_missing(self):
         # sans appairage enregistré : erreur claire journalisée, pas de boucle infinie
@@ -471,7 +470,9 @@ class AddDeviceTest(unittest.TestCase):
         (self.path / "salon.py").write_text("salon = None\n")
 
     def test_add_with_driver_and_name(self):
-        core_devices.add_device("fp2", "homekit.fp2", 'Présence "salon"', "HomeKit : X", path=self.path)
+        core_devices.add_device(
+            "fp2", "homekit.fp2", 'Présence "salon"', "HomeKit : X", path=self.path
+        )
         text = (self.path / "fp2.py").read_text(encoding="utf-8")
         self.assertEqual(
             text,
@@ -521,7 +522,9 @@ class LoadDevicesTest(unittest.TestCase):
         (self.path / f"{name}.py").write_text(text, encoding="utf-8")
 
     def test_id_from_file_name_and_default_name(self):
-        self.write("fp2", "from drivers.homekit.fp2 import FP2\nfp2 = FP2(zonemapping={1: 'salon'})\n")
+        self.write(
+            "fp2", "from drivers.homekit.fp2 import FP2\nfp2 = FP2(zonemapping={1: 'salon'})\n"
+        )
         self.write("_ignore", "raise RuntimeError\n")
         devices = core_devices.load_devices(self.package)
         self.assertEqual(set(devices), {"fp2"})

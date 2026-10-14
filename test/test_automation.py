@@ -51,7 +51,7 @@ class FakeDevice(Device):
 
 
 class FakeBulb(FakeDevice):
-    power = Attribute[str]()
+    on = Attribute[bool]()
     bright = Attribute[int]()
 
 
@@ -165,8 +165,8 @@ class OnChangeTest(AutomationTestCase):
 
         @automation.on_change("fp2.n")
         async def handler(event):
-            results.append(await salon.send("power", event.new))
-            results.append(await cuisine.send("power", event.new))
+            results.append(await salon.send("on", event.new))
+            results.append(await cuisine.send("on", event.new))
 
         automation.bind({"fp2": fp, "salon": salon, "cuisine": cuisine})
         salon.fail = DeviceError("injoignable")
@@ -175,20 +175,20 @@ class OnChangeTest(AutomationTestCase):
             await self.idle()
         self.assertIn("injoignable", logs.output[0])
         self.assertEqual(results, [False, True])  # la suite du script a bien tourné
-        self.assertEqual(cuisine.commands, [("power", 1)])
+        self.assertEqual(cuisine.commands, [("on", 1)])
         salon.fail = None
         fp.update(n=2)
         await self.idle()
-        self.assertEqual(salon.commands, [("power", 2)])
+        self.assertEqual(salon.commands, [("on", 2)])
 
     async def test_invalid_command_is_not_swallowed(self):
         fp = FakeDevice("fp2", {"n": 0})
         bulb = FakeDevice("salon")
-        bulb.fail = ValueError("power attend on/off")
+        bulb.fail = ValueError("on attend True/False")
 
         @automation.on_change("fp2.n")
         async def handler(event):
-            await bulb.set("power", "oups")
+            await bulb.set("on", "oups")
 
         automation.bind({"fp2": fp, "salon": bulb})
         with self.assertLogs("core.automation", "WARNING") as logs:
@@ -230,7 +230,7 @@ class OnChangeTest(AutomationTestCase):
 
 
 class AttributeTest(AutomationTestCase):
-    """Lecture et écriture simplifiées : fp2.illuminance, salon.power = "on"."""
+    """Lecture et écriture simplifiées : fp2.illuminance, salon.on = True."""
 
     def test_read_is_live_state_none_when_unknown(self):
         fp = make_fp2()
@@ -258,45 +258,45 @@ class AttributeTest(AutomationTestCase):
 
     async def test_assignment_sends_command_without_waiting(self):
         bulb = FakeBulb("salon")
-        bulb.power = "on"
+        bulb.on = True
         self.assertEqual(bulb.commands, [])  # pas encore parti : l'écriture ne bloque pas
         await self.idle()
-        self.assertEqual(bulb.commands, [("power", "on")])
-        self.assertEqual(bulb.power, "on")
+        self.assertEqual(bulb.commands, [("on", True)])
+        self.assertEqual(bulb.on, True)
 
     async def test_assignments_keep_order_per_device(self):
         bulb = FakeBulb("salon")
         bulb.delays = [0.05, 0]  # la première commande est la plus lente
-        bulb.power = "on"
+        bulb.on = True
         bulb.bright = 80
         await self.idle()
-        self.assertEqual(bulb.commands, [("power", "on"), ("bright", 80)])
+        self.assertEqual(bulb.commands, [("on", True), ("bright", 80)])
 
     async def test_unreachable_device_is_logged_not_raised(self):
         bulb = FakeBulb("salon")
         bulb.fail = DeviceError("injoignable")
         with self.assertLogs("core.base", "WARNING") as logs:
-            bulb.power = "on"
+            bulb.on = True
             await self.idle()
         self.assertIn("injoignable", logs.output[0])
 
     async def test_refused_command_is_a_warning(self):
         bulb = FakeBulb("salon")
-        bulb.fail = ValueError("power attend on/off")
+        bulb.fail = ValueError("on attend True/False")
         with self.assertLogs("core.base", "WARNING") as logs:
-            bulb.power = "oups"
+            bulb.on = "oups"
             await self.idle()
         self.assertIn("refusée", logs.output[0])
 
     async def test_awaited_send_returns_success(self):
         bulb = FakeBulb("salon")
-        self.assertTrue(await bulb.send("power", "on"))
+        self.assertTrue(await bulb.send("on", True))
         bulb.fail = DeviceError("injoignable")
         with self.assertLogs("core.base", "WARNING"):
-            self.assertFalse(await bulb.send("power", "off"))
+            self.assertFalse(await bulb.send("on", False))
         bulb.fail = ValueError("refusé")
         with self.assertRaises(ValueError):  # erreur du script : elle remonte
-            await bulb.send("power", "oups")
+            await bulb.send("on", "oups")
 
     async def test_script_style_from_the_docs(self):
         fp = FakeDevice("fp2", {"connected": True, "illuminance": 10.0, "zone.Global": False})
@@ -305,13 +305,13 @@ class AttributeTest(AutomationTestCase):
         @automation.on_change("fp2.zone.Global", to=True)
         async def eclairage(event):
             if fp.state().get("illuminance", 100) < 50:
-                salon.power = "on"
-                cuisine.power = "on"
+                salon.on = True
+                cuisine.on = True
 
         automation.bind({"fp2": fp})
         fp.update(**{"zone.Global": True})
         await self.idle()
-        self.assertEqual((salon.commands, cuisine.commands), ([("power", "on")], [("power", "on")]))
+        self.assertEqual((salon.commands, cuisine.commands), ([("on", True)], [("on", True)]))
         fp._state = {"connected": False}  # injoignable : ne plante pas, ne fait rien
         fp._notify()
         fp.update(**{"connected": True, "illuminance": 80.0, "zone.Global": False})
@@ -321,7 +321,10 @@ class AttributeTest(AutomationTestCase):
 
 
 class PresenceRuleTest(AutomationTestCase):
-    """La règle d'automations/presence.py (configuration de test), avec le vrai pilote FP2 et un faux appairage."""
+    """La règle d'automations/presence.py (configuration de test).
+
+    Avec le vrai pilote FP2 et un faux appairage.
+    """
 
     async def asyncSetUp(self):
         from automations import presence
@@ -359,16 +362,16 @@ class PresenceRuleTest(AutomationTestCase):
 
     async def test_lights_follow_presence_0(self):
         # FP2 connecté, capteur 0 sans présence : les deux ampoules reçoivent « off »
-        self.assertEqual(self.commands["salon"], [("power", "off")])
-        self.assertEqual(self.commands["cuisine"], [("power", "off")])
+        self.assertEqual(self.commands["salon"], [("on", False)])
+        self.assertEqual(self.commands["cuisine"], [("on", False)])
         self.pairing.emit("event", {presence_key(0): {"value": 1}})
         await self.idle()
-        self.assertEqual(self.commands["salon"][-1], ("power", "on"))
-        self.assertEqual(self.commands["cuisine"][-1], ("power", "on"))
+        self.assertEqual(self.commands["salon"][-1], ("on", True))
+        self.assertEqual(self.commands["cuisine"][-1], ("on", True))
         self.pairing.emit("event", {presence_key(0): {"value": 0}})
         await self.idle()
-        self.assertEqual(self.commands["salon"][-1], ("power", "off"))
-        self.assertEqual(self.commands["cuisine"][-1], ("power", "off"))
+        self.assertEqual(self.commands["salon"][-1], ("on", False))
+        self.assertEqual(self.commands["cuisine"][-1], ("on", False))
 
     async def test_other_sensors_do_not_trigger(self):
         before = len(self.commands["salon"])
@@ -390,7 +393,7 @@ class PresenceRuleTest(AutomationTestCase):
         with self.assertLogs("core.base", "WARNING"):
             self.pairing.emit("event", {presence_key(0): {"value": 1}})
             await self.idle()
-        self.assertEqual(self.commands["cuisine"][-1], ("power", "on"))
+        self.assertEqual(self.commands["cuisine"][-1], ("on", True))
 
 
 if __name__ == "__main__":

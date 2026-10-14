@@ -72,7 +72,8 @@ def _clusters(clusters) -> str:
 def save_pairing(dev_id: str, zdev) -> Path:
     """Enregistre le lien entre l'équipement logique `dev_id` et l'appareil physique `zdev`."""
     lines = [
-        f"# Appairage Zigbee de « {dev_id} » : lien entre l'équipement logique (devices/{dev_id}.py)",
+        f"# Appairage Zigbee de « {dev_id} » : lien entre l'équipement logique"
+        f" (devices/{dev_id}.py)",
         "# et l'appareil physique. Écrit par ./habctrl pair zigbee.",
         "",
         f'ieee = "{zdev.ieee}"',
@@ -227,9 +228,7 @@ async def setup_reporting(name: str, cluster, reports: dict[str, tuple[int, int,
             {cluster.find_attribute(attr): ReportingConfig(*cfg) for attr, cfg in reports.items()}
         )
     except ERRORS as err:
-        log.warning(
-            "%s : reporting non configuré sur 0x%04x (%s)", name, cluster.cluster_id, err
-        )
+        log.warning("%s : reporting non configuré sur 0x%04x (%s)", name, cluster.cluster_id, err)
 
 
 class Coordinator:

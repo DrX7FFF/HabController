@@ -30,7 +30,7 @@ def load_driver(name: str):
 
 
 def load_devices(package: str = "devices") -> dict:
-    """Importe chaque `devices/<id>.py` : il doit définir une variable `<id>` (instance de Device)."""
+    """Importe chaque `devices/<id>.py`, qui doit définir `<id>` (instance de Device)."""
     devices = {}
     modules = pkgutil.iter_modules(importlib.import_module(package).__path__)
     for info in sorted(modules, key=lambda module: module.name):

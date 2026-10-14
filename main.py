@@ -52,7 +52,7 @@ app = FastAPI(lifespan=lifespan)
 
 class SetCommand(BaseModel):
     name: str
-    value: str | int
+    value: bool | str | int  # sans bool, un true JSON arriverait en "1"
     transition: int | None = None  # ms, sinon valeur par défaut de l'équipement
 
 
@@ -128,6 +128,7 @@ async def read_loop(ws: WebSocket, queue: asyncio.Queue) -> None:
                 state = devices[device].state()
                 queue.put_nowait({"type": "state", "device": device, "state": state})
 
+
 @app.websocket("/ws")
 async def websocket(ws: WebSocket):
     await ws.accept()
@@ -175,6 +176,9 @@ PAGE = """<!doctype html>
 const box = document.getElementById("blocks");
 const banner = document.getElementById("banner");
 const labels = { on: "allumé", off: "éteint", unreachable: "injoignable" };
+// connected false, ou on pas encore lu : affiché injoignable
+const onKey = s =>
+  s.connected === false || s.on === undefined ? "unreachable" : s.on ? "on" : "off";
 let views = [];
 let ws;
 
@@ -214,10 +218,10 @@ function build(b) {
   const title = document.createElement("h2");
   title.textContent = b.title;
   const power = document.createElement("button");
-  power.onclick = () => send(b.device, "power", "toggle");
+  power.onclick = () => send(b.device, "on", "toggle");
   const parts = [{ el: power, set: s => {
-    power.className = s.power;
-    power.textContent = labels[s.power] || s.power;
+    power.className = onKey(s);
+    power.textContent = labels[onKey(s)];
   } }];
   if (b.widget === "white") {
     parts.push(slider(b.device, "brightness", "Intensité", 1, 100));
@@ -250,7 +254,7 @@ function connect() {
   ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
   ws.onmessage = e => handle(JSON.parse(e.data));
   ws.onclose = () => {
-    views.forEach(v => v.update({ connected: false, power: "unreachable" }));
+    views.forEach(v => v.update({ connected: false }));
     show("Connexion au serveur perdue…");
     setTimeout(connect, 2000);
   };
@@ -270,4 +274,5 @@ def index():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import drivers.zigbee as zigbee  # noqa: E402
 from core import pair as pair_cli  # noqa: E402
+import drivers.zigbee.plug as zigbee_plug  # noqa: E402
 from drivers.zigbee.plug import ELECTRICAL, METERING, ON_OFF, Plug  # noqa: E402
 from zigpy.types import EUI64  # noqa: E402
 
@@ -70,12 +71,18 @@ class PlugStateTest(unittest.TestCase):
         plug._on_attribute(ON_OFF, "on_off", True)
         plug._on_attribute(ELECTRICAL, "rms_current", 45)
         plug._on_attribute(METERING, "current_summ_delivered", 10702)
-        self.assertEqual(plug.state(), {"connected": False, "power": "unreachable"})
+        self.assertEqual(plug.state(), {"connected": False})
         plug._connected = plug._synced = True
         self.assertEqual(
             plug.state(),
-            {"connected": True, "power": "on", "current": 0.045, "energy": 107.02},
+            {"connected": True, "on": True, "current": 0.045, "energy": 107.02},
         )
+
+    def test_on_follows_zcl_on_off(self):
+        plug = self.make()
+        plug._connected = plug._synced = True
+        plug._on_attribute(ON_OFF, "on_off", 0)
+        self.assertIs(plug.on, False)
 
     def test_measure_without_cluster_is_ignored(self):
         plug = self.make()
@@ -84,6 +91,24 @@ class PlugStateTest(unittest.TestCase):
         plug._connected = plug._synced = True
         self.assertNotIn("active_power", plug.state())
 
+
+class PlugCommandTest(unittest.IsolatedAsyncioTestCase):
+    async def test_on_sends_zcl_command_and_toggle_inverts(self):
+        plug = Plug(name="Prise")
+        plug.zdev = SimpleNamespace()
+        sent = []
+
+        async def command(cluster, name):
+            sent.append(name)
+
+        with (
+            mock.patch.object(zigbee_plug, "find_cluster", return_value=object()),
+            mock.patch.object(plug, "_command", command),
+        ):
+            await plug.set("on", True)
+            await plug.set("on", "toggle")
+        self.assertEqual(sent, ["on", "off"])
+        self.assertIs(plug._values["on"], False)
 
 
 class PairingFileTest(unittest.IsolatedAsyncioTestCase):
@@ -138,7 +163,7 @@ class PairingFileTest(unittest.IsolatedAsyncioTestCase):
         ):
             await plug.start()
         register.assert_not_called()
-        self.assertEqual(plug.state(), {"connected": False, "power": "unreachable"})
+        self.assertEqual(plug.state(), {"connected": False})
 
     async def test_start_reads_ieee_from_pairing(self):
         zigbee.save_pairing("prise", self.zdev())

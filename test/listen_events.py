@@ -36,13 +36,9 @@ class GlobalPacketListener:
                 dernier_octet = payload[-1]
                 if dernier_octet in (0, 1):
                     etat = "ALLUMÉE 🟢" if dernier_octet == 1 else "ÉTEINTE 🔴"
-                    logger.info(
-                        f"📢 [RADIO] Prise ({sender.ieee}) -> État détecté : {etat}"
-                    )
+                    logger.info(f"📢 [RADIO] Prise ({sender.ieee}) -> État détecté : {etat}")
                 else:
-                    logger.info(
-                        f"📦 [BRUT] Cluster OnOff reçu, Payload: {payload.hex()}"
-                    )
+                    logger.info(f"📦 [BRUT] Cluster OnOff reçu, Payload: {payload.hex()}")
 
 
 class NetworkManager:
@@ -51,9 +47,7 @@ class NetworkManager:
 
     def device_initialized(self, device: ZigbeeDevice):
         """Se déclenche automatiquement si vous appairez un nouvel appareil en direct."""
-        logger.info(
-            f"🎉 [NOUVEAU] Appareil détecté et initialisé : {device.model} ({device.ieee})"
-        )
+        logger.info(f"🎉 [NOUVEAU] Appareil détecté et initialisé : {device.model} ({device.ieee})")
         asyncio.create_task(self._force_binding(device))
 
     async def _force_binding(self, device: ZigbeeDevice):
@@ -104,18 +98,14 @@ async def main():
     for ieee, device in app.devices.items():
         if device.nwk == 0x0000 or not isinstance(device, ZigbeeDevice):
             continue
-        logger.info(
-            f"🎯 Appareil en mémoire : {getattr(device, 'model', 'Inconnu')} ({ieee})"
-        )
+        logger.info(f"🎯 Appareil en mémoire : {getattr(device, 'model', 'Inconnu')} ({ieee})")
         asyncio.create_task(manager._force_binding(device))
 
     # On ouvre la radio pendant 30 secondes pour stabiliser la session à chaud
     logger.info("\n[Radio] Ouverture du réseau (Permit Join) pendant 30s...")
     await app.permit(30)
 
-    logger.info(
-        "📡 Écoute active en continu. Utilisez votre prise ou Ctrl+C pour quitter."
-    )
+    logger.info("📡 Écoute active en continu. Utilisez votre prise ou Ctrl+C pour quitter.")
 
     try:
         while True:
