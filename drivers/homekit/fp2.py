@@ -59,36 +59,32 @@ def _zone_name(index: int | None, key: Key, aliases: dict[int, str]) -> str:
 
 
 def build_mapping(accessories: list[dict], aliases: dict[int, str] | None = None) -> Mapping:
-    """Associe chaque capteur à son attribut et relève les capteurs de luminosité."""
+    """Un passage par service, comme buildConfig (node-red-contrib-fp2).
+
+    Chaque service porte au plus un capteur suivi (présence ou luminosité, avec événements) et,
+    pour la présence, son « Sensor Index » qui donne le nom de la zone.
+    """
     aliases = aliases or {}
     mapping = Mapping()
-    light: list[Key] = []
     for accessory in accessories:
         aid = int(accessory.get("aid", 0))
         for service in accessory.get("services", []):
-            index = None
-            sensors: list[Key] = []
+            key = kind = index = None
             for characteristic in service.get("characteristics", []):
-                kind = normalize_uuid(str(characteristic.get("type", "")))
-                key = (aid, int(characteristic.get("iid", 0)))
-                if kind == SENSOR_INDEX:
+                code = normalize_uuid(str(characteristic.get("type", "")))
+                if code == SENSOR_INDEX:
                     try:
                         index = int(characteristic.get("value"))
                     except (TypeError, ValueError):
                         index = None
-                elif "ev" in characteristic.get("perms", []):
-                    if kind == OCCUPANCY:
-                        sensors.append(key)
-                    elif kind == LIGHT_LEVEL:
-                        light.append(key)
-            for key in sensors:
-                attr = _zone_name(index, key, aliases)
-                mapping.entities[key] = Entity(attr, bool)
-
-    for key in light:
-        attr = "illuminance" if len(light) == 1 else f"illuminance_{key[0]}_{key[1]}"
-        mapping.entities[key] = Entity(attr, float)
-
+                elif code in (OCCUPANCY, LIGHT_LEVEL) and "ev" in characteristic.get("perms", []):
+                    key, kind = (aid, int(characteristic.get("iid", 0))), code
+            if key is None:
+                continue
+            if kind == LIGHT_LEVEL:
+                mapping.entities[key] = Entity("illuminance", float)
+            else:
+                mapping.entities[key] = Entity(_zone_name(index, key, aliases), bool)
     mapping.event_keys = set(mapping.entities)
     return mapping
 
