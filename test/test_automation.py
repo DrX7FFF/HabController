@@ -69,6 +69,30 @@ class AutomationTestCase(unittest.IsolatedAsyncioTestCase):
             await asyncio.gather(*list(automation._tasks), return_exceptions=True)
 
 
+class OnEventTest(AutomationTestCase):
+    async def test_each_event_triggers(self):
+        bouton = FakeDevice("bouton", {"connected": True})
+        got = []
+
+        @automation.on_event("bouton.double")
+        async def double(event):
+            got.append(("double", event.new))
+
+        @automation.on_event("bouton")
+        async def tous(event):
+            got.append(("tous", event.attr))
+
+        automation.bind({"bouton": bouton})
+        bouton._emit("double")
+        bouton._emit("double")  # même événement : déclenche encore
+        bouton._emit("rotate_right", {"relative_degrees": 90})
+        await self.idle()
+        self.assertEqual(
+            sorted(got),
+            sorted([("double", None)] * 2 + [("tous", "double")] * 2 + [("tous", "rotate_right")]),
+        )
+
+
 class OnChangeTest(AutomationTestCase):
     async def test_attribute_event(self):
         fp = FakeDevice("fp2", {"connected": False})

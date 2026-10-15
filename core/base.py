@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from typing import Generic, TypeVar, overload
+from typing import Any, Generic, TypeVar, overload
 
 log = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -70,6 +70,7 @@ class Device:
         self.id = ""  # affecté par configure() : le chargeur le déduit du nom de la variable
         self.name = name
         self._listeners: list[Callable[[dict], None]] = []
+        self._event_listeners: list[Callable[[str, Any], None]] = []
         self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre
         self._last_notified: dict | None = None
         self.changed_at: int | None = None  # ms depuis l'époque Unix, dernier changement d'état
@@ -84,6 +85,17 @@ class Device:
     def subscribe(self, callback: Callable[[dict], None]) -> None:
         """callback(state) est appelé à chaque changement d'état de l'équipement."""
         self._listeners.append(callback)
+
+    def subscribe_events(self, callback: Callable[[str, Any], None]) -> None:
+        """callback(nom, valeur) est appelé à chaque événement de l'équipement (appui…)."""
+        self._event_listeners.append(callback)
+
+    def _emit(self, name: str, value: Any = None) -> None:
+        """Événement ponctuel (bouton : single, double, hold…) : rien dans l'état, transmis tel
+        quel avec sa valeur éventuelle (ex. angle de rotation)."""
+        self.last_seen = time.time_ns() // 1_000_000
+        for callback in self._event_listeners:
+            callback(name, value)
 
     def _notify(self) -> None:
         """À appeler après toute mise à jour de l'état ; ne diffuse que les vrais changements.

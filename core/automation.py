@@ -25,6 +25,10 @@ qui renvoie False si la commande n'a pas pu partir. Un équipement inconnu dans 
 est signalé au démarrage.
 
 `to=` ne déclenche que vers une valeur donnée : @on_change("capteur.presence", to=True).
+
+Événements ponctuels (boutons) : @on_event("bouton.double") à chaque double appui, ou
+@on_event("bouton") pour tous ; event.attr est le nom de l'événement, event.new sa valeur
+éventuelle (ex. angle de rotation du cube), event.old toujours None.
 Un attribut absent de l'état (équipement injoignable) n'est pas un changement : on garde la
 dernière valeur connue, et rien ne se déclenche tant que la valeur revient identique.
 Les événements d'une même fonction sont traités dans l'ordre ; une erreur dans une
@@ -36,13 +40,14 @@ import importlib
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, TypeVar
 
 from core import CONFIG_DIR
 from core.base import Device, DeviceError, spawn_task, tasks as _tasks
 
 log = logging.getLogger(__name__)
-__all__ = ["Event", "on_change"]
+__all__ = ["Event", "on_change", "on_event"]
 
 AUTOMATIONS_DIR = CONFIG_DIR / "automations"
 _ANY = object()  # « to » non précisé (None et False sont des valeurs valides)
@@ -51,7 +56,8 @@ _ANY = object()  # « to » non précisé (None et False sont des valeurs valide
 @dataclass(frozen=True)
 class Event:
     device: str
-    attr: str | None  # None : automatisation sur tout l'équipement (old/new = états complets)
+    attr: str | None  # None : automatisation sur tout l'équipement (old/new = états complets) ;
+    # nom de l'événement pour @on_event
     old: Any  # dernière valeur connue (None si jamais vue)
     new: Any
     changed: frozenset[str]  # attributs de l'équipement modifiés par ce changement
@@ -65,6 +71,7 @@ class Handler:
     attr: str | None
     to: Any
     func: Callable[[Event], Awaitable[None]]
+    event: bool = False  # @on_event : événement ponctuel, pas changement d'état
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -74,6 +81,15 @@ Rule = TypeVar("Rule", bound=Callable[[Event], Awaitable[None]])
 
 def on_change(target: str, *, to: Any = _ANY) -> Callable[[Rule], Rule]:
     """Déclare une automatisation : target = « équipement » ou « équipement.attribut »."""
+    return _register(target, to, event=False)
+
+
+def on_event(target: str) -> Callable[[Rule], Rule]:
+    """Déclare une automatisation sur un événement : « équipement » ou « équipement.nom »."""
+    return _register(target, _ANY, event=True)
+
+
+def _register(target: str, to: Any, event: bool) -> Callable[[Rule], Rule]:
     device, _, attr = target.partition(".")
     if not device:
         raise ValueError(f"cible invalide « {target} » (attendu « équipement.attribut »)")
@@ -82,7 +98,7 @@ def on_change(target: str, *, to: Any = _ANY) -> Callable[[Rule], Rule]:
         if not asyncio.iscoroutinefunction(func):
             raise TypeError(f"{func.__name__} doit être une fonction async")
         name = f"{func.__module__.rpartition('.')[2]}.{func.__name__}"
-        _handlers.append(Handler(name, device, attr or None, to, func))
+        _handlers.append(Handler(name, device, attr or None, to, func, event))
         return func
 
     return register
@@ -117,6 +133,14 @@ class _Watcher:
             _spawn(handler, event)
 
 
+def _dispatch_event(device: Device, handlers: list[Handler], name: str, value: Any) -> None:
+    """Événement ponctuel de l'équipement : lance les @on_event concernés."""
+    for handler in handlers:
+        if handler.attr in (None, name):
+            event = Event(device.id, name, None, value, frozenset({name}), device.last_seen or 0)
+            _spawn(handler, event)
+
+
 def _spawn(handler: Handler, event: Event) -> None:
     spawn_task(_run(handler, event), handler.name)
 
@@ -138,8 +162,11 @@ def bind(devs: dict[str, Device]) -> None:
             continue
         by_device.setdefault(handler.device, []).append(handler)
     for dev_id, handlers in by_device.items():
-        watcher = _Watcher(devs[dev_id], handlers)
-        devs[dev_id].subscribe(watcher.on_state)
+        device = devs[dev_id]
+        if changes := [h for h in handlers if not h.event]:
+            device.subscribe(_Watcher(device, changes).on_state)
+        if events := [h for h in handlers if h.event]:
+            device.subscribe_events(partial(_dispatch_event, device, events))
 
 
 def load_automations(devs: dict[str, Device]) -> None:

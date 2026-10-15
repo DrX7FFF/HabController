@@ -404,9 +404,11 @@ class ZigbeeDevice(NetworkDevice):
     l'équipement ne répond pas) et `_on_attribute` (valeur reçue spontanément).
     L'équipement est joignable tant qu'il répond : une lecture toutes les `poll` secondes le
     vérifie (et rattrape les valeurs que l'équipement n'envoie pas de lui-même).
+    Équipement sur pile (POLL = None) : il dort, on ne l'interroge jamais. Il est joignable dès
+    son premier message, et configuré à ce moment-là (il est éveillé) ; pas de `_read`.
     """
 
-    POLL = 300  # s, période de lecture par défaut
+    POLL: float | None = 300  # s, période de lecture par défaut ; None : sur pile
 
     def __init__(self, name: str = "", poll: float | None = None):
         super().__init__(name)
@@ -460,12 +462,14 @@ class ZigbeeDevice(NetworkDevice):
         for endpoint_id, endpoint in zdev.endpoints.items():
             if endpoint_id == 0:
                 continue
-            for cluster in endpoint.in_clusters.values():
+            # clusters de sortie aussi : certains capteurs y rapportent (ex. porte Xiaomi, 0x0006)
+            for cluster in (*endpoint.in_clusters.values(), *endpoint.out_clusters.values()):
                 # rapport spontané de l'équipement (attribute_report), ou valeur corrigée par
                 # un quirk (attribute_updated) : zigpy n'émet qu'un des deux par valeur reçue
                 for event in (AttributeReportedEvent, AttributeUpdatedEvent):
                     self._unsubscribe.append(cluster.on_event(event.event_type, self._on_event))
-        self._spawn(self._poll_loop(zdev))
+        if self.poll:
+            self._spawn(self._poll_loop(zdev))
 
     def _detach(self) -> None:
         for unsubscribe in self._unsubscribe:
@@ -518,8 +522,22 @@ class ZigbeeDevice(NetworkDevice):
     def _on_event(self, event: AttributeReportedEvent | AttributeUpdatedEvent) -> None:
         if event.attribute_name is None:  # attribut propre au fabricant, inconnu de zigpy
             return
+        self._received()
         self._on_attribute(event.cluster_id, event.attribute_name, event.value)
         self._notify()
+
+    def _received(self) -> None:
+        """Message reçu : un équipement sur pile devient joignable (et se configure)."""
+        if not self.poll and not self._connected and self.zdev is not None:
+            log.info("%s : connecté", self.name)
+            self._connected = self._synced = True
+            self._spawn(self._configure_awake(self.zdev))
+
+    async def _configure_awake(self, zdev) -> None:
+        """Équipement sur pile qui vient d'envoyer : éveillé, il accepte sa configuration
+        (sauf si son quirk dit de s'en passer : il envoie ses valeurs de lui-même)."""
+        if not zdev.skip_configuration:
+            await self._configure(zdev)
 
     # --- commandes ----------------------------------------------------------
 

@@ -21,7 +21,10 @@ import drivers.zigbee.plug as zigbee_plug  # noqa: E402
 import drivers.homekit as homekit  # noqa: E402
 from core.devices import id_from_name, write_summary  # noqa: E402
 from drivers.yeelight.bulb import YeelightBulb  # noqa: E402
+from drivers.zigbee.light import Light, rgb_to_xy, xy_to_rgb  # noqa: E402
 from drivers.zigbee.plug import ELECTRICAL, METERING, ON_OFF, Plug  # noqa: E402
+from drivers.zigbee.button import Button  # noqa: E402
+from drivers.zigbee.sensor import Sensor  # noqa: E402
 from zigpy.types import EUI64  # noqa: E402
 
 IEEE = "a4:c1:38:d6:d7:c6:db:f6"
@@ -114,6 +117,64 @@ class PlugCommandTest(unittest.IsolatedAsyncioTestCase):
             await plug.set("on", "toggle")
         self.assertEqual(sent, ["on", "off"])
         self.assertIs(plug._values["on"], False)
+
+
+class SensorTest(unittest.IsolatedAsyncioTestCase):
+    def report(self, sensor, cluster_id, name, value):
+        sensor._on_event(SimpleNamespace(cluster_id=cluster_id, attribute_name=name, value=value))
+
+    async def test_connected_by_first_message_and_converted(self):
+        sensor = Sensor(name="Météo")
+        sensor.zdev = SimpleNamespace(skip_configuration=True)
+        self.assertEqual(sensor.state(), {"connected": False})
+        self.report(sensor, 0x0402, "measured_value", 2150)
+        self.report(sensor, 0x0001, "battery_percentage_remaining", 170)
+        self.report(sensor, 0x0400, "measured_value", 10001)
+        self.report(sensor, 0x0006, "on_off", 1)
+        expected = {"temperature": 21.5, "battery": 85, "illuminance": 10, "open": True}
+        self.assertEqual(sensor.state(), {"connected": True, **expected})
+
+    async def test_button_relays_quirk_events(self):
+        button = Button(name="Bouton")
+        button.zdev = SimpleNamespace(skip_configuration=True)
+        got = []
+        button.subscribe_events(lambda name, value: got.append((name, value)))
+        button.zha_send_event("double", [])
+        button.zha_send_event("rotate_right", {"relative_degrees": 90})
+        self.assertEqual(got, [("double", None), ("rotate_right", {"relative_degrees": 90})])
+        self.assertTrue(button.connected)
+
+    async def test_no_poll_on_attach(self):
+        sensor = Sensor(name="Météo")
+        sensor.ieee = EUI64.convert(IEEE)
+        endpoint = SimpleNamespace(in_clusters={0x0402: mock.Mock()}, out_clusters={})
+        zdev = SimpleNamespace(endpoints={0: None, 1: endpoint})
+        with mock.patch.object(zigbee, "ZigpyDevice", SimpleNamespace):
+            sensor._attach(SimpleNamespace(devices={sensor.ieee: zdev}))
+        self.assertFalse(sensor._tasks)
+
+
+class LightTest(unittest.IsolatedAsyncioTestCase):
+    def test_state_from_zcl(self):
+        light = Light(name="Globe")
+        light._on_attribute(0x0006, "on_off", 1)
+        light._on_attribute(0x0008, "current_level", 127)
+        light._on_attribute(0x0300, "color_temperature", 370)
+        light._connected = light._synced = True
+        self.assertEqual(
+            light.state(), {"connected": True, "on": True, "brightness": 50, "color_temp": 2703}
+        )
+
+    def test_rgb_round_trip(self):
+        for rgb in ("#ff0000", "#00ff00", "#0000ff", "#ffffff"):
+            self.assertEqual(xy_to_rgb(*rgb_to_xy(rgb)), rgb)
+
+    async def test_setting_missing_feature_refused(self):
+        light = Light(name="Plafonnier")
+        light.zdev = SimpleNamespace()
+        with mock.patch("drivers.zigbee.light.find_cluster", return_value=None):
+            with self.assertRaises(ValueError):
+                await light.set("rgb", "#ff0000")
 
 
 def make_zdev(ieee=IEEE, model="TS011F"):

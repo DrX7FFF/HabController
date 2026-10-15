@@ -2,8 +2,28 @@
 # Utilisé par `./habctrl pair zigbee` pour déclarer l'équipement dans devices/ ; sinon déclaration à la main.
 # Clé : le modèle annoncé (affiché à l'appairage), sinon le type d'appareil Zigbee Home
 # Automation d'un endpoint ("0x" + 4 chiffres hexadécimaux en minuscules). Le modèle l'emporte.
+# Un type d'un autre profil (ZLL) ou propre au fabricant (Xiaomi 0x5f01…) n'est pas un type
+# Home Automation : ces appareils sont repérés par leur modèle.
 [models]
 "0x0009" = "zigbee.plug"  # Mains Power Outlet
 "0x0051" = "zigbee.plug"  # Smart Plug
 "0x010a" = "zigbee.plug"  # On/Off Plug-in Unit (ex. Philips LOM002, Tuya TS011F)
 "0x010b" = "zigbee.plug"  # Dimmable Plug-in Unit (marche/arrêt seulement)
+
+"0x0100" = "zigbee.light"  # On/Off Light
+"0x0101" = "zigbee.light"  # Dimmable Light (ex. Philips LWA001)
+"0x0102" = "zigbee.light"  # Color Dimmable Light
+"0x010c" = "zigbee.light"  # Color Temperature Light
+"0x010d" = "zigbee.light"  # Extended Color Light
+"LLC020" = "zigbee.light"  # Philips Hue Go (profil ZLL)
+
+"0x0106" = "zigbee.motion"  # Light Sensor
+"0x0107" = "zigbee.motion"  # Occupancy Sensor (ex. Xiaomi lumi.sensor_motion.aq2)
+"0x0302" = "zigbee.climate"  # Temperature Sensor (ex. Sonoff SNZB-02D)
+"lumi.weather" = "zigbee.climate"  # Xiaomi température, humidité, pression
+"lumi.sensor_magnet.aq2" = "zigbee.contact"  # Xiaomi contact de porte
+
+"0x0103" = "zigbee.button"  # On/Off Light Switch (ex. Xiaomi lumi.remote.b1acn01)
+"0x0104" = "zigbee.button"  # Dimmer Switch (ex. Xiaomi lumi.sensor_switch)
+"lumi.sensor_cube.aqgl01" = "zigbee.button"  # Xiaomi cube
+"RWL021" = "zigbee.button"  # Philips Hue Dimmer (profil ZLL)

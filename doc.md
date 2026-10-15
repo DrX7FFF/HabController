@@ -44,6 +44,41 @@ Transition : celle passée à la commande, sinon `transition=` de la déclaratio
 Les mesures sont envoyées spontanément par la prise, et n'apparaissent que si le modèle les
 fournit. Une lecture toutes les 5 min vérifie seulement que la prise répond encore.
 
+## Ampoule Zigbee — `zigbee.light`
+
+Mêmes attributs que l'ampoule Yeelight (`on`, `brightness`, `color_temp`, `rgb`), sans les
+commandes groupées. Seuls ceux que l'ampoule gère apparaissent (ex. pas de couleur sur une
+ampoule blanche) ; écrire les autres est refusé. Le `rgb` relu est approché (l'ampoule donne
+sa couleur en coordonnées xy). Transition : 300 ms par défaut, au dixième de seconde près.
+
+## Capteurs Zigbee sur pile — `zigbee.climate`, `zigbee.motion`, `zigbee.contact`
+
+| Pilote    | Attribut      | Type                    |
+|-----------|---------------|-------------------------|
+| `climate` | `temperature` | float, °C               |
+|           | `humidity`    | float, %                |
+|           | `pressure`    | float, hPa              |
+| `motion`  | `presence`    | bool                    |
+|           | `illuminance` | int, lux                |
+| `contact` | `open`        | bool                    |
+| tous      | `battery`     | int, %                  |
+
+Lecture seule, n'apparaissent que si l'appareil les envoie. L'appareil n'est jamais
+interrogé (il dort) : joignable dès son premier message ; après un redémarrage, une valeur
+reste absente (None) tant qu'il ne l'a pas envoyée.
+
+## Bouton Zigbee — `zigbee.button`
+
+Seulement `battery` dans l'état. Chaque appui est un événement, nommé par le correctif
+zha-quirks de l'appareil (`single`, `double`, `hold`, `release`, `click`, `flip`,
+`rotate_right`, `on_press`…), avec sa valeur éventuelle :
+
+```python
+@on_event("bouton_lit.double")       # à chaque double appui ; @on_event("bouton_lit") : tous
+async def lumiere(event):            # event.attr : nom, event.new : valeur (ex. angle du cube)
+    salon.on = "toggle"
+```
+
 ## Capteur de présence Aqara FP2 — `homekit.fp2`
 
 | Attribut                          | Type            | Lecture | Commande |
