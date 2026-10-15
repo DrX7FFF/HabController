@@ -6,16 +6,16 @@ apparaissent : clusters 0x0008 intensité, 0x0300 couleur, et dans ce dernier ce
 déclare (color_capabilities, lu à l'appairage ; non lu : tout est supposé présent). La couleur
 passe par les coordonnées xy de l'ampoule : le rgb relu est approché, à pleine intensité.
 
-    from drivers.zigbee.light import ZigbeeLight
+    from drivers.zigbee.light import Light
 
-    plafonnier = ZigbeeLight(name="Plafonnier")
+    plafonnier = Light(name="Plafonnier")
 
 Écriture : plafonnier.on = True | False | "toggle", .brightness = 50, .color_temp = 2700,
 .rgb = "#ff8000" ; transition en ms avec send() (300 par défaut).
 """
 
 from core.base import DeviceError, on_value
-from core.light import Light
+import core.light
 from drivers.zigbee import ZigbeeDevice, find_cluster, read, setup_reporting
 
 ON_OFF = 0x0006
@@ -71,7 +71,7 @@ def xy_to_rgb(x: float, y: float) -> str:
     return "#" + "".join(f"{round(_gamma(c / top) * 255):02x}" for c in rgb)
 
 
-class ZigbeeLight(Light, ZigbeeDevice):
+class Light(core.light.Light, ZigbeeDevice):
     """Ampoule Zigbee : l'état vient de ce qu'elle envoie, relu toutes les `poll` secondes."""
 
     def __init__(self, name: str = "", transition: int = 300, poll: float | None = None):
@@ -157,4 +157,4 @@ class ZigbeeLight(Light, ZigbeeDevice):
         self._notify()
 
 
-Driver = ZigbeeLight  # convention : le chargeur cherche ce nom
+Driver = Light  # convention : le chargeur cherche ce nom

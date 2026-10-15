@@ -23,7 +23,7 @@ import drivers.homekit as homekit  # noqa: E402
 from core.devices import id_from_name, write_summary  # noqa: E402
 from drivers.yeelight.bulb import YeelightBulb  # noqa: E402
 from core import base  # noqa: E402
-from drivers.zigbee.light import ZigbeeLight, rgb_to_xy, xy_to_rgb  # noqa: E402
+from drivers.zigbee.light import Light, rgb_to_xy, xy_to_rgb  # noqa: E402
 from drivers.zigbee.plug import ELECTRICAL, METERING, ON_OFF, Plug  # noqa: E402
 from drivers.zigbee.button import Button  # noqa: E402
 from drivers.zigbee.sensor import Sensor  # noqa: E402
@@ -158,7 +158,7 @@ class SensorTest(unittest.IsolatedAsyncioTestCase):
 
 class LightTest(unittest.IsolatedAsyncioTestCase):
     def test_state_from_zcl(self):
-        light = ZigbeeLight(name="Globe")
+        light = Light(name="Globe")
         light._on_attribute(0x0006, "on_off", 1)
         light._on_attribute(0x0008, "current_level", 127)
         light._on_attribute(0x0300, "color_temperature", 370)
@@ -172,7 +172,7 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(xy_to_rgb(*rgb_to_xy(rgb)), rgb)
 
     async def test_setting_missing_feature_refused(self):
-        light = ZigbeeLight(name="Plafonnier")
+        light = Light(name="Plafonnier")
         light.zdev = SimpleNamespace()
         with mock.patch("drivers.zigbee.light.find_cluster", return_value=None):
             with self.assertRaises(ValueError):
@@ -180,7 +180,7 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
 
     def white_light(self, caps):
         """Ampoule à clusters marche/arrêt, intensité, couleur ; color_capabilities = caps."""
-        light = ZigbeeLight(name="Chambre")
+        light = Light(name="Chambre")
         light._connected = light._synced = True
         self.sent = []
         clusters = {}
