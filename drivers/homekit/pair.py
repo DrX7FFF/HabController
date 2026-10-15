@@ -39,7 +39,7 @@ class Pairing(pair.Pairing):
             candidates.append(
                 pair.Candidate(
                     uid=desc.id.lower(),
-                    model=desc.model,
+                    models=[desc.model],
                     comment=f"HomeKit : {desc.name}, modèle {desc.model}",
                     details=[f"{f.name} : {getattr(desc, f.name)}" for f in fields(desc)],
                     device=discovery,

@@ -1,5 +1,9 @@
-# Modèle Zigbee annoncé par l'équipement (affiché à l'appairage) -> pilote
-# ("zigbee.plug" pour drivers/zigbee/plug.py).
+# Équipement Zigbee -> pilote ("zigbee.plug" pour drivers/zigbee/plug.py).
 # Utilisé par `./habctrl pair zigbee` pour créer devices/<id>.py ; sinon déclaration à la main.
+# Clé : le modèle annoncé (affiché à l'appairage), sinon le type d'appareil Zigbee Home
+# Automation d'un endpoint ("0x" + 4 chiffres hexadécimaux en minuscules). Le modèle l'emporte.
 [models]
-"TS011F" = "zigbee.plug"  # prise Tuya avec mesure de consommation
+"0x0009" = "zigbee.plug"  # Mains Power Outlet
+"0x0051" = "zigbee.plug"  # Smart Plug
+"0x010a" = "zigbee.plug"  # On/Off Plug-in Unit (ex. Philips LOM002, Tuya TS011F)
+"0x010b" = "zigbee.plug"  # Dimmable Plug-in Unit (marche/arrêt seulement)

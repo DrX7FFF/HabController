@@ -3,8 +3,8 @@
 HabController doit être arrêté (il occupe le port série de la clé).
 Le réseau est ouvert pendant `--duration` secondes : mettre l'équipement en mode appairage
 (souvent un appui long). Le premier équipement qui termine son interview est retenu ; il est
-reconnu par son IEEE (ex. après un changement de clé). La copie de la base
-(pairing/zigbee/zigbee.db) est mise à jour.
+reconnu par son IEEE. Le lien est une ligne de pairing/zigbee.toml ; la copie de la base
+(pairing/zigbee.db) est mise à jour.
 """
 
 import asyncio
@@ -12,7 +12,15 @@ from pathlib import Path
 
 from core import pair
 from drivers import zigbee
-from drivers.zigbee import describe, joined_devices, save_pairing, save_snapshot
+from drivers.zigbee import (
+    PairingError,
+    describe,
+    joined_devices,
+    load_mapping,
+    model_keys,
+    save_mapping,
+    save_snapshot,
+)
 
 MAX_PERMIT = 254  # s, limite du protocole pour une ouverture du réseau
 INTERVIEW_WAIT = 60  # s, délai laissé à une interview commencée quand le réseau se referme
@@ -66,8 +74,15 @@ class Pairing(pair.Pairing):
     DURATION = 120
     MAX_DURATION = MAX_PERMIT
     HINT = "Vérifier le port ([zigbee] de habctrl.toml) et que HabController est arrêté."
+    devices: dict = {}  # appareils de la base, pour commenter pairing/zigbee.toml
 
     async def search(self, app, duration: int) -> list[pair.Candidate]:
+        try:
+            load_mapping(missing_ok=True)
+        except PairingError as err:  # on n'écrase pas un fichier à corriger à la main
+            print(f"Erreur : {err}")
+            return []
+        self.devices = app.devices
         print(f"Coordinateur démarré, {len(joined_devices(app))} équipement(s) déjà sur le réseau.")
         device = await wait_device(app, duration)
         if device is None:
@@ -77,7 +92,7 @@ class Pairing(pair.Pairing):
         return [
             pair.Candidate(
                 uid=device.ieee,
-                model=device.model or "",
+                models=model_keys(device),
                 comment=f"Zigbee : {device.manufacturer}, modèle {device.model}",
                 details=describe(device),
                 device=device,
@@ -85,7 +100,23 @@ class Pairing(pair.Pairing):
         ]
 
     async def link(self, app, candidate: pair.Candidate, dev_id: str) -> Path:
-        return save_pairing(dev_id, candidate.device)
+        mapping = load_mapping(missing_ok=True)
+        mapping = {ieee: linked for ieee, linked in mapping.items() if linked != dev_id}
+        mapping[candidate.uid] = dev_id
+        return save_mapping(mapping, self.devices)
+
+    def paired_ids(self, uid) -> list[str]:
+        dev_id = load_mapping(missing_ok=True).get(uid)
+        return [dev_id] if dev_id else []
+
+    def linked(self, dev_id: str) -> bool:
+        return dev_id in load_mapping(missing_ok=True).values()
+
+    def unlink(self, dev_id: str) -> None:
+        mapping = load_mapping(missing_ok=True)
+        if dev_id in mapping.values():
+            kept = {ieee: linked for ieee, linked in mapping.items() if linked != dev_id}
+            save_mapping(kept, self.devices)
 
     def done(self) -> None:
         save_snapshot()  # le réseau a changé : seule écriture de la copie

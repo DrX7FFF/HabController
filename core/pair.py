@@ -2,11 +2,12 @@
 
 Le déroulé est commun à tous les protocoles (classe Pairing) :
 1. ouvrir la session du protocole (clé Zigbee, contrôleur HomeKit…) et chercher pendant N s ;
-2. choisir l'appareil parmi ceux trouvés et le reconnaître par son identité stable :
-   déjà rattaché à un équipement logique, on propose de refaire le lien (devices/<id>.py gardé),
-   sinon on demande le nom du nouvel équipement, dont l'identifiant est déduit ;
-3. lier l'appareil : pairing/<protocole>/<id>.toml ;
-4. nouvel équipement : devices/<id>.py, avec le pilote du modèle (modèle inconnu : à la main).
+2. choisir l'appareil parmi ceux trouvés et le reconnaître par son identité stable : déjà lié à
+   un équipement logique, on propose de garder ce nom ; sinon on demande le nom de l'équipement,
+   dont l'identifiant est déduit. Un identifiant déjà lié à un autre appareil est remplacé après
+   confirmation (appareil HS) ; un devices/<id>.py existant est gardé et rattaché ;
+3. lier l'appareil (pairing/) ;
+4. pas encore de devices/<id>.py : il est créé avec le pilote du modèle (inconnu : à la main).
 
 Chaque protocole qui sait appairer fournit drivers/<protocole>/pair.py avec une classe
 `Pairing` dérivée de celle-ci. Redémarrer HabController ensuite.
@@ -24,7 +25,14 @@ from types import ModuleType
 
 import drivers
 from core import check_config
-from core.devices import add_device, check_new_device, device_label, driver_for_model, id_from_name
+from core.devices import (
+    add_device,
+    check_id,
+    device_file,
+    device_label,
+    driver_for_model,
+    id_from_name,
+)
 
 
 @dataclass
@@ -32,7 +40,7 @@ class Candidate:
     """Appareil physique trouvé par la recherche."""
 
     uid: object  # identité stable : IEEE, identifiant HomeKit…
-    model: str
+    models: list[str]  # clés cherchées dans models.toml, de la plus précise à la plus générale
     comment: str  # en tête de devices/<id>.py
     details: list[str]  # affichées pour le choisir
     device: object  # objet du protocole
@@ -46,9 +54,10 @@ async def ask(prompt: str) -> str:
 class Pairing:
     """Déroulé commun ; un protocole surcharge les méthodes de la partie « à fournir ».
 
-    PROTOCOL est le paquet du protocole (drivers/<protocole>/) : il fournit ERRORS,
-    open_session() (contexte asynchrone : clé, contrôleur…), paired_ids(uid) et
-    pairing_file(id), et sa table modèle → pilote models.toml.
+    PROTOCOL est le paquet du protocole (drivers/<protocole>/) : il fournit ERRORS et
+    open_session() (contexte asynchrone : clé, contrôleur…), et sa table modèle → pilote
+    models.toml. Par défaut, un lien est un fichier par équipement : PROTOCOL fournit alors
+    paired_ids(uid) et pairing_file(id).
     """
 
     PROTOCOL: ModuleType
@@ -57,6 +66,7 @@ class Pairing:
     MAX_DURATION = 600
     HINT = ""  # conseil affiché avec une erreur
     SECRET_ERRORS = False  # erreurs affichées sans leur texte (il pourrait contenir un code)
+    previous = ""  # équipement logique auquel l'appareil était lié, s'il en change
 
     @property
     def models(self) -> Path:
@@ -68,8 +78,19 @@ class Pairing:
         raise NotImplementedError
 
     async def link(self, session, candidate: Candidate, dev_id: str) -> Path:
-        """Appaire l'appareil et écrit pairing/<protocole>/<id>.toml."""
+        """Appaire l'appareil et enregistre son lien avec `dev_id` (remplace l'ancien)."""
         raise NotImplementedError
+
+    def paired_ids(self, uid) -> list[str]:
+        """Équipements logiques liés à cet appareil."""
+        return self.PROTOCOL.paired_ids(uid)
+
+    def linked(self, dev_id: str) -> bool:
+        """L'équipement logique est-il lié à un appareil ?"""
+        return self.PROTOCOL.pairing_file(dev_id).exists()
+
+    def unlink(self, dev_id: str) -> None:
+        self.PROTOCOL.pairing_file(dev_id).unlink(missing_ok=True)
 
     def done(self) -> None:
         """Session fermée, appairage enregistré."""
@@ -91,15 +112,18 @@ class Pairing:
             print(f"Échec ({type(err).__name__}{detail}). {self.HINT}")
             return 1
         self.done()
-        print(f"Appairage enregistré dans {path}.")
-        if not name:
-            print(f"Lien refait, devices/{dev_id}.py inchangé.")
+        print(f"Appairage de « {dev_id} » enregistré dans {path}.")
+        if self.previous and self.previous != dev_id:
+            self.unlink(self.previous)
+            print(f"« {self.previous} » n'a plus d'appareil : retirer devices/{self.previous}.py.")
+        if device_file(dev_id).exists():
+            print(f"devices/{dev_id}.py existant, inchangé.")
             return 0
-        driver = driver_for_model(candidate.model, self.models)
+        driver = driver_for_model(candidate.models, self.models)
         if not driver:
             print(
                 f"\nModèle inconnu : déclarer l'équipement dans devices/{dev_id}.py avec le bon "
-                f"pilote, ou ajouter le modèle à {self.models}."
+                f"pilote, ou l'ajouter à {self.models}, puis réappairer."
             )
             return 0
         try:
@@ -107,7 +131,7 @@ class Pairing:
         except ValueError as err:
             print(f"Équipement non ajouté : {err}")
             return 1
-        print(f"Équipement « {name} » créé : devices/{dev_id}.py.")
+        print(f"Équipement « {name or dev_id} » créé : devices/{dev_id}.py.")
         return 0
 
     async def choose(self, candidates: list[Candidate]) -> Candidate:
@@ -122,25 +146,28 @@ class Pairing:
         return candidates[0]
 
     async def target(self, uid) -> tuple[str, str]:
-        """(id, nom) de l'équipement logique ; nom vide : lien refait avec un existant."""
-        for dev_id in self.PROTOCOL.paired_ids(uid):
+        """(id, nom) de l'équipement logique ; nom vide pour un équipement déjà connu."""
+        for dev_id in self.paired_ids(uid):
             label = device_label(dev_id)
-            answer = await ask(f"Équipement reconnu : {label}. Refaire le lien ? [O/n] ")
+            answer = await ask(f"Équipement reconnu, anciennement {label}. Garder ce nom ? [O/n] ")
             if answer.lower() not in ("n", "non"):
                 return dev_id, ""
-            self.PROTOCOL.pairing_file(dev_id).unlink()
-            print(f"Ancien lien supprimé : devices/{dev_id}.py, sans appareil, est à retirer.")
+            self.previous = dev_id
         while True:
-            name = await ask("Nom du nouvel équipement (ex. Prise salon) : ")
+            name = await ask("Nom de l'équipement (ex. Prise salon) : ")
             dev_id = id_from_name(name)
             try:
-                check_new_device(dev_id)
-                if self.PROTOCOL.pairing_file(dev_id).exists():
-                    raise ValueError(f"un appairage existe déjà pour « {dev_id} »")
+                check_id(dev_id)
             except ValueError as err:
                 print(f"Erreur : {err}")
                 continue
-            return dev_id, name
+            if dev_id != self.previous and self.linked(dev_id):
+                answer = await ask(
+                    f"{device_label(dev_id)} est lié à un autre appareil : le remplacer ? [o/N] "
+                )
+                if answer.lower() not in ("o", "oui"):
+                    continue
+            return dev_id, "" if device_file(dev_id).exists() else name
 
 
 def protocols() -> dict:

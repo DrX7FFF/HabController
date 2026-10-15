@@ -10,6 +10,8 @@ from pathlib import Path
 from core import CONFIG_DIR
 from core.base import Device
 
+DEVICES_DIR = CONFIG_DIR / "devices"
+
 
 def load_driver(name: str):
     """Charge le pilote `drivers/<name>.py` : il doit exposer sa classe sous le nom `Driver`.
@@ -62,32 +64,47 @@ def device_label(dev_id: str) -> str:
     return f"{name} ({dev_id})" if name else dev_id
 
 
-def check_new_device(dev_id: str, driver: str = "", path: Path = CONFIG_DIR / "devices") -> None:
-    """Vérifie qu'on peut déclarer cet équipement ; lève ValueError sinon."""
+def device_file(dev_id: str, path: Path | None = None) -> Path:
+    return (path or DEVICES_DIR) / f"{dev_id}.py"
+
+
+def check_id(dev_id: str) -> None:
+    """Identifiant utilisable pour devices/<id>.py ; lève ValueError sinon."""
     if not dev_id.isidentifier() or keyword.iskeyword(dev_id) or dev_id.startswith("_"):
         raise ValueError(
             f"identifiant invalide « {dev_id} » (nom de variable Python, sans « _ » initial)"
         )
-    if (path / f"{dev_id}.py").exists():
-        raise ValueError(f"l'équipement « {dev_id} » existe déjà dans {path.name}")
+
+
+def check_new_device(dev_id: str, driver: str = "", path: Path | None = None) -> None:
+    """Vérifie qu'on peut déclarer cet équipement ; lève ValueError sinon."""
+    check_id(dev_id)
+    if device_file(dev_id, path).exists():
+        raise ValueError(f"l'équipement « {dev_id} » existe déjà dans devices/")
     if driver:
         load_driver(driver)
 
 
-def driver_for_model(model: str, path: Path) -> str:
-    """Pilote associé au modèle dans la table `path` ([models]), ou "" si le modèle est inconnu."""
+def driver_for_model(models: str | list[str], path: Path) -> str:
+    """Pilote de la table `path` ([models]) pour la première clé connue, ou "" si aucune.
+
+    `models` : le modèle, ou plusieurs clés de la plus précise à la plus générale.
+    """
     try:
-        models = tomllib.loads(path.read_text(encoding="utf-8")).get("models", {})
+        table = tomllib.loads(path.read_text(encoding="utf-8")).get("models", {})
     except FileNotFoundError:
         return ""
-    driver = models.get(model, "")
-    if driver:
+    for model in [models] if isinstance(models, str) else models:
+        driver = table.get(model, "")
+        if not driver:
+            continue
         try:
             load_driver(driver)
         except ValueError as err:
             print(f"Pilote « {driver} » associé au modèle {model} inutilisable : {err}")
             return ""
-    return driver
+        return driver
+    return ""
 
 
 def add_device(
@@ -95,7 +112,7 @@ def add_device(
     driver: str,
     name: str = "",
     comment: str = "",
-    path: Path = CONFIG_DIR / "devices",
+    path: Path | None = None,
 ) -> None:
     """Crée devices/<id>.py : `<id> = <Pilote>(...)`, avec les réglages par défaut du pilote."""
     check_new_device(dev_id, driver, path)
@@ -112,5 +129,6 @@ def add_device(
         "",
         f"{dev_id} = {cls.__name__}({', '.join(args)})",
     ]
-    path.mkdir(parents=True, exist_ok=True)
-    (path / f"{dev_id}.py").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    file = device_file(dev_id, path)
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text("\n".join(lines) + "\n", encoding="utf-8")

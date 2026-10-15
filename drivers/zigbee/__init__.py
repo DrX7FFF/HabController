@@ -3,14 +3,18 @@
 Le réseau (clés, canal) est mémorisé dans la clé elle-même. La base zigpy contient la liste des
 équipements, leur interview (endpoints, clusters) et des sauvegardes du réseau qui permettent de
 le reconstruire sur une nouvelle clé : c'est de la configuration. zigpy l'utilise dans temp/
-(peut être en RAM) ; une copie cohérente est gardée dans pairing/zigbee/zigbee.db, écrite
-après chaque appairage (seul moment où la liste change) et reprise au démarrage si temp/ est
-vide. Changer de clé avec une copie ancienne peut obliger à réappairer les équipements : le
-compteur de trames du réseau, sauvegardé avec, a avancé depuis.
+(peut être en RAM) ; une copie cohérente est gardée dans pairing/zigbee.db, écrite après
+chaque appairage et reprise au démarrage si temp/ est vide. Changer de clé avec une copie
+ancienne peut obliger à réappairer les équipements : le compteur de trames du réseau,
+sauvegardé avec, a avancé depuis.
 
-Comme pour HomeKit, l'équipement logique (devices/<id>.py) ne contient aucune adresse : le lien
-avec l'appareil physique est pairing/zigbee/<id>.toml (IEEE, fabricant, modèle, clusters),
-écrit par l'appairage. Remplacer l'appareil ne change que ce fichier.
+L'équipement logique (devices/<id>.py) ne contient aucune adresse : le lien avec l'appareil
+physique est une ligne de pairing/zigbee.toml (IEEE -> id), écrite par l'appairage. Ce fichier
+fait foi : à chaque ouverture de la clé, les appareils de la base qui n'y sont pas sont retirés
+du réseau (appareil remplacé, appairage perdu ou interrompu : il suffit de le réappairer), et
+les incohérences sont signalées. Fichier absent ou illisible : rien n'est retiré (protège d'un
+mauvais chemin de configuration). Repartir de zéro : supprimer pairing/zigbee.toml,
+pairing/zigbee.db et temp/zigbee.db.
 
 Une seule clé pour tous les équipements : le coordinateur est partagé (`coordinator`), démarré
 au premier équipement Zigbee et relancé si la clé décroche. Le port série ne s'ouvre qu'une
@@ -20,12 +24,10 @@ fois : l'appairage (./habctrl pair zigbee) et HabController ne doivent pas tourn
 import asyncio
 import json
 import logging
-import re
 import shutil
 import sqlite3
 import tomllib
 from contextlib import asynccontextmanager
-from datetime import datetime
 from pathlib import Path
 
 from bellows.ash import AshException
@@ -45,13 +47,16 @@ from zigpy.zcl.foundation import Status
 
 from core import PAIRING_DIR, TEMP_DIR, settings
 from core.base import DeviceError, NetworkDevice
+from core.devices import device_file, driver_for_model, load_driver
 
 log = logging.getLogger(__name__)
 
 ERRORS = (ZigbeeException, RadioException, AshException, OSError)  # protocole ou liaison série
 DB_FILE = TEMP_DIR / "zigbee.db"  # base vivante, utilisée par zigpy
-PAIRING = PAIRING_DIR / "zigbee"  # un fichier <id>.toml par équipement, et l'instantané
-SNAPSHOT = PAIRING / "zigbee.db"  # copie de sauvegarde de la base, dans la configuration
+MAPPING = PAIRING_DIR / "zigbee.toml"  # IEEE -> équipement logique, fait foi
+SNAPSHOT = PAIRING_DIR / "zigbee.db"  # copie de sauvegarde de la base, dans la configuration
+MODELS = Path(__file__).with_name("models.toml")  # modèle ou type d'appareil -> pilote
+HOME_AUTOMATION = 0x0104  # profil Zigbee des types d'appareil standard
 RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à chaque échec)
 RETRY_MAX = 60
 
@@ -60,71 +65,63 @@ class PairingError(Exception):
     """Appairage absent ou illisible pour cet équipement."""
 
 
-def pairing_file(dev_id: str) -> Path:
-    if not re.fullmatch(r"[\w-]+", dev_id) or dev_id == "zigbee":
-        raise ValueError(f"identifiant invalide « {dev_id} »")
-    return PAIRING / f"{dev_id}.toml"
-
-
-def _clusters(clusters) -> str:
-    return json.dumps([f"0x{cid:04x}" for cid in sorted(clusters)])
-
-
-def save_pairing(dev_id: str, zdev) -> Path:
-    """Enregistre le lien entre l'équipement logique `dev_id` et l'appareil physique `zdev`."""
-    lines = [
-        f"# Appairage Zigbee de « {dev_id} » : lien entre l'équipement logique"
-        f" (devices/{dev_id}.py)",
-        "# et l'appareil physique. Écrit par ./habctrl pair zigbee.",
-        "",
-        f'ieee = "{zdev.ieee}"',
-        f"manufacturer = {json.dumps(zdev.manufacturer or '', ensure_ascii=False)}",
-        f"model = {json.dumps(zdev.model or '', ensure_ascii=False)}",
-        f"paired = {datetime.now().replace(microsecond=0).isoformat()}",
-    ]
-    for ep_id, endpoint in sorted(zdev.endpoints.items()):
-        if ep_id == 0:  # endpoint ZDO : présent partout, sans intérêt ici
-            continue
-        lines += [
-            "",
-            f"[endpoints.{ep_id}]",
-            f"in = {_clusters(endpoint.in_clusters)}",
-            f"out = {_clusters(endpoint.out_clusters)}",
-        ]
-    path = pairing_file(dev_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return path
-
-
-def load_pairing(dev_id: str) -> dict:
-    """Appairage de l'équipement, avec son adresse convertie (clé « ieee » : EUI64)."""
-    path = pairing_file(dev_id)
+def load_mapping(missing_ok: bool = False) -> dict[EUI64, str]:
+    """Correspondance IEEE -> id de pairing/zigbee.toml ; PairingError s'il est inutilisable."""
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        data = tomllib.loads(MAPPING.read_text(encoding="utf-8"))
     except FileNotFoundError as err:
-        raise PairingError(
-            f"appairage absent ({path}) : lancer ./habctrl pair zigbee"
-        ) from err
+        if missing_ok:
+            return {}
+        raise PairingError(f"{MAPPING} introuvable") from err
     except tomllib.TOMLDecodeError as err:
-        raise PairingError(f"fichier d'appairage illisible ({path}) : {err}") from err
+        raise PairingError(f"{MAPPING} illisible : {err}") from err
     try:
-        data["ieee"] = EUI64.convert(data["ieee"])
-    except (KeyError, AssertionError, ValueError) as err:
-        raise PairingError(f"adresse IEEE absente ou invalide dans {path}") from err
-    return data
+        if not all(isinstance(dev_id, str) for dev_id in data.values()):
+            raise ValueError("identifiant attendu entre guillemets")
+        return {EUI64.convert(ieee): dev_id for ieee, dev_id in data.items()}
+    except (AssertionError, ValueError) as err:
+        raise PairingError(f"{MAPPING} : ligne invalide ({err})") from err
 
 
-def paired_ids(ieee: EUI64) -> list[str]:
-    """Équipements logiques déjà rattachés à cet appareil physique."""
-    found = []
-    for path in sorted(PAIRING.glob("*.toml")):
-        try:
-            if load_pairing(path.stem)["ieee"] == ieee:
-                found.append(path.stem)
-        except (PairingError, ValueError):
-            continue
-    return found
+def save_mapping(mapping: dict[EUI64, str], devices: dict) -> Path:
+    """Écrit la correspondance, avec en commentaire le modèle des appareils connus de la base."""
+    lines = [
+        "# Appareil Zigbee (IEEE) -> équipement logique (devices/<id>.py). Écrit par l'appairage.",
+        "# Fait foi : à l'ouverture de la clé, les appareils absents d'ici sont retirés du réseau.",
+        "",
+    ]
+    for ieee, dev_id in sorted(mapping.items(), key=lambda item: item[1]):
+        line = f'"{ieee}" = {json.dumps(dev_id)}'
+        if (zdev := devices.get(ieee)) is not None:
+            line += f"  # {zdev.manufacturer or '?'} {zdev.model or '?'}"
+        lines.append(line)
+    MAPPING.parent.mkdir(parents=True, exist_ok=True)
+    tmp = MAPPING.with_suffix(".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp.replace(MAPPING)
+    return MAPPING
+
+
+def linked_ieee(dev_id: str) -> EUI64:
+    """IEEE de l'appareil lié à l'équipement logique ; PairingError s'il n'y en a pas."""
+    for ieee, linked_id in load_mapping().items():
+        if linked_id == dev_id:
+            return ieee
+    raise PairingError(f"absent de {MAPPING} : lancer ./habctrl pair zigbee")
+
+
+def device_types(zdev) -> list[str]:
+    """Types d'appareil Zigbee Home Automation annoncés par les endpoints (ex. "0x010a")."""
+    return [
+        f"0x{endpoint.device_type:04x}"
+        for ep_id, endpoint in zdev.endpoints.items()
+        if ep_id != 0 and endpoint.profile_id == HOME_AUTOMATION
+    ]
+
+
+def model_keys(zdev) -> list[str]:
+    """Clés cherchées dans models.toml : le modèle, puis les types d'appareil."""
+    return [zdev.model or "", *device_types(zdev)]
 
 
 def load_config() -> dict:
@@ -149,9 +146,60 @@ async def open_session():
     # new() charge la base avant de démarrer : sans elle, les équipements connus sont oubliés
     app = await ControllerApplication.new(config, auto_form=True)
     try:
+        await synchronize(app)
         yield app
     finally:
         await app.shutdown()
+
+
+async def synchronize(app: ZigpyApplication) -> None:
+    """Aligne la base sur pairing/zigbee.toml, qui fait foi, et signale les incohérences."""
+    try:
+        mapping = load_mapping()
+    except PairingError as err:
+        log.warning("Zigbee : %s, appareils non synchronisés", err)
+        return
+    for zdev in joined_devices(app):
+        if zdev.ieee not in mapping:
+            log.warning(
+                "Zigbee : %s (%s %s) absent de %s, retiré du réseau",
+                zdev.ieee,
+                zdev.manufacturer,
+                zdev.model,
+                MAPPING.name,
+            )
+            try:
+                await app.remove(zdev.ieee)
+            except ERRORS as err:
+                log.warning("Zigbee : retrait de %s impossible (%s)", zdev.ieee, err)
+    for ieee, dev_id in mapping.items():
+        zdev = app.devices.get(ieee)
+        if zdev is None:
+            log.warning(
+                "%s : déclaré avec l'IEEE %s mais absent du réseau Zigbee : le retirer de %s "
+                "ou réappairer un appareil (./habctrl pair zigbee)",
+                dev_id,
+                ieee,
+                MAPPING.name,
+            )
+        elif not device_file(dev_id).exists():
+            log.warning(
+                "%s : appareil %s (%s %s) sans équipement déclaré. %s",
+                dev_id,
+                ieee,
+                zdev.manufacturer,
+                zdev.model,
+                declaration_hint(dev_id, zdev),
+            )
+
+
+def declaration_hint(dev_id: str, zdev) -> str:
+    """Ce qu'il faut écrire dans devices/<id>.py pour cet appareil."""
+    driver = driver_for_model(model_keys(zdev), MODELS)
+    if not driver:
+        return f"Pilote inconnu pour ce modèle : voir {MODELS}."
+    cls = load_driver(driver).__name__
+    return f"Créer devices/{dev_id}.py : from drivers.{driver} import {cls} ; {dev_id} = {cls}()"
 
 
 def restore_snapshot() -> None:
@@ -199,7 +247,10 @@ def describe(device) -> list[str]:
             continue
         clusters_in = ", ".join(f"0x{cid:04x}" for cid in sorted(endpoint.in_clusters))
         clusters_out = ", ".join(f"0x{cid:04x}" for cid in sorted(endpoint.out_clusters))
-        lines.append(f"Endpoint {ep_id} : entrée [{clusters_in}]  sortie [{clusters_out}]")
+        lines.append(
+            f"Endpoint {ep_id} (profil 0x{endpoint.profile_id:04x}, type"
+            f" 0x{endpoint.device_type:04x}) : entrée [{clusters_in}]  sortie [{clusters_out}]"
+        )
     return lines
 
 
@@ -244,8 +295,6 @@ class Coordinator:
         self._lost: asyncio.Event | None = None
 
     def register(self, device: "ZigbeeDevice", ieee: EUI64) -> None:
-        if (other := self._devices.get(ieee)) is not None and other is not device:
-            log.error("%s et %s sont appairés au même appareil %s", other.id, device.id, ieee)
         self._devices[ieee] = device
         if self._task is None:
             self._task = asyncio.get_running_loop().create_task(self._run(), name="zigbee")
@@ -326,7 +375,7 @@ class ZigbeeDevice(NetworkDevice):
 
     def __init__(self, name: str = "", poll: float | None = None):
         super().__init__(name)
-        self.ieee: EUI64 | None = None  # lue dans pairing/zigbee/<id>.toml au démarrage
+        self.ieee: EUI64 | None = None  # lue dans pairing/zigbee.toml au démarrage
         self.poll = self.POLL if poll is None else poll
         self.zdev = None  # objet zigpy de l'équipement, tant que la clé est ouverte
         self._unsubscribe: list = []
@@ -336,7 +385,7 @@ class ZigbeeDevice(NetworkDevice):
 
     async def start(self) -> None:
         try:
-            ieee: EUI64 = load_pairing(self.id)["ieee"]
+            ieee = linked_ieee(self.id)
         except PairingError as err:
             log.error("%s : %s", self.name, err)
             return  # reste injoignable

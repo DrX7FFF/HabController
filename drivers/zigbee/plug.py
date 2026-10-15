@@ -4,7 +4,7 @@
         "active_power": W, "voltage": V, "current": A, "energy": kWh}
 Les mesures n'apparaissent que si l'équipement a les clusters correspondants (0x0b04, 0x0702).
 Chaque prise se déclare dans `devices/<id>.py`, sans adresse : le lien avec l'appareil
-physique est pairing/zigbee/<id>.toml. Les deux sont créés par `./habctrl pair zigbee` :
+physique est une ligne de pairing/zigbee.toml. Les deux sont créés par `./habctrl pair zigbee` :
 
     from drivers.zigbee.plug import Plug
 

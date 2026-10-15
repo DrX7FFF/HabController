@@ -602,14 +602,9 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         patcher = mock.patch.object(homekit, "PAIRING_DIR", Path(tmp.name) / "homekit")
         patcher.start()
         self.addCleanup(patcher.stop)
-        # valeurs par défaut de chemin figées à la définition : on les redirige explicitement
-        for func, defaults in (
-            (core_devices.check_new_device, ("", self.devices)),
-            (core_devices.add_device, ("", "", self.devices)),
-        ):
-            patcher = mock.patch.object(func, "__defaults__", defaults)
-            patcher.start()
-            self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(core_devices, "DEVICES_DIR", self.devices)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def discovery(self, model="PS-S02D", paired=False):
         async def finish(_pin):
@@ -630,7 +625,7 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         with (
             mock.patch.object(homekit, "open_session", fake_controller),
             mock.patch.object(pair_cli, "discover", mock.AsyncMock(return_value=[discovery])),
-            mock.patch.object(core_pair, "driver_for_model", lambda m, _path: known.get(m, "")),
+            mock.patch.object(core_pair, "driver_for_model", lambda m, _path: known.get(m[0], "")),
             mock.patch("builtins.input", return_value=name),
             mock.patch("getpass.getpass", return_value="123-45-678"),
             contextlib.redirect_stdout(io.StringIO()) as out,
@@ -653,7 +648,7 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         config_path.write_text(edited, encoding="utf-8")
         code, out = await self.run_cli(self.discovery(), name="")
         self.assertEqual(code, 0)
-        self.assertIn("Lien refait", out)
+        self.assertIn("devices/fp2.py existant, inchangé", out)
         self.assertEqual(config_path.read_text(encoding="utf-8"), edited)
 
     async def test_unknown_model_creates_no_device_file(self):
