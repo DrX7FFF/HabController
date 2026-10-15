@@ -3,6 +3,7 @@ uvicorn
 yeelight
 zigpy
 bellows
+zha-quirks
 websockets
 aiohomekit
 google-auth[requests]

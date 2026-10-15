@@ -31,7 +31,9 @@ from contextlib import asynccontextmanager, closing
 from pathlib import Path
 
 from bellows.ash import AshException
+import zhaquirks
 from bellows.zigbee.application import ControllerApplication
+from zha.quirks import DEVICE_REGISTRY
 from zigpy.config import (
     CONF_DATABASE,
     CONF_DEVICE,
@@ -175,13 +177,28 @@ def load_config() -> dict:
     }
 
 
+_quirks_loaded = False
+
+
+async def load_quirks():
+    """Correctifs zha-quirks des appareils non standard, chargés une fois hors de la boucle
+    (environ 2 s) ; renvoie de quoi les appliquer à chaque appareil de la base ou appairé."""
+    global _quirks_loaded
+    if not _quirks_loaded:
+        await asyncio.to_thread(zhaquirks.setup)
+        _quirks_loaded = True
+    return DEVICE_REGISTRY.resolve
+
+
 @asynccontextmanager
 async def open_session():
     """Coordinateur démarré (réseau créé s'il n'existe pas encore), arrêté à la sortie."""
     config = load_config()
     restore_snapshot()
     # new() charge la base avant de démarrer : sans elle, les équipements connus sont oubliés
-    app = await ControllerApplication.new(config, auto_form=True)
+    app = await ControllerApplication.new(
+        config, auto_form=True, device_resolver=await load_quirks()
+    )
     try:
         await synchronize(app)
         yield app

@@ -31,10 +31,6 @@ MEASURES = {
     "current": (ELECTRICAL, "rms_current", "ac_current_multiplier", "ac_current_divisor"),
     "energy": (METERING, "current_summ_delivered", "multiplier", "divisor"),
 }
-# Diviseurs des modèles qui ne les annoncent pas (sinon 1), comme les quirks de ZHA.
-MODEL_DIVISORS = {
-    "TS011F": {"energy": 100, "current": 1000},  # Tuya : centièmes de kWh, mA
-}
 # Envoi spontané : attribut -> (intervalle min s, max s, écart minimal en valeur brute)
 REPORTS = {
     ON_OFF: {"on_off": (0, 600, 1)},
@@ -67,7 +63,7 @@ class Plug(ZigbeeDevice):
     # --- état ---------------------------------------------------------------
 
     async def _configure(self, zdev) -> None:
-        defaults = MODEL_DIVISORS.get(zdev.model or "", {})
+        # facteur absent de l'appareil : fourni par son correctif zha-quirks, sinon 1
         scales = {}
         for key, (cluster_id, _attr, mult_attr, div_attr) in MEASURES.items():
             cluster = find_cluster(zdev, cluster_id)
@@ -75,7 +71,7 @@ class Plug(ZigbeeDevice):
                 continue
             factors = await read(cluster, [mult_attr, div_attr])
             multiplier = factors.get(mult_attr) or 1
-            divisor = factors.get(div_attr) or defaults.get(key, 1)
+            divisor = factors.get(div_attr) or 1
             scales[key] = multiplier / divisor
         self._scales = scales
         for cluster_id, reports in REPORTS.items():

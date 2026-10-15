@@ -48,6 +48,17 @@ appareil remplacé disparaît, un appairage perdu se refait simplement. Un lien 
 absent du réseau est signalé (décalage avec la base). Fichier absent ou illisible : rien n'est retiré. Repartir de zéro : supprimer
 `pairing/zigbee.toml`, `pairing/zigbee.db` et `temp/zigbee.db`.
 
+### Zigbee : zha-quirks pour les appareils non standard
+Seuls zigpy et bellows (clé EmberZNet) sont nécessaires au Zigbee. zha-quirks est ajouté par
+choix, pour la compatibilité des appareils qui s'écartent de la norme (Xiaomi, Tuya, Philips
+Hue Dimmer…) : ses correctifs sont appliqués par zigpy au chargement de la base et à
+l'appairage, et les pilotes ne lisent que des clusters standard. Il entraîne `zha` (bibliothèque
+de Home Assistant), qui fixe les versions exactes de zigpy et bellows, et d'autres paquets
+inutilisés ici (pilotes d'autres clés). Pour s'en passer : retirer `zha-quirks` de
+`requirements.txt` et `device_resolver` de `open_session()` (`drivers/zigbee/__init__.py`),
+puis réécrire dans chaque pilote ce que son correctif apportait (ex. TS011F : diviseurs 100 pour
+l'énergie, 1000 pour le courant, que la prise n'annonce pas).
+
 ## Restauration complète
 Cloner l'application et la configuration côte à côte, brancher la clé Zigbee, lancer. La base Zigbee est
 reprise de `pairing/zigbee.db` (écrite à chaque appairage) ; les appairages
