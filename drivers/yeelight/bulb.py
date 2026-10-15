@@ -5,7 +5,8 @@ import logging
 from yeelight import BulbException, Flow, RGBTransition, SceneClass, TemperatureTransition
 from yeelight.aio import KEY_CONNECTED, AsyncBulb
 
-from core.base import Attribute, DeviceError, NetworkDevice, on_value
+from core.base import DeviceError, NetworkDevice, on_value
+from core.light import Light
 
 log = logging.getLogger(__name__)
 
@@ -29,13 +30,8 @@ def _effect(transition: int) -> dict:
     return {"effect": "smooth", "duration": max(30, transition)}
 
 
-class YeelightBulb(NetworkDevice):
+class YeelightBulb(Light, NetworkDevice):
     """Ampoule Yeelight : une connexion permanente, l'état vient des notifications."""
-
-    on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
-    brightness = Attribute[int]()  # 1 à 100
-    color_temp = Attribute[int]()  # Kelvin
-    rgb = Attribute[str]()  # "#rrggbb"
 
     def __init__(
         self,
@@ -125,23 +121,8 @@ class YeelightBulb(NetworkDevice):
         return state
 
     # --- commandes ----------------------------------------------------------
-    # toggle, set_rgb et set_temp : en tâche de fond, comme salon.on = True. set_rgb et
-    # set_temp allument et règlent tout en un seul message (scène « color flow » d'une étape,
-    # la seule qui accepte une transition).
-
-    def toggle(self, transition: int | None = None) -> None:
-        self._background("toggle", lambda: self.set("on", "toggle", transition))
-
-    def set_rgb(self, brightness: int, rgb: str, transition: int | None = None) -> None:
-        self._background(
-            f"set_rgb({brightness}, {rgb!r})", lambda: self._set_rgb(brightness, rgb, transition)
-        )
-
-    def set_temp(self, brightness: int, color_temp: int, transition: int | None = None) -> None:
-        self._background(
-            f"set_temp({brightness}, {color_temp})",
-            lambda: self._set_temp(brightness, color_temp, transition),
-        )
+    # set_rgb et set_temp (core/light.py) : allument et règlent tout en un seul message (scène
+    # « color flow » d'une étape, la seule qui accepte une transition).
 
     async def _set_rgb(self, brightness: int, rgb: str, transition: int | None) -> None:
         red, green, blue = _rgb(rgb)
@@ -182,6 +163,10 @@ class YeelightBulb(NetworkDevice):
 
     async def _apply(self, name: str, value: bool | str | int, fx: dict) -> None:
         bulb = self._bulb
+        if name != "on" and self._props.get("power") != "on":
+            # l'ampoule refuse les réglages quand elle est éteinte : on l'allume d'abord
+            await bulb.async_turn_on(**fx)
+            self._props["power"] = "on"
         if name == "on":
             on = on_value(value, self._props.get("power") == "on")
             if on:

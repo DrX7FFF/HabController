@@ -13,14 +13,18 @@ from pathlib import Path
 from core import pair
 from drivers import zigbee
 from drivers.zigbee import (
+    ERRORS,
     PairingError,
     describe,
+    find_cluster,
     joined_devices,
     load_mapping,
     model_keys,
+    read,
     save_mapping,
     save_snapshot,
 )
+from drivers.zigbee.light import CAPABILITIES, COLOR
 
 MAX_PERMIT = 254  # s, limite du protocole pour une ouverture du réseau
 INTERVIEW_WAIT = 60  # s, délai laissé à une interview commencée quand le réseau se referme
@@ -68,6 +72,17 @@ async def wait_device(app, duration: int):
         await app.permit(0)  # referme le réseau sans attendre la fin du délai
 
 
+async def read_fixed(device) -> None:
+    """Lit ce qui ne change jamais et que les pilotes retrouvent ensuite dans la base zigpy (cache
+    des attributs, copié avec elle), sans échange radio : les réglages de couleur d'une ampoule."""
+    if (cluster := find_cluster(device, COLOR)) is None:
+        return
+    try:
+        await read(cluster, [CAPABILITIES])
+    except ERRORS as err:
+        print(f"Réglages de couleur non lus ({type(err).__name__}) : tous supposés présents.")
+
+
 class Pairing(pair.Pairing):
     PROTOCOL = zigbee
     HELP = "appairer un équipement Zigbee (HabController arrêté : il occupe la clé)"
@@ -89,6 +104,7 @@ class Pairing(pair.Pairing):
             return []
         # juste après l'interview, l'équipement échange encore (ex. demande de mise à jour OTA)
         await asyncio.sleep(SETTLE)
+        await read_fixed(device)
         return [
             pair.Candidate(
                 uid=device.ieee,

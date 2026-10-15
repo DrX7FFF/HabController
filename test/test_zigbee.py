@@ -1,5 +1,6 @@
 """Tests Zigbee sans clé : instantané, correspondance et synchro, état de la prise, pair."""
 
+import asyncio
 import sqlite3
 import os
 import sys
@@ -21,7 +22,8 @@ import drivers.zigbee.plug as zigbee_plug  # noqa: E402
 import drivers.homekit as homekit  # noqa: E402
 from core.devices import id_from_name, write_summary  # noqa: E402
 from drivers.yeelight.bulb import YeelightBulb  # noqa: E402
-from drivers.zigbee.light import Light, rgb_to_xy, xy_to_rgb  # noqa: E402
+from core import base  # noqa: E402
+from drivers.zigbee.light import ZigbeeLight, rgb_to_xy, xy_to_rgb  # noqa: E402
 from drivers.zigbee.plug import ELECTRICAL, METERING, ON_OFF, Plug  # noqa: E402
 from drivers.zigbee.button import Button  # noqa: E402
 from drivers.zigbee.sensor import Sensor  # noqa: E402
@@ -156,7 +158,7 @@ class SensorTest(unittest.IsolatedAsyncioTestCase):
 
 class LightTest(unittest.IsolatedAsyncioTestCase):
     def test_state_from_zcl(self):
-        light = Light(name="Globe")
+        light = ZigbeeLight(name="Globe")
         light._on_attribute(0x0006, "on_off", 1)
         light._on_attribute(0x0008, "current_level", 127)
         light._on_attribute(0x0300, "color_temperature", 370)
@@ -170,11 +172,59 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(xy_to_rgb(*rgb_to_xy(rgb)), rgb)
 
     async def test_setting_missing_feature_refused(self):
-        light = Light(name="Plafonnier")
+        light = ZigbeeLight(name="Plafonnier")
         light.zdev = SimpleNamespace()
         with mock.patch("drivers.zigbee.light.find_cluster", return_value=None):
             with self.assertRaises(ValueError):
                 await light.set("rgb", "#ff0000")
+
+    def white_light(self, caps):
+        """Ampoule à clusters marche/arrêt, intensité, couleur ; color_capabilities = caps."""
+        light = ZigbeeLight(name="Chambre")
+        light._connected = light._synced = True
+        self.sent = []
+        clusters = {}
+        for cluster_id in (0x0006, 0x0008, 0x0300):
+            cluster = mock.Mock(cluster_id=cluster_id)
+            cluster.get.return_value = caps
+
+            def command(name, cluster_id=cluster_id):
+                async def send(*args):
+                    self.sent.append((cluster_id, name))
+                return send
+
+            for name in ("on", "move_to_level_with_on_off", "move_to_color_temp"):
+                setattr(cluster, name, command(name))
+            clusters[cluster_id] = cluster
+        light.zdev = SimpleNamespace()
+        patcher = mock.patch("drivers.zigbee.light.find_cluster", lambda _z, c: clusters[c])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return light
+
+    async def test_undeclared_color_refused_without_sending(self):
+        light = self.white_light(caps=0x10)  # température seulement
+        with self.assertRaises(ValueError):
+            await light.set("rgb", "#ff0000")
+        self.assertEqual(self.sent, [])
+        light._on_attribute(0x0300, "current_x", 20000)  # x/y envoyés quand même : ignorés
+        light._on_attribute(0x0300, "current_y", 20000)
+        self.assertNotIn("rgb", light.state())
+
+    async def test_color_turns_bulb_on_first(self):
+        light = self.white_light(caps=None)  # non lu : tout supposé présent
+        light._raw["on_off"] = 0
+        await light.set("color_temp", 2700)
+        self.assertEqual(self.sent, [(0x0006, "on"), (0x0300, "move_to_color_temp")])
+
+    async def test_set_rgb_on_white_bulb_does_what_it_can(self):
+        light = self.white_light(caps=0x10)
+        with self.assertLogs("core.base", "WARNING") as logs:
+            light.set_rgb(30, "#ff0000")
+            await asyncio.gather(*list(base.tasks))
+        self.assertEqual(self.sent, [(0x0008, "move_to_level_with_on_off")])
+        self.assertIn("refusée", logs.output[0])
+        self.assertIs(light.on, True)
 
 
 def make_zdev(ieee=IEEE, model="TS011F"):

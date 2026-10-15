@@ -19,6 +19,9 @@ class FakeBulb:
     async def async_turn_off(self, **fx):
         self.calls.append("off")
 
+    async def async_set_brightness(self, value, **fx):
+        self.calls.append(value)
+
     async def async_set_scene(self, scene_class, flow):
         self.calls.append((scene_class.name, *flow.as_start_flow_params))
 
@@ -48,6 +51,13 @@ class YeelightOnTest(unittest.IsolatedAsyncioTestCase):
         await bulb.set("on", False, 0)
         self.assertIs(bulb.on, False)
         self.assertEqual(bulb._bulb.calls, ["on", "off"])
+
+    async def test_setting_turns_bulb_on_first(self):
+        bulb = self.make()
+        bulb._merge({"power": "off"})
+        await bulb.set("brightness", 40, 0)
+        self.assertEqual(bulb._bulb.calls, ["on", 40])
+        self.assertIs(bulb.on, True)
 
     async def idle(self):
         await asyncio.gather(*list(base.tasks))

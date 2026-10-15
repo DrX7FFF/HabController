@@ -11,7 +11,10 @@ ok = await salon.send("brightness", 50, 2000)  # attend la réponse ; transition
 if prise_salon.on: ...                       # lecture de l'état mémorisé
 ```
 
-## Ampoule Yeelight — `yeelight.bulb`
+## Ampoules — `yeelight.bulb`, `zigbee.light`
+
+Interface commune (`core/light.py`) : une automatisation écrite pour une ampoule marche avec
+l'autre.
 
 | Attribut     | Type                      | Lecture | Commande                    |
 |--------------|---------------------------|---------|-----------------------------|
@@ -25,11 +28,22 @@ Commandes groupées, en tâche de fond comme `salon.on = True` :
 | Commande                                   | Effet                                         |
 |--------------------------------------------|-----------------------------------------------|
 | `toggle(transition=None)`                  | inverse allumé / éteint                       |
-| `set_rgb(brightness, rgb, transition=None)` | allume en couleur, en un seul message        |
-| `set_temp(brightness, color_temp, transition=None)` | allume en blanc, en un seul message  |
+| `set_rgb(brightness, rgb, transition=None)` | allume en couleur                            |
+| `set_temp(brightness, color_temp, transition=None)` | allume en blanc                      |
+
+Règles :
+- régler `brightness`, `color_temp` ou `rgb` allume l'ampoule éteinte ;
+- `color_temp` et `rgb` n'existent que si l'ampoule les a : sinon lecture `None`, écriture
+  refusée (journalisée, rien d'autre ne s'arrête). `set_rgb` sur une ampoule blanche règle
+  l'intensité puis s'arrête sur la couleur.
 
 Transition : celle passée à la commande, sinon `transition=` de la déclaration
 (300 ms par défaut) ; 0 = immédiat.
+
+Yeelight : `set_rgb` et `set_temp` partent en un seul message. Zigbee : deux commandes
+(intensité puis réglage) ; les réglages de couleur sont ceux que l'ampoule déclare à
+l'appairage (`color_capabilities`) ; le `rgb` relu est approché (l'ampoule donne sa couleur en
+coordonnées xy) ; transition au dixième de seconde près.
 
 ## Prise Zigbee — `zigbee.plug`
 
@@ -43,13 +57,6 @@ Transition : celle passée à la commande, sinon `transition=` de la déclaratio
 
 Les mesures sont envoyées spontanément par la prise, et n'apparaissent que si le modèle les
 fournit. Une lecture toutes les 5 min vérifie seulement que la prise répond encore.
-
-## Ampoule Zigbee — `zigbee.light`
-
-Mêmes attributs que l'ampoule Yeelight (`on`, `brightness`, `color_temp`, `rgb`), sans les
-commandes groupées. Seuls ceux que l'ampoule gère apparaissent (ex. pas de couleur sur une
-ampoule blanche) ; écrire les autres est refusé. Le `rgb` relu est approché (l'ampoule donne
-sa couleur en coordonnées xy). Transition : 300 ms par défaut, au dixième de seconde près.
 
 ## Capteurs Zigbee sur pile — `zigbee.climate`, `zigbee.motion`, `zigbee.contact`
 

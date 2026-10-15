@@ -1,36 +1,38 @@
 """Ampoule Zigbee : marche/arrêt, intensité, température de blanc et couleur selon l'ampoule.
 
 État : {"connected": bool, "on": bool, "brightness": 1-100, "color_temp": K, "rgb": "#rrggbb"}
-Mêmes attributs que l'ampoule Yeelight (mêmes widgets) ; seuls ceux que l'ampoule gère
-apparaissent (clusters 0x0008 intensité, 0x0300 couleur). La couleur passe par les
-coordonnées xy de l'ampoule : le rgb relu est approché, à pleine intensité.
+Interface commune des ampoules (core/light.py) ; seuls les réglages que l'ampoule a
+apparaissent : clusters 0x0008 intensité, 0x0300 couleur, et dans ce dernier ce que l'ampoule
+déclare (color_capabilities, lu à l'appairage ; non lu : tout est supposé présent). La couleur
+passe par les coordonnées xy de l'ampoule : le rgb relu est approché, à pleine intensité.
 
-    from drivers.zigbee.light import Light
+    from drivers.zigbee.light import ZigbeeLight
 
-    plafonnier = Light(name="Plafonnier")
+    plafonnier = ZigbeeLight(name="Plafonnier")
 
 Écriture : plafonnier.on = True | False | "toggle", .brightness = 50, .color_temp = 2700,
 .rgb = "#ff8000" ; transition en ms avec send() (300 par défaut).
 """
 
-from core.base import Attribute, on_value
+from core.base import DeviceError, on_value
+from core.light import Light
 from drivers.zigbee import ZigbeeDevice, find_cluster, read, setup_reporting
 
 ON_OFF = 0x0006
 LEVEL = 0x0008
 COLOR = 0x0300
 
-# Envoi spontané : attribut -> (intervalle min s, max s, écart minimal en valeur brute)
-REPORTS = {
-    ON_OFF: {"on_off": (0, 600, 1)},
-    LEVEL: {"current_level": (1, 600, 1)},
-    COLOR: {
-        "color_temperature": (1, 600, 1),
-        "current_x": (1, 600, 10),
-        "current_y": (1, 600, 10),
-    },
+# Réglage -> (cluster, envoi spontané : attribut -> (intervalle min s, max s, écart minimal en
+# valeur brute))
+SETTINGS = {
+    "on": (ON_OFF, {"on_off": (0, 600, 1)}),
+    "brightness": (LEVEL, {"current_level": (1, 600, 1)}),
+    "color_temp": (COLOR, {"color_temperature": (1, 600, 1)}),
+    "rgb": (COLOR, {"current_x": (1, 600, 10), "current_y": (1, 600, 10)}),
 }
-SETTABLE = {"on": ON_OFF, "brightness": LEVEL, "color_temp": COLOR, "rgb": COLOR}
+SETTING_OF = {attr: name for name, (_, reports) in SETTINGS.items() for attr in reports}
+CAPABILITIES = "color_capabilities"  # attribut du cluster couleur, lu à l'appairage
+CAPABILITY = {"color_temp": 0x10, "rgb": 0x08}  # bits de color_capabilities : température, xy
 
 
 def _linear(c: float) -> float:
@@ -69,13 +71,8 @@ def xy_to_rgb(x: float, y: float) -> str:
     return "#" + "".join(f"{round(_gamma(c / top) * 255):02x}" for c in rgb)
 
 
-class Light(ZigbeeDevice):
+class ZigbeeLight(Light, ZigbeeDevice):
     """Ampoule Zigbee : l'état vient de ce qu'elle envoie, relu toutes les `poll` secondes."""
-
-    on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
-    brightness = Attribute[int]()  # 1 à 100
-    color_temp = Attribute[int]()  # Kelvin
-    rgb = Attribute[str]()  # "#rrggbb"
 
     def __init__(self, name: str = "", transition: int = 300, poll: float | None = None):
         super().__init__(name, poll)
@@ -84,20 +81,35 @@ class Light(ZigbeeDevice):
 
     # --- état ---------------------------------------------------------------
 
+    def _cluster(self, zdev, name: str):
+        """Cluster du réglage `name`, ou None si l'ampoule ne l'a pas (cluster absent, ou
+        couleur non déclarée dans color_capabilities, lu depuis le cache de la base zigpy)."""
+        cluster = find_cluster(zdev, SETTINGS[name][0])
+        caps = cluster.get(CAPABILITIES) if cluster is not None and name in CAPABILITY else None
+        return None if caps is not None and not caps & CAPABILITY[name] else cluster
+
+    def _reports(self, zdev) -> list:
+        """[(cluster, attributs suivis)] pour les réglages que l'ampoule a."""
+        tracked = {}
+        for name, (cluster_id, reports) in SETTINGS.items():
+            if (cluster := self._cluster(zdev, name)) is not None:
+                tracked.setdefault(cluster_id, (cluster, {}))[1].update(reports)
+        return list(tracked.values())
+
     async def _configure(self, zdev) -> None:
-        for cluster_id, reports in REPORTS.items():
-            if (cluster := find_cluster(zdev, cluster_id)) is not None:
-                await setup_reporting(self.name, cluster, reports)
+        for cluster, reports in self._reports(zdev):
+            await setup_reporting(self.name, cluster, reports)
 
     async def _read(self, zdev) -> None:
-        for cluster_id, reports in REPORTS.items():
-            if (cluster := find_cluster(zdev, cluster_id)) is None:
-                continue
+        for cluster, reports in self._reports(zdev):
             for name, value in (await read(cluster, list(reports))).items():
-                self._on_attribute(cluster_id, name, value)
+                self._on_attribute(cluster.cluster_id, name, value)
 
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
-        if name in REPORTS.get(cluster_id, {}) and value is not None:
+        if name not in SETTING_OF or value is None:
+            return
+        # ex. une ampoule blanc réglable envoie aussi x/y : pas de rgb pour elle
+        if self.zdev is None or self._cluster(self.zdev, SETTING_OF[name]) is not None:
             self._raw[name] = int(value)
 
     def _get_connected_state(self) -> dict:
@@ -115,12 +127,17 @@ class Light(ZigbeeDevice):
     # --- commandes ----------------------------------------------------------
 
     async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
-        if name not in SETTABLE:
+        if name not in SETTINGS:
             raise ValueError(f"{self.name} ne gère pas « {name} »")
-        cluster = find_cluster(self.zdev, SETTABLE[name]) if self.zdev is not None else None
-        if self.zdev is not None and cluster is None:
+        if self.zdev is None:
+            raise DeviceError(f"{self.name} : injoignable")
+        if (cluster := self._cluster(self.zdev, name)) is None:
             raise ValueError(f"{self.name} ne gère pas « {name} » (ampoule sans ce réglage)")
         tenths = round((self.transition if transition is None else transition) / 100)
+        if name in CAPABILITY and self._raw.get("on_off") != 1:
+            # une ampoule éteinte ignore les commandes de couleur : on l'allume d'abord
+            await self._command(find_cluster(self.zdev, ON_OFF), "on")
+            self._raw["on_off"] = 1
         if name == "on":
             on = on_value(value, self._raw.get("on_off") == 1)
             await self._command(cluster, "on" if on else "off")
@@ -140,4 +157,4 @@ class Light(ZigbeeDevice):
         self._notify()
 
 
-Driver = Light  # convention : le chargeur cherche ce nom
+Driver = ZigbeeLight  # convention : le chargeur cherche ce nom
