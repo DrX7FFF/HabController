@@ -18,7 +18,6 @@ import drivers.zigbee as zigbee  # noqa: E402
 from core import pair as pair_cli  # noqa: E402
 import drivers.zigbee.pair as zigbee_pair  # noqa: E402
 import drivers.zigbee.plug as zigbee_plug  # noqa: E402
-from core import devices as core_devices  # noqa: E402
 from core.devices import id_from_name  # noqa: E402
 from drivers.zigbee.plug import ELECTRICAL, METERING, ON_OFF, Plug  # noqa: E402
 from zigpy.types import EUI64  # noqa: E402
@@ -131,17 +130,17 @@ def make_zdev(ieee=IEEE, model="TS011F"):
 
 
 class MappingTestCase(unittest.IsolatedAsyncioTestCase):
-    """pairing/zigbee.toml et devices/ redirigés dans un dossier temporaire."""
+    """pairing/zigbee.toml redirigé dans un dossier temporaire, équipements déclarés simulés."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.mapping = Path(tmp.name) / "pairing" / "zigbee.toml"
-        self.devices = Path(tmp.name) / "devices"
-        self.devices.mkdir()
+        self.declared = {}  # équipements déclarés dans devices/
         for target, name, value in (
             (zigbee, "MAPPING", self.mapping),
-            (core_devices, "DEVICES_DIR", self.devices),
+            (zigbee, "load_devices", lambda: self.declared),
+            (pair_cli, "load_devices", lambda: self.declared),
         ):
             patcher = mock.patch.object(target, name, value)
             patcher.start()
@@ -215,7 +214,7 @@ class SynchronizeTest(MappingTestCase):
 
     async def test_unlinked_device_removed(self):
         self.link(prise=IEEE)
-        (self.devices / "prise.py").write_text("prise = None\n")
+        self.declared["prise"] = Plug(name="Prise")
         app = self.app(make_zdev(), make_zdev(self.OTHER, "LOM002"))
         with self.assertLogs("drivers.zigbee", "WARNING") as logs:
             await zigbee.synchronize(app)
@@ -224,7 +223,7 @@ class SynchronizeTest(MappingTestCase):
 
     async def test_alerts(self):
         self.link(prise=IEEE, ventilateur=self.OTHER)  # ventilateur absent de la base
-        app = self.app(make_zdev())  # prise sans devices/prise.py
+        app = self.app(make_zdev())  # prise non déclarée
         with self.assertLogs("drivers.zigbee", "WARNING") as logs:
             await zigbee.synchronize(app)
         app.remove.assert_not_called()
@@ -268,7 +267,7 @@ class PairRunTest(MappingTestCase):
 
     async def test_known_device_keeps_name(self):
         self.link(prise=IEEE)
-        (self.devices / "prise.py").write_text("prise = None\n")
+        self.declared["prise"] = Plug(name="Prise")
         code, add = await self.pair("")  # Entrée : garder le nom
         self.assertEqual(code, 0)
         add.assert_not_called()
@@ -284,10 +283,10 @@ class PairRunTest(MappingTestCase):
 
     async def test_replaces_dead_device(self):
         self.link(prise="00:11:22:33:44:55:66:77")  # ancien appareil, HS
-        (self.devices / "prise.py").write_text("prise = None\n")
+        self.declared["prise"] = Plug(name="Prise")
         code, add = await self.pair("Prise", "n", "Prise", "o")  # refus, puis remplacement
         self.assertEqual(code, 0)
-        add.assert_not_called()  # devices/prise.py gardé
+        add.assert_not_called()  # déclaration gardée
         self.assertEqual(zigbee.load_mapping(), {EUI64.convert(IEEE): "prise"})
 
     async def test_driver_from_device_type(self):

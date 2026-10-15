@@ -1,4 +1,4 @@
-# Appareil Zigbee (IEEE) -> équipement logique (devices/<id>.py). Écrit par l'appairage.
+# Appareil Zigbee (IEEE) -> équipement logique (id dans devices/). Écrit par l'appairage.
 # Fait foi : à l'ouverture de la clé, les appareils absents d'ici sont retirés du réseau.
 
 "a4:c1:38:d6:d7:c6:db:f6" = "prise_salon"  # _TZ3000_rdfh8cfs TS011F

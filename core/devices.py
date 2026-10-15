@@ -11,6 +11,7 @@ from core import CONFIG_DIR
 from core.base import Device
 
 DEVICES_DIR = CONFIG_DIR / "devices"
+NEW_DEVICES = "devices.py"  # où l'appairage ajoute les équipements, à réorganiser librement
 
 
 def load_driver(name: str):
@@ -34,18 +35,18 @@ def load_driver(name: str):
 
 
 def load_devices(package: str = "devices") -> dict:
-    """Importe chaque `devices/<id>.py`, qui doit définir `<id>` (instance de Device)."""
+    """Importe chaque `devices/*.py` : toute variable Device est un équipement, d'identifiant
+    le nom de la variable. Un même équipement importé dans un autre fichier compte une fois."""
     devices = {}
     modules = pkgutil.iter_modules(importlib.import_module(package).__path__)
     for info in sorted(modules, key=lambda module: module.name):
-        dev_id = info.name
-        if dev_id.startswith("_"):
+        if info.name.startswith("_"):
             continue
-        device = getattr(importlib.import_module(f"{package}.{dev_id}"), dev_id, None)
-        if not isinstance(device, Device):
-            raise ValueError(f"{package}/{dev_id}.py doit définir `{dev_id} = <pilote>(...)`")
-        device.configure(dev_id)
-        devices[dev_id] = device
+        module = importlib.import_module(f"{package}.{info.name}")
+        for dev_id, device in vars(module).items():
+            if isinstance(device, Device) and device not in devices.values():
+                device.configure(dev_id)
+                devices[dev_id] = device
     return devices
 
 
@@ -55,34 +56,12 @@ def id_from_name(name: str) -> str:
     return re.sub(r"\W+", "_", ascii_name.lower()).strip("_")
 
 
-def device_label(dev_id: str) -> str:
-    """« Nom (id) » d'un équipement de devices/, ou l'identifiant seul s'il est illisible."""
-    try:
-        name = getattr(importlib.import_module(f"devices.{dev_id}"), dev_id).name
-    except Exception:  # fichier absent ou en erreur : l'identifiant suffit à le désigner
-        return dev_id
-    return f"{name} ({dev_id})" if name else dev_id
-
-
-def device_file(dev_id: str, path: Path | None = None) -> Path:
-    return (path or DEVICES_DIR) / f"{dev_id}.py"
-
-
 def check_id(dev_id: str) -> None:
-    """Identifiant utilisable pour devices/<id>.py ; lève ValueError sinon."""
+    """Identifiant utilisable pour un équipement (nom de variable) ; lève ValueError sinon."""
     if not dev_id.isidentifier() or keyword.iskeyword(dev_id) or dev_id.startswith("_"):
         raise ValueError(
             f"identifiant invalide « {dev_id} » (nom de variable Python, sans « _ » initial)"
         )
-
-
-def check_new_device(dev_id: str, driver: str = "", path: Path | None = None) -> None:
-    """Vérifie qu'on peut déclarer cet équipement ; lève ValueError sinon."""
-    check_id(dev_id)
-    if device_file(dev_id, path).exists():
-        raise ValueError(f"l'équipement « {dev_id} » existe déjà dans devices/")
-    if driver:
-        load_driver(driver)
 
 
 def driver_for_model(models: str | list[str], path: Path) -> str:
@@ -113,9 +92,10 @@ def add_device(
     name: str = "",
     comment: str = "",
     path: Path | None = None,
-) -> None:
-    """Crée devices/<id>.py : `<id> = <Pilote>(...)`, avec les réglages par défaut du pilote."""
-    check_new_device(dev_id, driver, path)
+) -> Path:
+    """Ajoute `<id> = <Pilote>(...)` à la fin de devices/devices.py (créé au besoin), avec les
+    réglages par défaut du pilote et son import s'il manque. Renvoie le fichier."""
+    check_id(dev_id)
     if not driver:
         raise ValueError("pilote requis")
     cls = load_driver(driver)
@@ -123,12 +103,14 @@ def add_device(
     config_args = getattr(cls, "config_args", None)
     if config_args:
         args += config_args()
-    lines = [f"# {comment}"] if comment else []
-    lines += [
-        f"from drivers.{driver} import {cls.__name__}",
-        "",
-        f"{dev_id} = {cls.__name__}({', '.join(args)})",
-    ]
-    file = device_file(dev_id, path)
+    file = (path or DEVICES_DIR) / NEW_DEVICES
+    lines = file.read_text(encoding="utf-8").splitlines() if file.exists() else []
+    statement = f"from drivers.{driver} import {cls.__name__}"
+    if statement not in lines:
+        imports = [i for i, line in enumerate(lines) if line.startswith(("from ", "import "))]
+        lines.insert(imports[-1] + 1 if imports else 0, statement)
+    lines += [""] + ([f"# {comment}"] if comment else [])
+    lines.append(f"{dev_id} = {cls.__name__}({', '.join(args)})")
     file.parent.mkdir(parents=True, exist_ok=True)
     file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return file

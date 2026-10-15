@@ -3,7 +3,7 @@
 État : {"connected": bool, "zone.<alias ou index>": bool, ...}.
 Chaque capteur de présence est repéré par son « Sensor Index » (caractéristique Aqara), comme
 dans node-red-contrib-fp2 : l'index 0 est la présence globale, comme les autres zones accessibles
-sous `zone`. Chaque appareil se déclare dans `devices/<id>.py` :
+sous `zone`. Chaque appareil se déclare dans un fichier de `devices/` :
 
     from drivers.homekit.fp2 import FP2
 
@@ -96,7 +96,7 @@ class FP2(NetworkDevice):
 
     @staticmethod
     def config_args() -> list[str]:
-        """Arguments écrits par add_device() dans devices/<id>.py."""
+        """Arguments écrits par add_device() dans devices/devices.py."""
         return ['zonemapping={0: "Global"}']
 
     def __init__(

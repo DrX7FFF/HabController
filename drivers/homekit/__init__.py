@@ -1,7 +1,7 @@
 """HomeKit (HAP) : appairage et connexion, communs à tous les pilotes HomeKit.
 
 L'appairage d'un équipement est enregistré dans pairing/homekit/<id>.toml (droits 600) : lien
-entre l'équipement logique (devices/<id>.py) et l'accessoire physique. En tête, ce qui le
+entre l'équipement logique (déclaré dans devices/) et l'accessoire physique. En tête, ce qui le
 décrit (ce que l'accessoire annonce : fabricant, modèle, n° de série, firmware) ; dans [hap],
 les clés d'appairage d'aiohomekit, à ne pas modifier.
 Il est portable : l'adresse IP n'y figure jamais, elle est résolue par mDNS à chaque connexion
@@ -96,7 +96,7 @@ def save_pairing(dev_id: str, keys: dict, info: dict | None = None) -> Path:
     info = info or {}
     lines = [
         f"# Appairage HomeKit de « {dev_id} » : lien entre l'équipement logique",
-        f"# (devices/{dev_id}.py) et l'accessoire physique. Écrit par ./habctrl pair homekit.",
+        "# (déclaré dans devices/) et l'accessoire physique. Écrit par ./habctrl pair homekit.",
         "",
     ]
     lines += [

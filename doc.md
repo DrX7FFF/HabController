@@ -28,7 +28,7 @@ Commandes groupées, en tâche de fond comme `salon.on = True` :
 | `set_rgb(brightness, rgb, transition=None)` | allume en couleur, en un seul message        |
 | `set_temp(brightness, color_temp, transition=None)` | allume en blanc, en un seul message  |
 
-Transition : celle passée à la commande, sinon `transition=` de `devices/<id>.py`
+Transition : celle passée à la commande, sinon `transition=` de la déclaration
 (300 ms par défaut) ; 0 = immédiat.
 
 ## Prise Zigbee — `zigbee.plug`
@@ -51,5 +51,5 @@ fournit. Une lecture toutes les 5 min vérifie seulement que la prise répond en
 | `zone.<alias>` ou `zone[<index>]` | bool (présence) | ✓       | —        |
 | `illuminance`                     | float, lux      | ✓       | —        |
 
-Les zones dépendent de l'appareil et de `zonemapping` dans `devices/<id>.py` ; l'index 0 est
+Les zones dépendent de l'appareil et de `zonemapping` dans la déclaration ; l'index 0 est
 la présence globale. Capteur : toute commande est refusée.

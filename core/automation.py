@@ -1,14 +1,13 @@
 """Automatisations : fonctions déclenchées par les changements d'état des équipements.
 
 Un fichier par sujet dans automations/, chargé au démarrage. Les équipements
-s'importent depuis devices/, avec le déclencheur :
+s'importent depuis le fichier de devices/ qui les déclare, avec le déclencheur :
 
     import logging
 
     from core.automation import Event, on_change
-    from devices.capteur import capteur
+    from devices.salon import capteur, salon
     from devices.cuisine import cuisine
-    from devices.salon import salon
 
     log = logging.getLogger(__name__)  # journal des scripts : temp/automations.log
 

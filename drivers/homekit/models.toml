@@ -1,6 +1,6 @@
 # Modèle HomeKit annoncé par l'accessoire (affiché à l'appairage) -> pilote
 # ("homekit.fp2" pour drivers/homekit/fp2.py).
-# Utilisé par `./habctrl pair homekit` pour créer devices/<id>.py ; sinon déclaration à la main.
+# Utilisé par `./habctrl pair homekit` pour déclarer l'équipement dans devices/ ; sinon déclaration à la main.
 [models]
 "PS-S02D" = "homekit.fp2"  # Aqara FP2 (modèle à confirmer avec ce qu'affiche l'appairage)
 "PS-S02E" = "homekit.fp2"

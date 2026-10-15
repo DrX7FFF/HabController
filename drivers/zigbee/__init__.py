@@ -8,7 +8,7 @@ chaque appairage et reprise au démarrage si temp/ est vide. Changer de clé ave
 ancienne peut obliger à réappairer les équipements : le compteur de trames du réseau,
 sauvegardé avec, a avancé depuis.
 
-L'équipement logique (devices/<id>.py) ne contient aucune adresse : le lien avec l'appareil
+L'équipement logique (déclaré dans devices/) ne contient aucune adresse : le lien avec l'appareil
 physique est une ligne de pairing/zigbee.toml (IEEE -> id), écrite par l'appairage. Ce fichier
 fait foi : à chaque ouverture de la clé, les appareils de la base qui n'y sont pas sont retirés
 du réseau (appareil remplacé, appairage perdu ou interrompu : il suffit de le réappairer), et
@@ -47,7 +47,7 @@ from zigpy.zcl.foundation import Status
 
 from core import PAIRING_DIR, TEMP_DIR, settings
 from core.base import DeviceError, NetworkDevice
-from core.devices import device_file, driver_for_model, load_driver
+from core.devices import driver_for_model, load_devices, load_driver
 
 log = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def load_mapping(missing_ok: bool = False) -> dict[EUI64, str]:
 def save_mapping(mapping: dict[EUI64, str], devices: dict) -> Path:
     """Écrit la correspondance, avec en commentaire le modèle des appareils connus de la base."""
     lines = [
-        "# Appareil Zigbee (IEEE) -> équipement logique (devices/<id>.py). Écrit par l'appairage.",
+        "# Appareil Zigbee (IEEE) -> équipement logique (id dans devices/). Écrit par l'appairage.",
         "# Fait foi : à l'ouverture de la clé, les appareils absents d'ici sont retirés du réseau.",
         "",
     ]
@@ -172,6 +172,7 @@ async def synchronize(app: ZigpyApplication) -> None:
                 await app.remove(zdev.ieee)
             except ERRORS as err:
                 log.warning("Zigbee : retrait de %s impossible (%s)", zdev.ieee, err)
+    declared = load_devices()
     for ieee, dev_id in mapping.items():
         zdev = app.devices.get(ieee)
         if zdev is None:
@@ -182,7 +183,7 @@ async def synchronize(app: ZigpyApplication) -> None:
                 ieee,
                 MAPPING.name,
             )
-        elif not device_file(dev_id).exists():
+        elif dev_id not in declared:
             log.warning(
                 "%s : appareil %s (%s %s) sans équipement déclaré. %s",
                 dev_id,
@@ -194,12 +195,12 @@ async def synchronize(app: ZigpyApplication) -> None:
 
 
 def declaration_hint(dev_id: str, zdev) -> str:
-    """Ce qu'il faut écrire dans devices/<id>.py pour cet appareil."""
+    """Ce qu'il faut déclarer dans devices/ pour cet appareil."""
     driver = driver_for_model(model_keys(zdev), MODELS)
     if not driver:
         return f"Pilote inconnu pour ce modèle : voir {MODELS}."
     cls = load_driver(driver).__name__
-    return f"Créer devices/{dev_id}.py : from drivers.{driver} import {cls} ; {dev_id} = {cls}()"
+    return f"Déclarer dans devices/ : from drivers.{driver} import {cls} ; {dev_id} = {cls}()"
 
 
 def restore_snapshot() -> None:

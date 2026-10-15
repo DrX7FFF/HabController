@@ -67,7 +67,7 @@ class Device:
     connected = Attribute[bool](readonly=True)
 
     def __init__(self, name: str = ""):
-        self.id = ""  # affecté par configure() : le chargeur le déduit du nom du fichier
+        self.id = ""  # affecté par configure() : le chargeur le déduit du nom de la variable
         self.name = name
         self._listeners: list[Callable[[dict], None]] = []
         self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre

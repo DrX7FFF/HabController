@@ -16,6 +16,15 @@ Habitation domotique home mad
 
 Emplacements modifiables avec `HABCTRL_CONFIG` et `HABCTRL_TEMP`.
 
+## Équipements
+Chaque fichier de `devices/` déclare autant d'équipements que voulu (par pièce, par type…) :
+toute variable qui est un équipement est chargée, son nom de variable est son identifiant.
+```python
+salon = YeelightBulb(host="192.168.1.110", name="Salon")
+prise_salon = Plug(name="Prise salon")
+```
+Dans une automatisation : `from devices.salon import salon, prise_salon`.
+
 ## Pairing
 ```batch
 ./habctrl pair -h                                  # protocoles disponibles
@@ -24,15 +33,16 @@ Emplacements modifiables avec `HABCTRL_CONFIG` et `HABCTRL_TEMP`.
 ```
 Le nom de l'équipement est demandé une fois l'appareil identifié (l'identifiant en est
 déduit) ; un appareil déjà lié propose de garder son nom. Un nom déjà lié à un autre appareil
-le remplace après confirmation (appareil HS) ; un `devices/<id>.py` existant est gardé, sinon
-il est créé avec le pilote déduit du modèle (`drivers/<protocole>/models.toml`, Zigbee : ou du
-type d'appareil). Redémarrer HabController ensuite.
+le remplace après confirmation (appareil HS) ; un équipement déjà déclaré est gardé, sinon il
+est ajouté à la fin de `devices/devices.py` avec le pilote déduit du modèle
+(`drivers/<protocole>/models.toml`, Zigbee : ou du type d'appareil), à ranger ensuite
+librement. Redémarrer HabController ensuite.
 
 ### Zigbee : `pairing/zigbee.toml` fait foi
 Une ligne par appareil : `"<IEEE>" = "<id>"`. À chaque ouverture de la clé (démarrage,
 appairage), les appareils de la base absents de ce fichier sont retirés du réseau : un
 appareil remplacé disparaît, un appairage perdu se refait simplement. Sont signalés : un lien
-sans `devices/<id>.py` (avec la déclaration à écrire) et un lien vers un appareil absent du
+vers un équipement non déclaré (avec la déclaration à écrire) et un lien vers un appareil absent du
 réseau. Fichier absent ou illisible : rien n'est retiré. Repartir de zéro : supprimer
 `pairing/zigbee.toml`, `pairing/zigbee.db` et `temp/zigbee.db`.
 
