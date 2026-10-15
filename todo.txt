@@ -13,3 +13,27 @@ Démarrage : temporiser de quelques secondes le déclenchement des automatisatio
 Synthèse en page web (le fichier temp/equipements.txt existe) : équipements logiques avec leur physique (id, nom, pilote, fichier, identité physique, connecté), logiques sans physique, liens orphelins.
 
 Refaire l'appairage du FP2 (./habctrl pair homekit) : l'en-tête de pairing/homekit/fp2.toml cite encore devices/fp2.py.
+
+Zigbee, à faire devant les appareils (réinitialiser chacun puis ./habctrl pair zigbee) :
+- TVBackLight (TS011F) : appairer, rien à coder.
+- Boutons (b1acn01 x2, bouton rond lumi.sensor_switch, Cube, Hue Dimmer RWL021) : relever les noms
+  d'événements réels (journal en debug de drivers.zigbee.button) et ajuster doc.md.
+- Vérifier sur le matériel : couleur du Globe (LLC020), SNZB-02D configuré à son premier message,
+  délai de remise à faux du détecteur de présence, sens ouvert/fermé de la porte.
+- Appareils supprimés de deCONZ, s'ils ressortent : ampoule Aqara (lumi.light.aqcn02) couverte par
+  zigbee.light ; double interrupteur (lumi.switch.b2nacn02) : 2 relais = 2 attributs on_1 / on_2.
+- Migration finie : supprimer HabConfig/listetemp.txt.
+
+Datalog : regrouper les valeurs d'un équipement par horodatage
+(devices/<id>/<ms> = {temperature, humidity}) ? À revoir plus tard : perte de la rétention par
+attribut, lecture d'un seul attribut plus coûteuse.
+
+Alertes : équipement qui ne vit plus, pile faible.
+- Une tâche périodique (ex. toutes les 15 min) parcourt les équipements :
+  - plus de nouvelles : last_seen plus vieux qu'un seuil (ex. 2 h ; un capteur Xiaomi envoie au
+    moins une fois par heure), ou connected False depuis plus de N min pour ceux qu'on interroge ;
+  - pile faible : battery < 20 %.
+- Seuils dans habctrl.toml ([alerts], avec exceptions par équipement).
+- Une alerte par anomalie, répétée au plus une fois par jour, et un message au retour à la normale.
+- Canal à choisir : journal + bandeau de la page web pour commencer, puis notification (mail,
+  push…).
