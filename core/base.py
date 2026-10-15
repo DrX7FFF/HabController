@@ -73,6 +73,7 @@ class Device:
         self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre
         self._last_notified: dict | None = None
         self.changed_at: int | None = None  # ms depuis l'époque Unix, dernier changement d'état
+        self.last_seen: int | None = None  # ms, dernière mise à jour reçue (même identique)
 
     def configure(self, dev_id: str) -> None:
         """Appelé par le chargeur, avant start() : identifiant, et nom par défaut."""
@@ -87,12 +88,16 @@ class Device:
     def _notify(self) -> None:
         """À appeler après toute mise à jour de l'état ; ne diffuse que les vrais changements.
 
-        Le changement est horodaté (changed_at) avant d'être diffusé.
+        Le changement est horodaté (changed_at) avant d'être diffusé. last_seen est mis à jour à
+        chaque appel tant que l'équipement est joignable (une perte de connexion n'est pas reçue).
         """
         state = self.state()
+        now = time.time_ns() // 1_000_000
+        if state.get("connected"):
+            self.last_seen = now
         if state != self._last_notified:
             self._last_notified = state
-            self.changed_at = time.time_ns() // 1_000_000
+            self.changed_at = now
             for callback in self._listeners:
                 callback(state)
 

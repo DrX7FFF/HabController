@@ -108,6 +108,18 @@ class OnChangeTest(AutomationTestCase):
         self.assertEqual(events[0].time, fp.changed_at)
         self.assertGreaterEqual(events[0].time, before)
 
+    async def test_last_seen_updated_by_same_value(self):
+        fp = FakeDevice("fp2", {"connected": True, "n": 1})
+        fp.update(n=1)
+        changed, fp.last_seen = fp.changed_at, 0
+        fp.update(n=1)  # valeur reçue identique : vue, sans changement
+        self.assertGreater(fp.last_seen, 0)
+        self.assertEqual(fp.changed_at, changed)
+        fp.update(connected=False)
+        fp.last_seen = 0
+        fp.update(connected=False)  # injoignable : rien de reçu
+        self.assertEqual(fp.last_seen, 0)
+
     async def test_to_filter_accepts_false(self):
         fp = FakeDevice("fp2", {"presence_0": True})
         events = []
