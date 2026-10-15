@@ -26,7 +26,7 @@ from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
 
 from core.base import Attribute, NetworkDevice
-from drivers.homekit import ERRORS, PairingError, connect, open_session
+from drivers.homekit import ERRORS, PairingError, connect, links, open_session
 
 log = logging.getLogger(__name__)
 
@@ -124,6 +124,9 @@ class FP2(NetworkDevice):
         return Zones(self)
 
     # --- cycle de vie -------------------------------------------------------
+
+    def physical(self) -> str:
+        return links().get(self.id, "")
 
     async def start(self) -> None:
         self._spawn(self._run())

@@ -91,6 +91,21 @@ def paired_ids(accessory_id: str) -> list[str]:
     return found
 
 
+def links() -> dict[str, str]:
+    """Accessoires appairés : {id: description}, d'après pairing/homekit/."""
+    found = {}
+    for path in sorted(PAIRING_DIR.glob("*.toml")):
+        try:
+            data = read_pairing_file(path.stem)
+        except (PairingError, ValueError):
+            continue
+        found[path.stem] = (
+            f"HomeKit {data['hap']['AccessoryPairingID']}"
+            f" ({data.get('manufacturer', '?')} {data.get('model', '?')})"
+        )
+    return found
+
+
 def save_pairing(dev_id: str, keys: dict, info: dict | None = None) -> Path:
     """Écrit l'appairage : `info` (champs de INFO_CHARS, et « paired ») puis les clés `keys`."""
     info = info or {}

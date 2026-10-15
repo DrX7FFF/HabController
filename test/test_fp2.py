@@ -547,6 +547,17 @@ class LoadDevicesTest(unittest.TestCase):
         self.assertEqual(devices["fp2"]._aliases, {1: "salon"})
         self.assertEqual(devices["fp2"].state(), {"connected": False})
 
+    def test_same_id_in_two_files_is_signalled(self):
+        plug = "from drivers.zigbee.plug import Plug\nlampe = Plug(name='{}')\n"
+        self.write("cuisine", plug.format("Cuisine"))
+        self.write("salon", plug.format("Salon"))
+        with self.assertLogs("core.devices", "WARNING") as logs:
+            devices = core_devices.load_devices(self.package)
+        self.assertEqual(
+            logs.output, ["WARNING:core.devices:lampe : déclaré deux fois (cuisine.py, salon.py)"]
+        )
+        self.assertEqual(set(devices), {"lampe"})
+
     def test_config_devices_load(self):
         devices = core_devices.load_devices()
         self.assertEqual(set(devices), {"salon", "cuisine", "fp2", "prise_salon"})

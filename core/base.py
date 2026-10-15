@@ -102,6 +102,10 @@ class Device:
     async def stop(self) -> None:
         """Appelé à l'arrêt de l'application."""
 
+    def physical(self) -> str:
+        """Appareil physique lié (protocole et identité), "" s'il n'y en a pas."""
+        return ""
+
     def state(self) -> dict:
         """État courant, lu en mémoire : ne doit jamais interroger l'équipement."""
         raise NotImplementedError

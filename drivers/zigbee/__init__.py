@@ -102,6 +102,14 @@ def save_mapping(mapping: dict[EUI64, str], devices: dict) -> Path:
     return MAPPING
 
 
+def links() -> dict[str, str]:
+    """Appareils liés : {id: description} ({} si pairing/zigbee.toml est inutilisable)."""
+    try:
+        return {dev_id: f"Zigbee {ieee}" for ieee, dev_id in load_mapping(missing_ok=True).items()}
+    except PairingError:
+        return {}
+
+
 def linked_ieee(dev_id: str) -> EUI64:
     """IEEE de l'appareil lié à l'équipement logique ; PairingError s'il n'y en a pas."""
     for ieee, linked_id in load_mapping().items():
@@ -392,6 +400,9 @@ class ZigbeeDevice(NetworkDevice):
             return  # reste injoignable
         self.ieee = ieee
         coordinator.register(self, ieee)
+
+    def physical(self) -> str:
+        return links().get(self.id, "")
 
     async def stop(self) -> None:
         if self.ieee is not None:

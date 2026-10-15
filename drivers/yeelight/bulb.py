@@ -55,6 +55,9 @@ class YeelightBulb(NetworkDevice):
 
     # --- cycle de vie -------------------------------------------------------
 
+    def physical(self) -> str:
+        return f"Yeelight {self._host}"
+
     async def start(self) -> None:
         # AsyncBulb a besoin de la boucle d'événements en cours : création ici, pas dans __init__.
         self._bulb = AsyncBulb(self._host, self._port, auto_on=False)

@@ -1,14 +1,20 @@
 import importlib
 import json
 import keyword
+import logging
 import pkgutil
 import re
+import time
 import tomllib
 import unicodedata
 from pathlib import Path
 
+import drivers
+
 from core import CONFIG_DIR
 from core.base import Device
+
+log = logging.getLogger(__name__)
 
 DEVICES_DIR = CONFIG_DIR / "devices"
 NEW_DEVICES = "devices.py"  # où l'appairage ajoute les équipements, à réorganiser librement
@@ -36,8 +42,10 @@ def load_driver(name: str):
 
 def load_devices(package: str = "devices") -> dict:
     """Importe chaque `devices/*.py` : toute variable Device est un équipement, d'identifiant
-    le nom de la variable. Un même équipement importé dans un autre fichier compte une fois."""
+    le nom de la variable. Un même équipement importé dans un autre fichier compte une fois ; un
+    identifiant déclaré dans deux fichiers est signalé (le dernier chargé remplace l'autre)."""
     devices = {}
+    files = {}  # id -> fichier qui le déclare
     modules = pkgutil.iter_modules(importlib.import_module(package).__path__)
     for info in sorted(modules, key=lambda module: module.name):
         if info.name.startswith("_"):
@@ -45,9 +53,39 @@ def load_devices(package: str = "devices") -> dict:
         module = importlib.import_module(f"{package}.{info.name}")
         for dev_id, device in vars(module).items():
             if isinstance(device, Device) and device not in devices.values():
+                if dev_id in devices:
+                    log.warning(
+                        "%s : déclaré deux fois (%s.py, %s.py)", dev_id, files[dev_id], info.name
+                    )
                 device.configure(dev_id)
                 devices[dev_id] = device
+                files[dev_id] = info.name
     return devices
+
+
+def write_summary(devices: dict[str, Device], path: Path) -> None:
+    """Équipements logiques et leur appareil physique (vide si aucun), puis les appareils liés à
+    un équipement non déclaré : liens de chaque protocole qui fournit links()."""
+    rows = [("id", "nom", "pilote", "physique")]
+    rows += [
+        (dev_id, device.name, type(device).__module__.removeprefix("drivers."), device.physical())
+        for dev_id, device in sorted(devices.items())
+    ]
+    orphans = []
+    for info in pkgutil.iter_modules(drivers.__path__):
+        links = getattr(importlib.import_module(f"drivers.{info.name}"), "links", None)
+        if links:
+            orphans += [(i, p) for i, p in sorted(links().items()) if i not in devices]
+    lines = [f"# Équipements au {time.strftime('%Y-%m-%d %H:%M:%S')}", ""]
+    lines += table(rows)
+    lines += ["", "# Appareils physiques non liés (équipement absent de devices/)", ""]
+    lines += table([("id", "physique"), *orphans]) if orphans else ["aucun"]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def table(rows: list[tuple[str, ...]]) -> list[str]:
+    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+    return ["  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip() for row in rows]
 
 
 def id_from_name(name: str) -> str:

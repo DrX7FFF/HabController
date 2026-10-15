@@ -18,11 +18,14 @@ import drivers.zigbee as zigbee  # noqa: E402
 from core import pair as pair_cli  # noqa: E402
 import drivers.zigbee.pair as zigbee_pair  # noqa: E402
 import drivers.zigbee.plug as zigbee_plug  # noqa: E402
-from core.devices import id_from_name  # noqa: E402
+import drivers.homekit as homekit  # noqa: E402
+from core.devices import id_from_name, write_summary  # noqa: E402
+from drivers.yeelight.bulb import YeelightBulb  # noqa: E402
 from drivers.zigbee.plug import ELECTRICAL, METERING, ON_OFF, Plug  # noqa: E402
 from zigpy.types import EUI64  # noqa: E402
 
 IEEE = "a4:c1:38:d6:d7:c6:db:f6"
+OTHER = "00:17:88:01:08:9d:f1:10"
 
 
 class SnapshotTest(unittest.TestCase):
@@ -196,7 +199,6 @@ class MappingTest(MappingTestCase):
 class SynchronizeTest(MappingTestCase):
     """Base alignée sur pairing/zigbee.toml à l'ouverture de la clé."""
 
-    OTHER = "00:17:88:01:08:9d:f1:10"
 
     def app(self, *devices):
         coordinator = SimpleNamespace(ieee=EUI64.convert("00:00:00:00:00:00:00:01"))
@@ -215,14 +217,14 @@ class SynchronizeTest(MappingTestCase):
     async def test_unlinked_device_removed(self):
         self.link(prise=IEEE)
         self.declared["prise"] = Plug(name="Prise")
-        app = self.app(make_zdev(), make_zdev(self.OTHER, "LOM002"))
+        app = self.app(make_zdev(), make_zdev(OTHER, "LOM002"))
         with self.assertLogs("drivers.zigbee", "WARNING") as logs:
             await zigbee.synchronize(app)
-        app.remove.assert_awaited_once_with(EUI64.convert(self.OTHER))
+        app.remove.assert_awaited_once_with(EUI64.convert(OTHER))
         self.assertEqual(len(logs.output), 1)
 
     async def test_alerts(self):
-        self.link(prise=IEEE, ventilateur=self.OTHER)  # ventilateur absent de la base
+        self.link(prise=IEEE, ventilateur=OTHER)  # ventilateur absent de la base
         app = self.app(make_zdev())  # prise non déclarée
         with self.assertLogs("drivers.zigbee", "WARNING") as logs:
             await zigbee.synchronize(app)
@@ -230,6 +232,34 @@ class SynchronizeTest(MappingTestCase):
         text = "\n".join(logs.output)
         self.assertIn("ventilateur : déclaré avec l'IEEE", text)
         self.assertIn("from drivers.zigbee.plug import Plug ; prise = Plug()", text)
+
+
+class SummaryTest(MappingTestCase):
+    def test_logical_with_physical_then_orphans(self):
+        self.link(prise=IEEE, ventilateur=OTHER)
+        devices = {"prise": Plug(name="Prise"), "lampe": YeelightBulb(host="192.0.2.1")}
+        for dev_id, device in devices.items():
+            device.configure(dev_id)
+        devices["seule"] = Plug()  # déclarée, jamais appairée
+        devices["seule"].configure("seule")
+        out = self.mapping.parent / "equipements.txt"
+        with mock.patch.object(homekit, "PAIRING_DIR", self.mapping.parent / "homekit"):
+            write_summary(devices, out)
+        lines = out.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(
+            lines[2:],
+            [
+                "id     nom    pilote         physique",
+                "lampe  lampe  yeelight.bulb  Yeelight 192.0.2.1",
+                "prise  Prise  zigbee.plug    Zigbee a4:c1:38:d6:d7:c6:db:f6",
+                "seule  seule  zigbee.plug",
+                "",
+                "# Appareils physiques non liés (équipement absent de devices/)",
+                "",
+                "id           physique",
+                f"ventilateur  Zigbee {OTHER}",
+            ],
+        )
 
 
 class PairCommandTest(unittest.TestCase):

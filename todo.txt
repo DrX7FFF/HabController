@@ -9,6 +9,6 @@ Firebase : supprimer les anciennes données Node-RED (Dehumidifier, Home, Measur
 
 Démarrage : temporiser de quelques secondes le déclenchement des automatisations (happy flow : équipements pas encore connectés).
 
-Synthèse après l'init (fichier et/ou page web) : équipements logiques avec leur physique (id, nom, pilote, fichier, identité physique, connecté), logiques sans physique, liens orphelins.
+Synthèse en page web (le fichier temp/equipements.txt existe) : équipements logiques avec leur physique (id, nom, pilote, fichier, identité physique, connecté), logiques sans physique, liens orphelins.
 
 Refaire l'appairage du FP2 (./habctrl pair homekit) : l'en-tête de pairing/homekit/fp2.toml cite encore devices/fp2.py.
