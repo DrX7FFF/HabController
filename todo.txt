@@ -1,6 +1,7 @@
 ajouter log à chaque connexion d'un équipement
 
-implémenter le zigbee
+Etudier ce qui peut être rechargé à la volée
+
 
 A revoir :
 Sur le capteur FP2 : Un capteur sans index serait nommé zone_<aid>_<iid>.
