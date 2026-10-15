@@ -88,3 +88,13 @@ async def lumiere(event):            # event.attr : nom, event.new : valeur (ex.
 
 Les zones dépendent de l'appareil et de `zonemapping` dans la déclaration ; l'index 0 est
 la présence globale. Capteur : toute commande est refusée.
+
+## TV Samsung d'avant 2016 — `samsung.tv`
+
+| Attribut | Type | Lecture | Commande                        |
+|----------|------|---------|---------------------------------|
+| `on`     | bool | ✓       | `False` (extinction) seulement |
+
+`connected` et `on` reflètent la connexion TCP permanente à la TV (port 55000) : éteinte, elle
+la coupe. L'allumer par le réseau est impossible sur ces modèles. À la première connexion,
+accepter « HabController » sur l'écran de la TV.

@@ -24,6 +24,12 @@ Zigbee, à faire devant les appareils (réinitialiser chacun puis ./habctrl pair
   zigbee.light ; double interrupteur (lumi.switch.b2nacn02) : 2 relais = 2 attributs on_1 / on_2.
 - Migration finie : supprimer HabConfig/listetemp.txt.
 
+TV Samsung (samsung.tv, à vérifier TV allumée) :
+- Accepter « HabController » sur l'écran à la première connexion.
+- La TV garde-t-elle ouverte une connexion inactive ? Sinon l'état clignote : revenir à une
+  vérification périodique (connexion ouverte puis fermée toutes les 30 s).
+- Extinction (tv.on = False) et détection de l'extinction (connexion coupée par la TV).
+
 Datalog : regrouper les valeurs d'un équipement par horodatage
 (devices/<id>/<ms> = {temperature, humidity}) ? À revoir plus tard : perte de la rétention par
 attribut, lecture d'un seul attribut plus coûteuse.
