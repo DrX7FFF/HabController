@@ -64,15 +64,19 @@ def load_devices(package: str = "devices") -> dict:
 
 
 def write_summary(devices: dict[str, Device], path: Path) -> None:
-    """Équipements logiques et leur appareil physique (vide si aucun), puis les appareils liés à
-    un équipement non déclaré (liens de chaque protocole qui fournit links()), chacun avec la
-    déclaration à copier dans devices/ si le protocole fournit link_models() et que le modèle est
-    connu."""
+    """Équipements logiques et leur appareil physique (« non appairé » sinon), puis les appareils
+    liés à un équipement non déclaré (liens de chaque protocole qui fournit links()), chacun avec
+    la déclaration à copier dans devices/ si le protocole fournit link_models() et que le modèle
+    est connu. Anomalies (non appairé, non déclaré) : un seul avertissement dans le journal."""
     rows = [("id", "nom", "pilote", "physique")]
-    rows += [
-        (dev_id, device.name, type(device).__module__.removeprefix("drivers."), device.physical())
-        for dev_id, device in sorted(devices.items())
-    ]
+    unpaired = 0
+    for dev_id, device in sorted(devices.items()):
+        driver = type(device).__module__.removeprefix("drivers.")
+        physical = device.physical()
+        if not physical:
+            unpaired += 1
+            physical = f"-> non appairé : ./habctrl pair {driver.split('.')[0]}"
+        rows.append((dev_id, device.name, driver, physical))
     orphans = []  # un bloc par appareil : ligne « -> id physique », puis sa déclaration
     for info in pkgutil.iter_modules(drivers.__path__):
         module = importlib.import_module(f"drivers.{info.name}")
@@ -102,6 +106,8 @@ def write_summary(devices: dict[str, Device], path: Path) -> None:
     lines += ["", "# Appareils physiques non liés (équipement absent de devices/)", ""]
     lines += orphans[:-1] if orphans else ["aucun"]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if anomalies := unpaired + sum(line.startswith("-> ") for line in orphans):
+        log.warning("Équipements : %d anomalie(s) d'appairage, voir %s", anomalies, path)
 
 
 def table(rows: list[tuple[str, ...]]) -> list[str]:

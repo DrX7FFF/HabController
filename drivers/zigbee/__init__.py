@@ -47,7 +47,6 @@ from zigpy.zcl.foundation import Status
 
 from core import PAIRING_DIR, TEMP_DIR, settings
 from core.base import DeviceError, NetworkDevice
-from core.devices import driver_for_model, load_devices, load_driver
 
 log = logging.getLogger(__name__)
 
@@ -210,10 +209,8 @@ async def synchronize(app: ZigpyApplication) -> None:
                 await app.remove(zdev.ieee)
             except ERRORS as err:
                 log.warning("Zigbee : retrait de %s impossible (%s)", zdev.ieee, err)
-    declared = load_devices()
     for ieee, dev_id in mapping.items():
-        zdev = app.devices.get(ieee)
-        if zdev is None:
+        if ieee not in app.devices:
             log.warning(
                 "%s : déclaré avec l'IEEE %s mais absent du réseau Zigbee : le retirer de %s "
                 "ou réappairer un appareil (./habctrl pair zigbee)",
@@ -221,24 +218,6 @@ async def synchronize(app: ZigpyApplication) -> None:
                 ieee,
                 MAPPING.name,
             )
-        elif dev_id not in declared:
-            log.warning(
-                "%s : appareil %s (%s %s) sans équipement déclaré. %s",
-                dev_id,
-                ieee,
-                zdev.manufacturer,
-                zdev.model,
-                declaration_hint(dev_id, zdev),
-            )
-
-
-def declaration_hint(dev_id: str, zdev) -> str:
-    """Ce qu'il faut déclarer dans devices/ pour cet appareil."""
-    driver = driver_for_model(model_keys(zdev), MODELS)
-    if not driver:
-        return f"Pilote inconnu pour ce modèle : voir {MODELS}."
-    cls = load_driver(driver).__name__
-    return f"Déclarer dans devices/ : from drivers.{driver} import {cls} ; {dev_id} = {cls}()"
 
 
 def restore_snapshot() -> None:
@@ -425,9 +404,8 @@ class ZigbeeDevice(NetworkDevice):
     async def start(self) -> None:
         try:
             ieee = linked_ieee(self.id)
-        except PairingError as err:
-            log.error("%s : %s", self.name, err)
-            return  # reste injoignable
+        except PairingError:
+            return  # reste injoignable, signalé par equipements.txt
         self.ieee = ieee
         coordinator.register(self, ieee)
 

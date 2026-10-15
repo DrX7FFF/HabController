@@ -142,7 +142,6 @@ class MappingTestCase(unittest.IsolatedAsyncioTestCase):
         self.declared = {}  # équipements déclarés dans devices/
         for target, name, value in (
             (zigbee, "MAPPING", self.mapping),
-            (zigbee, "load_devices", lambda: self.declared),
             (pair_cli, "load_devices", lambda: self.declared),
         ):
             patcher = mock.patch.object(target, name, value)
@@ -179,10 +178,7 @@ class MappingTest(MappingTestCase):
     async def test_start_without_pairing_stays_unreachable(self):
         plug = Plug(name="Prise")
         plug.configure("prise")
-        with (
-            mock.patch.object(zigbee.coordinator, "register") as register,
-            self.assertLogs("drivers.zigbee", "ERROR"),
-        ):
+        with mock.patch.object(zigbee.coordinator, "register") as register:
             await plug.start()
         register.assert_not_called()
         self.assertEqual(plug.state(), {"connected": False})
@@ -230,8 +226,8 @@ class SynchronizeTest(MappingTestCase):
             await zigbee.synchronize(app)
         app.remove.assert_not_called()
         text = "\n".join(logs.output)
+        self.assertEqual(len(logs.output), 1)
         self.assertIn("ventilateur : déclaré avec l'IEEE", text)
-        self.assertIn("from drivers.zigbee.plug import Plug ; prise = Plug()", text)
 
 
 class SummaryTest(MappingTestCase):
@@ -247,8 +243,11 @@ class SummaryTest(MappingTestCase):
         with (
             mock.patch.object(homekit, "PAIRING_DIR", self.mapping.parent / "homekit"),
             mock.patch.object(zigbee, "link_models", lambda: models),
+            self.assertLogs("core.devices", "WARNING") as logs,
         ):
             write_summary(devices, out)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn(f"2 anomalie(s) d'appairage, voir {out}", logs.output[0])
         lines = out.read_text(encoding="utf-8").splitlines()
         self.assertEqual(
             lines[2:],
@@ -256,7 +255,7 @@ class SummaryTest(MappingTestCase):
                 "id     nom    pilote         physique",
                 "lampe  lampe  yeelight.bulb  Yeelight 192.0.2.1",
                 "prise  Prise  zigbee.plug    Zigbee a4:c1:38:d6:d7:c6:db:f6",
-                "seule  seule  zigbee.plug",
+                "seule  seule  zigbee.plug    -> non appairé : ./habctrl pair zigbee",
                 "",
                 "# Appareils physiques non liés (équipement absent de devices/)",
                 "",

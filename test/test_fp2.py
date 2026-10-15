@@ -300,6 +300,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(fp2, "RETRY_MIN", 0.01),
             mock.patch.object(fp2, "open_session", fake_controller),
             mock.patch.object(fp2, "connect", fake_connect),
+            mock.patch.object(fp2, "links", lambda: {"fp2": "HomeKit"}),
             self.assertLogs("drivers.homekit.fp2", "WARNING"),
         ):
             driver._backoff = 0.01
@@ -316,15 +317,14 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
             await driver.set("on", True)
 
     async def test_stop_after_start_unreachable_pairing_missing(self):
-        # sans appairage enregistré : erreur claire journalisée, pas de boucle infinie
+        # sans appairage enregistré : aucune connexion tentée (signalé par equipements.txt)
         driver = make_fp2("inconnu_test")
         with (
             tempfile.TemporaryDirectory() as tmp,
             mock.patch.object(homekit, "PAIRING_DIR", Path(tmp)),
         ):
-            with self.assertLogs("drivers.homekit.fp2", "ERROR"):
-                await driver.start()
-                await until(lambda: not driver._tasks)
+            await driver.start()
+        self.assertFalse(driver._tasks)
         await driver.stop()
 
     async def test_retries_until_accessory_found(self):
@@ -346,6 +346,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(fp2, "RETRY_MIN", 0.01),
             mock.patch.object(fp2, "open_session", fake_controller),
             mock.patch.object(fp2, "connect", fake_connect),
+            mock.patch.object(fp2, "links", lambda: {"fp2": "HomeKit"}),
             self.assertLogs("drivers.homekit.fp2", "WARNING"),
         ):
             driver._backoff = 0.01

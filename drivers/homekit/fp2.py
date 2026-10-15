@@ -129,7 +129,8 @@ class FP2(NetworkDevice):
         return links().get(self.id, "")
 
     async def start(self) -> None:
-        self._spawn(self._run())
+        if self.physical():  # sinon reste injoignable, signalé par equipements.txt
+            self._spawn(self._run())
 
     async def stop(self) -> None:
         for task in self._tasks:

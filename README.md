@@ -11,8 +11,9 @@ Habitation domotique home mad
   l'installation et suffit à la restaurer — `habctrl.toml` (réglages), `dashboard/`, `devices/`,
   `automations/`, `pairing/` (appairages HomeKit, correspondance et copie de la base Zigbee).
 - **temp/** : 100 % jetable (journaux, base Zigbee vivante), peut être en RAM.
-  `equipements.txt`, écrit au démarrage : chaque équipement et son appareil physique, puis les
-  appareils liés à un équipement non déclaré, avec la déclaration à copier dans devices/.
+  `equipements.txt`, écrit au démarrage : chaque équipement et son appareil physique (ou « non
+  appairé »), puis les appareils liés à un équipement non déclaré, avec la déclaration à copier
+  dans devices/. S'il y a une anomalie, un seul avertissement dans le journal renvoie à ce fichier.
 - **Secrets** (hors dépôt : `../HabSecrets`) : `firebase.json`, clé du compte de service
   Firebase pour le datalog (section `[datalog]` de `habctrl.toml`, voir `core/datalog.py`).
 
@@ -43,9 +44,8 @@ librement. Redémarrer HabController ensuite.
 ### Zigbee : `pairing/zigbee.toml` fait foi
 Une ligne par appareil : `"<IEEE>" = "<id>"`. À chaque ouverture de la clé (démarrage,
 appairage), les appareils de la base absents de ce fichier sont retirés du réseau : un
-appareil remplacé disparaît, un appairage perdu se refait simplement. Sont signalés : un lien
-vers un équipement non déclaré (avec la déclaration à écrire) et un lien vers un appareil absent du
-réseau. Fichier absent ou illisible : rien n'est retiré. Repartir de zéro : supprimer
+appareil remplacé disparaît, un appairage perdu se refait simplement. Un lien vers un appareil
+absent du réseau est signalé (décalage avec la base). Fichier absent ou illisible : rien n'est retiré. Repartir de zéro : supprimer
 `pairing/zigbee.toml`, `pairing/zigbee.db` et `temp/zigbee.db`.
 
 ## Restauration complète
