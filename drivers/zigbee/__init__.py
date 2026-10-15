@@ -27,7 +27,7 @@ import logging
 import shutil
 import sqlite3
 import tomllib
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from pathlib import Path
 
 from bellows.ash import AshException
@@ -108,6 +108,36 @@ def links() -> dict[str, str]:
         return {dev_id: f"Zigbee {ieee}" for ieee, dev_id in load_mapping(missing_ok=True).items()}
     except PairingError:
         return {}
+
+
+
+def link_models() -> dict[str, tuple[list[str], str]]:
+    """Appareils liés : {id: (clés de models.toml, commentaire de déclaration)}, lus dans la base
+    zigpy (la vivante, sinon la copie) : la clé n'a pas besoin d'être ouverte."""
+    db = DB_FILE if DB_FILE.exists() else SNAPSHOT
+    try:
+        mapping = load_mapping(missing_ok=True)
+        with closing(sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro", uri=True)) as con:
+            tables = con.execute("SELECT name FROM sqlite_master WHERE name LIKE 'endpoints_v%'")
+            version = max(int(name.removeprefix("endpoints_v")) for (name,) in tables)
+            basic = con.execute(  # cluster Basic : 4 fabricant, 5 modèle
+                f"SELECT ieee, attr_id, value FROM attributes_cache_v{version}"
+                " WHERE cluster_type = 0 AND cluster_id = 0 AND attr_id IN (4, 5)"
+            ).fetchall()
+            types = con.execute(
+                f"SELECT ieee, device_type FROM endpoints_v{version}"
+                " WHERE endpoint_id != 0 AND profile_id = ? ORDER BY endpoint_id",
+                (HOME_AUTOMATION,),
+            ).fetchall()
+    except (PairingError, sqlite3.Error, ValueError):
+        return {}
+    found = {}
+    for ieee, dev_id in mapping.items():
+        info = {attr: value for i, attr, value in basic if i == str(ieee)}
+        model, manufacturer = info.get(5) or "", info.get(4) or "?"
+        keys = [model, *(f"0x{dtype:04x}" for i, dtype in types if i == str(ieee))]
+        found[dev_id] = (keys, f"Zigbee : {manufacturer}, modèle {model or '?'}")
+    return found
 
 
 def linked_ieee(dev_id: str) -> EUI64:

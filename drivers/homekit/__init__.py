@@ -106,6 +106,20 @@ def links() -> dict[str, str]:
     return found
 
 
+
+def link_models() -> dict[str, tuple[list[str], str]]:
+    """Accessoires appairés : {id: (clés de models.toml, commentaire de déclaration)}."""
+    found = {}
+    for path in sorted(PAIRING_DIR.glob("*.toml")):
+        try:
+            data = read_pairing_file(path.stem)
+        except (PairingError, ValueError):
+            continue
+        model = data.get("model", "")
+        found[path.stem] = ([model], f"HomeKit : {data.get('name', '?')}, modèle {model or '?'}")
+    return found
+
+
 def save_pairing(dev_id: str, keys: dict, info: dict | None = None) -> Path:
     """Écrit l'appairage : `info` (champs de INFO_CHARS, et « paired ») puis les clés `keys`."""
     info = info or {}

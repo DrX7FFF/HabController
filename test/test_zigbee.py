@@ -243,7 +243,11 @@ class SummaryTest(MappingTestCase):
         devices["seule"] = Plug()  # déclarée, jamais appairée
         devices["seule"].configure("seule")
         out = self.mapping.parent / "equipements.txt"
-        with mock.patch.object(homekit, "PAIRING_DIR", self.mapping.parent / "homekit"):
+        models = {"ventilateur": (["LOM002", "0x010a"], "Zigbee : Philips, modèle LOM002")}
+        with (
+            mock.patch.object(homekit, "PAIRING_DIR", self.mapping.parent / "homekit"),
+            mock.patch.object(zigbee, "link_models", lambda: models),
+        ):
             write_summary(devices, out)
         lines = out.read_text(encoding="utf-8").splitlines()
         self.assertEqual(
@@ -256,8 +260,9 @@ class SummaryTest(MappingTestCase):
                 "",
                 "# Appareils physiques non liés (équipement absent de devices/)",
                 "",
-                "id           physique",
-                f"ventilateur  Zigbee {OTHER}",
+                f"-> ventilateur  Zigbee {OTHER}  à déclarer dans un fichier de devices/ ainsi :",
+                "from drivers.zigbee.plug import Plug",
+                'ventilateur = Plug(name="Ventilateur")  # Zigbee : Philips, modèle LOM002',
             ],
         )
 

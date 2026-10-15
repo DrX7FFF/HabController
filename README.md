@@ -12,7 +12,7 @@ Habitation domotique home mad
   `automations/`, `pairing/` (appairages HomeKit, correspondance et copie de la base Zigbee).
 - **temp/** : 100 % jetable (journaux, base Zigbee vivante), peut être en RAM.
   `equipements.txt`, écrit au démarrage : chaque équipement et son appareil physique, puis les
-  appareils liés à un équipement non déclaré.
+  appareils liés à un équipement non déclaré, avec la déclaration à copier dans devices/.
 - **Secrets** (hors dépôt : `../HabSecrets`) : `firebase.json`, clé du compte de service
   Firebase pour le datalog (section `[datalog]` de `habctrl.toml`, voir `core/datalog.py`).
 

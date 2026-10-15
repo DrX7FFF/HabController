@@ -65,21 +65,42 @@ def load_devices(package: str = "devices") -> dict:
 
 def write_summary(devices: dict[str, Device], path: Path) -> None:
     """Équipements logiques et leur appareil physique (vide si aucun), puis les appareils liés à
-    un équipement non déclaré : liens de chaque protocole qui fournit links()."""
+    un équipement non déclaré (liens de chaque protocole qui fournit links()), chacun avec la
+    déclaration à copier dans devices/ si le protocole fournit link_models() et que le modèle est
+    connu."""
     rows = [("id", "nom", "pilote", "physique")]
     rows += [
         (dev_id, device.name, type(device).__module__.removeprefix("drivers."), device.physical())
         for dev_id, device in sorted(devices.items())
     ]
-    orphans = []
+    orphans = []  # un bloc par appareil : ligne « -> id physique », puis sa déclaration
     for info in pkgutil.iter_modules(drivers.__path__):
-        links = getattr(importlib.import_module(f"drivers.{info.name}"), "links", None)
-        if links:
-            orphans += [(i, p) for i, p in sorted(links().items()) if i not in devices]
+        module = importlib.import_module(f"drivers.{info.name}")
+        links = getattr(module, "links", None)
+        if not links:
+            continue
+        unlinked = [(i, p) for i, p in sorted(links().items()) if i not in devices]
+        link_models = getattr(module, "link_models", None)
+        known = link_models() if unlinked and link_models else {}
+        models_path = Path(module.__file__).with_name("models.toml")
+        for dev_id, physical in unlinked:
+            keys, comment = known.get(dev_id, ([], ""))
+            try:
+                driver = driver_for_model(keys, models_path) if keys else ""
+                statement, line = declaration(dev_id, driver, name_from_id(dev_id))
+            except ValueError:
+                orphans += [f"-> {dev_id}  {physical}  pilote inconnu, à déclarer à la main", ""]
+                continue
+            orphans += [
+                f"-> {dev_id}  {physical}  à déclarer dans un fichier de devices/ ainsi :",
+                statement,
+                f"{line}  # {comment}" if comment else line,
+                "",
+            ]
     lines = [f"# Équipements au {time.strftime('%Y-%m-%d %H:%M:%S')}", ""]
     lines += table(rows)
     lines += ["", "# Appareils physiques non liés (équipement absent de devices/)", ""]
-    lines += table([("id", "physique"), *orphans]) if orphans else ["aucun"]
+    lines += orphans[:-1] if orphans else ["aucun"]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -92,6 +113,11 @@ def id_from_name(name: str) -> str:
     """Identifiant déduit du nom affiché : « Prise salon » → prise_salon."""
     ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
     return re.sub(r"\W+", "_", ascii_name.lower()).strip("_")
+
+
+def name_from_id(dev_id: str) -> str:
+    """Nom affiché déduit de l'identifiant : prise_salon → « Prise salon »."""
+    return dev_id.replace("_", " ").capitalize()
 
 
 def check_id(dev_id: str) -> None:
@@ -124,15 +150,8 @@ def driver_for_model(models: str | list[str], path: Path) -> str:
     return ""
 
 
-def add_device(
-    dev_id: str,
-    driver: str,
-    name: str = "",
-    comment: str = "",
-    path: Path | None = None,
-) -> Path:
-    """Ajoute `<id> = <Pilote>(...)` à la fin de devices/devices.py (créé au besoin), avec les
-    réglages par défaut du pilote et son import s'il manque. Renvoie le fichier."""
+def declaration(dev_id: str, driver: str, name: str = "") -> tuple[str, str]:
+    """(import du pilote, `<id> = <Pilote>(...)`), avec les réglages par défaut du pilote."""
     check_id(dev_id)
     if not driver:
         raise ValueError("pilote requis")
@@ -141,14 +160,26 @@ def add_device(
     config_args = getattr(cls, "config_args", None)
     if config_args:
         args += config_args()
+    statement = f"from drivers.{driver} import {cls.__name__}"
+    return statement, f"{dev_id} = {cls.__name__}({', '.join(args)})"
+
+
+def add_device(
+    dev_id: str,
+    driver: str,
+    name: str = "",
+    comment: str = "",
+    path: Path | None = None,
+) -> Path:
+    """Ajoute la déclaration de l'équipement à la fin de devices/devices.py (créé au besoin), avec
+    l'import du pilote s'il manque. Renvoie le fichier."""
+    statement, declared = declaration(dev_id, driver, name)
     file = (path or DEVICES_DIR) / NEW_DEVICES
     lines = file.read_text(encoding="utf-8").splitlines() if file.exists() else []
-    statement = f"from drivers.{driver} import {cls.__name__}"
     if statement not in lines:
         imports = [i for i, line in enumerate(lines) if line.startswith(("from ", "import "))]
         lines.insert(imports[-1] + 1 if imports else 0, statement)
-    lines += [""] + ([f"# {comment}"] if comment else [])
-    lines.append(f"{dev_id} = {cls.__name__}({', '.join(args)})")
+    lines += [""] + ([f"# {comment}"] if comment else []) + [declared]
     file.parent.mkdir(parents=True, exist_ok=True)
     file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return file
