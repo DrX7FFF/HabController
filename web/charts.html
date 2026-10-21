@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domotique — graphiques</title>
+<link rel="stylesheet" href="/web/common.css">
+<link rel="stylesheet" href="/web/vendor/uPlot.min.css">
+<style>
+  #periods { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+  #periods button { font-size: 1rem; padding: .5rem 1rem; border-radius: .6rem;
+                    border: 2px solid #888; background: #eee; cursor: pointer; }
+  #periods button.selected { background: #ffd54a; border-color: #c9a100; }
+  #note { color: #8a6d00; margin: 0 0 1rem; }
+  #charts { display: grid; gap: 1.5rem; }
+  .chart { border: 2px solid #aaa; border-radius: 1rem; padding: 1rem 1.5rem; min-width: 0; }
+  .chart h2 { margin-bottom: .5rem; }
+  @media (max-width: 600px) { .chart { padding: .8rem; } }
+</style>
+</head>
+<body>
+<nav>
+  <a href="/">Commandes</a>
+  <a href="/graphiques" aria-current="page">Graphiques</a>
+</nav>
+<div id="banner" hidden></div>
+<div id="periods"></div>
+<p id="note" hidden>Données simulées : la lecture du datalog n'est pas encore branchée.</p>
+<div id="charts"></div>
+<script src="/web/vendor/uPlot.iife.min.js"></script>
+<script src="/web/plot.js"></script>
+<script src="/web/charts.js"></script>
+</body>
+</html>

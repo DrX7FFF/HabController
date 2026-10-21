@@ -1,0 +1,16 @@
+# Un graphique par [[charts]] ; ses séries sont des chemins du datalog (voir core/charts.py).
+# type : number (par défaut) | bool. Les séries de même unité partagent un axe.
+
+[[charts]]
+title = "Prise salon"
+series = [
+  { path = "devices/prise_salon/active_power", label = "Puissance", unit = "W" },
+  { path = "devices/prise_salon/on", label = "Allumée", type = "bool" },
+]
+
+[[charts]]
+title = "Lumières"
+series = [
+  { path = "devices/salon/on", label = "Salon", type = "bool" },
+  { path = "devices/cuisine/on", label = "Cuisine", type = "bool" },
+]

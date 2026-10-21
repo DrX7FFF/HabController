@@ -6,7 +6,9 @@ Habitation domotique home mad
 
 ## Organisation
 - **Application** (ce dépôt) : `core/` (moteur), `drivers/<protocole>/` (homekit, zigbee,
-  yeelight : pilotes, appairage, modèles connus), `main.py` (serveur web).
+  yeelight : pilotes, appairage, modèles connus), `main.py` (serveur web), `web/` (pages :
+  `/` commandes, `/graphiques` historique du datalog décrit par `dashboard/charts.toml` ;
+  `web/plot.js` est le seul fichier lié à la bibliothèque de tracé, uPlot dans `web/vendor/`).
 - **Configuration** (dépôt privé HabConfig, cloné à côté : `../HabConfig`) : tout ce qui décrit
   l'installation et suffit à la restaurer — `habctrl.toml` (réglages), `dashboard/`, `devices/`,
   `automations/`, `pairing/` (appairages HomeKit, correspondance et copie de la base Zigbee).

@@ -4,13 +4,16 @@ from contextlib import asynccontextmanager
 from functools import partial
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from core import TEMP_DIR, check_config, datalog
+from core import ROOT, TEMP_DIR, check_config, datalog
+from core.charts import load_charts
 from core.automation import load_automations, stop_automations
 from core.base import DeviceError
 from core.devices import load_devices, write_summary
+from core.history_mock import mock_history
 from core.log import setup as setup_logging
 from core.widgets import load_blocks
 
@@ -18,6 +21,7 @@ check_config()
 setup_logging()
 devices = load_devices()
 blocks = load_blocks(devices)
+charts = load_charts()
 clients: set[asyncio.Queue] = set()  # une file de messages par page connectée
 
 
@@ -94,6 +98,22 @@ async def set_device(dev_id: str, cmd: SetCommand):
     return devices[dev_id].state()
 
 
+@app.get("/api/charts")
+async def list_charts():
+    return charts
+
+
+@app.get("/api/history")
+async def read_history(path: str, start: int, end: int):
+    """Points [ms, valeur] d'un chemin du datalog entre start et end (ms). Simulés pour l'instant."""
+    kinds = {s["path"]: s["type"] for c in charts for s in c["series"]}
+    if path not in kinds:
+        raise HTTPException(status_code=404, detail="série absente de charts.toml")
+    if not 0 <= end - start <= 400 * 86_400_000:
+        raise HTTPException(status_code=400, detail="période invalide")
+    return {"path": path, "mock": True, "points": mock_history(path, kinds[path], start, end)}
+
+
 # --- WebSocket : événements dans les deux sens -------------------------------
 # serveur -> page : {"type": "init", "blocks": [...]} puis {"type": "state", "device", "state"}
 #                   et {"type": "error", "device", "detail"} pour une commande refusée
@@ -152,130 +172,21 @@ async def websocket(ws: WebSocket):
         sender.cancel()
 
 
-PAGE = """<!doctype html>
-<html lang="fr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Domotique</title>
-<style>
-  body { font-family: system-ui, sans-serif; margin: 2rem; }
-  #banner { background: #fde8e8; border: 1px solid #b00; border-radius: .5rem;
-            padding: .6rem 1rem; margin-bottom: 1rem; }
-  #blocks { display: flex; flex-wrap: wrap; gap: 1rem; }
-  .block { border: 2px solid #aaa; border-radius: 1rem; padding: 1rem 1.5rem;
-           display: grid; gap: .8rem; min-width: 14rem; }
-  .block.down { border-color: #b00; opacity: .6; }
-  h2 { margin: 0; font-size: 1.1rem; }
-  button { font-size: 1.2rem; padding: .8rem 1.5rem; border-radius: .8rem;
-           border: 2px solid #888; cursor: pointer; }
-  button.on { background: #ffd54a; border-color: #c9a100; }
-  button.off { background: #ddd; }
-  button.unreachable { background: #f5b5b5; border-color: #b00; }
-  label { display: grid; gap: .3rem; }
-</style>
-</head>
-<body>
-<div id="banner" hidden></div>
-<div id="blocks"></div>
-<script>
-const box = document.getElementById("blocks");
-const banner = document.getElementById("banner");
-const labels = { on: "allumé", off: "éteint", unreachable: "injoignable" };
-// connected false, ou on pas encore lu : affiché injoignable
-const onKey = s =>
-  s.connected === false || s.on === undefined ? "unreachable" : s.on ? "on" : "off";
-let views = [];
-let ws;
+# --- Pages web (web/) --------------------------------------------------------
+# Une page par onglet, servie à son adresse ; styles, scripts et bibliothèques sous /web/.
 
-function send(device, name, value) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "set", device, name, value }));
-  }
-}
-
-function show(text) {
-  banner.textContent = text;
-  banner.hidden = !text;
-}
-
-// Les contrôles ne sont pas écrasés par un événement pendant qu'on les manipule.
-function slider(dev, name, text, min, max) {
-  const wrap = document.createElement("label");
-  const input = Object.assign(document.createElement("input"), { type: "range", min, max });
-  let busy = false;
-  input.oninput = () => { busy = true; };
-  input.onchange = () => { send(dev, name, +input.value); busy = false; };
-  wrap.append(text, input);
-  return { el: wrap, set: s => { if (!busy && s[name] !== undefined) input.value = s[name]; } };
-}
-
-function colorPicker(dev) {
-  const input = Object.assign(document.createElement("input"), { type: "color" });
-  let busy = false;
-  input.oninput = () => { busy = true; };
-  input.onchange = () => { send(dev, "rgb", input.value); busy = false; };
-  return { el: input, set: s => { if (!busy && s.rgb) input.value = s.rgb; } };
-}
-
-function build(b) {
-  const el = document.createElement("div");
-  el.className = "block";
-  const title = document.createElement("h2");
-  title.textContent = b.title;
-  const power = document.createElement("button");
-  power.onclick = () => send(b.device, "on", "toggle");
-  const parts = [{ el: power, set: s => {
-    power.className = onKey(s);
-    power.textContent = labels[onKey(s)];
-  } }];
-  if (b.widget === "white") {
-    parts.push(slider(b.device, "brightness", "Intensité", 1, 100));
-    parts.push(slider(b.device, "color_temp", "Température", 1700, 6500));
-  } else if (b.widget === "rgb") {
-    parts.push(slider(b.device, "brightness", "Intensité", 1, 100));
-    parts.push(colorPicker(b.device));
-  }
-  el.append(title, ...parts.map(p => p.el));
-  return { el, device: b.device, update: s => {
-    el.classList.toggle("down", s.connected === false);
-    parts.forEach(p => p.set(s));
-  } };
-}
-
-function handle(m) {
-  if (m.type === "init") {
-    views = m.blocks.map(b => { const v = build(b); v.update(b.state); return v; });
-    box.replaceChildren(...views.map(v => v.el));
-    show("");
-  } else if (m.type === "state") {
-    views.filter(v => v.device === m.device).forEach(v => v.update(m.state));
-  } else if (m.type === "error") {
-    show(m.detail);
-    setTimeout(() => show(""), 4000);
-  }
-}
-
-function connect() {
-  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
-  ws.onmessage = e => handle(JSON.parse(e.data));
-  ws.onclose = () => {
-    views.forEach(v => v.update({ connected: false }));
-    show("Connexion au serveur perdue…");
-    setTimeout(connect, 2000);
-  };
-}
-
-connect();
-</script>
-</body>
-</html>
-"""
+WEB_DIR = ROOT / "web"
+app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", include_in_schema=False)
 def index():
-    return PAGE
+    return FileResponse(WEB_DIR / "index.html")
+
+
+@app.get("/graphiques", include_in_schema=False)
+def charts_page():
+    return FileResponse(WEB_DIR / "charts.html")
 
 
 if __name__ == "__main__":
