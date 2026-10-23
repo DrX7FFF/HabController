@@ -3,7 +3,8 @@ uvicorn
 yeelight
 zigpy
 bellows
-zha-quirks
+zha-quirks>=2.3
+zha
 websockets
 aiohomekit
 google-auth[requests]
