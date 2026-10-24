@@ -5,6 +5,7 @@
 //   series : [{ label, unit, type: "number" | "bool" }]
 //   points : pour chaque série, dans le même ordre, [[ms, valeur], ...] triés
 //   start, end : période affichée (ms) ; la dernière valeur de chaque série tient jusqu'à end
+//     (ou jusqu'à maintenant si end est dans le futur)
 //   group : les graphiques d'un même groupe partagent le curseur et le zoom
 //   onZoom(zoomed) : appelé à chaque changement de la plage affichée ; zoomed vaut true si
 //     elle est plus étroite que la période (sélection à la souris), false au retour
@@ -138,7 +139,9 @@ function createPlot(container, series, group, onZoom) {
         return p.map(([t, v]) => [t, offset + (v ? 1 : 0)]);
       });
       // sans recalcul des échelles : celle de x est posée juste après (un seul onZoom)
-      plot.setData(align(shifted, series.map(s => s.type === "bool"), end), false);
+      // la dernière valeur tient jusqu'à end, mais pas au-delà de maintenant
+      const until = Math.min(end, Date.now());
+      plot.setData(align(shifted, series.map(s => s.type === "bool"), until), false);
       period = [start / 1000, end / 1000];
       plot.setScale("x", { min: period[0], max: period[1] });
     },

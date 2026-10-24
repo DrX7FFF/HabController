@@ -9,9 +9,11 @@
 <style>
   #toolbar { display: flex; margin-bottom: 1rem; min-height: 2.6rem; }
   #controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
-  #controls[hidden], #unzoom[hidden] { display: none; }
-  #toolbar select, #toolbar button { font-size: 1rem; padding: .5rem 1rem; border-radius: .6rem;
-                                     border: 2px solid #888; background: #eee; cursor: pointer; }
+  #controls[hidden], #unzoom[hidden], #from[hidden] { display: none; }
+  #toolbar select, #toolbar button, #toolbar input {
+    font-size: 1rem; padding: .5rem 1rem; border-radius: .6rem;
+    border: 2px solid #888; background: #eee; cursor: pointer; }
+  #toolbar .live input { padding: 0; }
   #toolbar #unzoom { background: #ffd54a; border-color: #c9a100; }
   .live { display: flex; align-items: center; gap: .4rem; padding: 0 .5rem; cursor: pointer; }
   .live input { width: 1.2rem; height: 1.2rem; }
@@ -30,6 +32,7 @@
 <div id="banner" hidden></div>
 <div id="toolbar">
   <span id="controls">
+    <input type="datetime-local" id="from" aria-label="Début">
     <select id="period" aria-label="Période"></select>
     <button id="reload">Actualiser</button>
     <label class="live"><input type="checkbox" id="live"> Direct</label>

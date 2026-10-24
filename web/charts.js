@@ -1,6 +1,8 @@
 // Page /graphiques : les graphiques de dashboard/charts.toml, sur une période au choix.
 // Glisser sur un graphique zoome (tous suivent) ; pendant le zoom, les réglages laissent la
 // place à « Annuler zoom » (ou double-clic), et le Direct continue de recevoir sans redessiner.
+// Hors direct, la période part de la date de début choisie (mise à l'heure du début affiché
+// quand on quitte le direct) ; en direct, elle finit maintenant.
 // « Direct » : les valeurs enregistrées par le datalog arrivent par le WebSocket et s'ajoutent
 // aux courbes ; la période glisse pour finir à la dernière valeur reçue.
 
@@ -14,6 +16,7 @@ const box = document.getElementById("charts");
 const banner = document.getElementById("banner");
 const note = document.getElementById("note");
 const liveBox = document.getElementById("live");
+const fromInput = document.getElementById("from");
 const controls = document.getElementById("controls");
 const unzoom = document.getElementById("unzoom");
 let period = DAY;
@@ -42,7 +45,16 @@ function toolbar() {
   select.onchange = () => { period = +select.value; refresh(); };
   document.getElementById("reload").onclick = refresh;
   unzoom.onclick = draw;  // redessine sur la période (à jour si Direct), ce qui sort du zoom
-  liveBox.onchange = () => (liveBox.checked ? connect() : disconnect());
+  fromInput.onchange = refresh;
+  liveBox.onchange = () => {
+    fromInput.hidden = liveBox.checked;
+    if (liveBox.checked) {
+      connect();
+    } else {
+      disconnect();
+      fromInput.value = localInput(start);  // la vue reste celle du direct, déjà chargée
+    }
+  };
 }
 
 function setZoomed(value) {
@@ -58,9 +70,23 @@ function draw() {
   views.forEach(v => v.plot.setData(v.points, start, end));
 }
 
+// ms <-> valeur d'un <input type="datetime-local"> (heure locale, à la minute)
+function localInput(ms) {
+  const d = new Date(ms - new Date(ms).getTimezoneOffset() * MINUTE);
+  return d.toISOString().slice(0, 16);
+}
+
 async function refresh() {
-  end = Date.now();
-  start = end - period;
+  const from = fromInput.value ? new Date(fromInput.value).getTime() : NaN;
+  if (liveBox.checked || Number.isNaN(from)) {
+    end = Date.now();
+    start = end - period;
+    if (!liveBox.checked) fromInput.value = localInput(start);
+  } else {
+    start = from;
+    end = start + period;
+  }
+  fromInput.max = localInput(Date.now());
   try {
     const results = await Promise.all(views.map(({ chart }) => Promise.all(chart.series.map(s =>
       getJson(`/api/history?path=${encodeURIComponent(s.path)}&start=${start}&end=${end}`)))));

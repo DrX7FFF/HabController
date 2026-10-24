@@ -8,6 +8,7 @@ changement ; le premier point donne l'état au début de la période.
 
 import math
 import random
+import time
 import zlib
 
 STEP = 5 * 60_000  # ms entre deux mesures
@@ -28,6 +29,7 @@ DEFAULT_PROFILE = (50, 20, 5)
 
 def mock_history(path: str, kind: str, start: int, end: int) -> list[list]:
     seed = zlib.crc32(path.encode())
+    end = min(end, time.time_ns() // 1_000_000)  # pas de valeurs dans le futur
     if kind == "bool":
         return _bool_points(seed, start, end)
     attr = path.rsplit("/", 1)[-1]
