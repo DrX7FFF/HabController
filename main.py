@@ -35,7 +35,7 @@ def snapshot() -> list[dict]:
 
 
 def on_device_change(dev_id: str, state: dict) -> None:
-    broadcast({"type": "state", "device": dev_id, "state": state})
+    broadcast({"type": "state", "device": dev_id, "state": state, "at": devices[dev_id].changed_at})
 
 
 for _dev in devices.values():
@@ -125,7 +125,8 @@ async def read_history(path: str, start: int, end: int):
 
 
 # --- WebSocket : événements dans les deux sens -------------------------------
-# serveur -> page : {"type": "init", "blocks": [...]} puis {"type": "state", "device", "state"}
+# serveur -> page : {"type": "init", "blocks": [...]} puis {"type": "state", "device", "state",
+#                   "at"} (at : horodatage du changement en ms, sert aux graphiques en direct)
 #                   et {"type": "error", "device", "detail"} pour une commande refusée
 # page -> serveur : {"type": "set", "device", "name", "value", "transition"?}
 
