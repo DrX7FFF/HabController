@@ -84,6 +84,22 @@ class RecordDevicesTest(DatalogTestCase):
         )
         self.assertEqual(len(self.written()), 2)
 
+    async def test_subscribers_get_what_is_recorded(self):
+        received = []
+        self.log.subscribe(received.append)
+        self.prise.update({"connected": True, "on": True, "active_power": 10.0})
+        first = self.prise.changed_at
+        self.prise.update({"connected": True, "on": True, "active_power": 14.0})  # écart < 5
+        self.log.record("/deshum/dewPoint/", 12.4, 1000)
+        await self.idle()
+        self.assertEqual(
+            received,
+            [
+                [["devices/prise/on", first, True], ["devices/prise/active_power", first, 10.0]],
+                [["deshum/dewPoint", 1000, 12.4]],
+            ],
+        )
+
     async def test_unreachable_records_nothing(self):
         self.prise.update({"connected": True, "on": True})
         self.prise.update({"connected": False})

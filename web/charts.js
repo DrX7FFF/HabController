@@ -1,8 +1,8 @@
 // Page /graphiques : les graphiques de dashboard/charts.toml, sur une période au choix.
 // Glisser sur un graphique zoome (tous suivent) ; pendant le zoom, les réglages laissent la
 // place à « Annuler zoom » (ou double-clic), et le Direct continue de recevoir sans redessiner.
-// « Direct » : les valeurs reçues par le WebSocket s'ajoutent aux courbes, et la période
-// glisse pour finir à la dernière valeur reçue.
+// « Direct » : les valeurs enregistrées par le datalog arrivent par le WebSocket et s'ajoutent
+// aux courbes ; la période glisse pour finir à la dernière valeur reçue.
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -75,9 +75,6 @@ async function refresh() {
 
 // --- Direct ------------------------------------------------------------------
 
-// Chemin du datalog d'un attribut d'équipement (comme device_path() de core/datalog.py).
-const devicePath = (device, attr) => `devices/${device}/${attr.replaceAll(".", "/")}`;
-
 // Oublie les points sortis de la période, sauf le dernier, ramené à start (état au début).
 function trim(points) {
   let first = 0;
@@ -87,21 +84,22 @@ function trim(points) {
   return kept;
 }
 
+// Les points arrivent tels que le datalog les enregistre (hystérésis comprise) : le direct
+// montre la même chose que l'historique relu.
 function receive(m) {
-  if (m.type !== "state") return;
-  const at = m.at || Date.now();
+  if (m.type !== "datalog") return;
   let changed = false;
-  views.forEach(v => v.chart.series.forEach((s, i) => {
-    const attr = Object.keys(m.state).find(a => devicePath(m.device, a) === s.path);
-    if (attr === undefined) return;
-    const value = m.state[attr];
+  let at = 0;
+  m.points.forEach(([path, t, value]) => views.forEach(v => v.chart.series.forEach((s, i) => {
+    if (s.path !== path) return;
     if (s.type === "bool" ? typeof value !== "boolean" : typeof value !== "number") return;
     const points = v.points[i];
     const last = points[points.length - 1];
-    if (last && (last[0] >= at || last[1] === value)) return;  // déjà connu ou inchangé
-    points.push([at, value]);
+    if (last && last[0] >= t) return;  // déjà connu
+    points.push([t, value]);
     changed = true;
-  }));
+    at = Math.max(at, t);
+  })));
   if (!changed) return;
   if (at > end) {  // la période glisse jusqu'à la nouvelle valeur, même durée
     end = at;

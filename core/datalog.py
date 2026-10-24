@@ -36,6 +36,7 @@ import asyncio
 import logging
 import re
 import time
+from collections.abc import Callable
 from functools import partial
 
 import aiohttp
@@ -93,6 +94,7 @@ class Datalog:
         self._session: aiohttp.ClientSession | None = None
         self._purge_task: asyncio.Task | None = None
         self._failing = False
+        self._listeners: list[Callable[[list], None]] = []
         for dev_id in self.watched:
             devices[dev_id].subscribe(partial(self.on_state, devices[dev_id]))
 
@@ -137,7 +139,16 @@ class Datalog:
         self.retention.setdefault(path, self.default_retention)
         self.send({f"{path}/{now_ms() if at is None else at}": value})
 
+    def subscribe(self, callback: Callable[[list], None]) -> None:
+        """callback([[chemin, ms, valeur], ...]) à chaque enregistrement (graphiques en direct)."""
+        self._listeners.append(callback)
+
     def send(self, data: dict) -> None:
+        points = [[*key.rsplit("/", 1), value] for key, value in data.items()]
+        for point in points:
+            point[1] = int(point[1])
+        for callback in self._listeners:
+            callback(points)
         spawn_task(self._patch(data), "datalog")
 
     # --- Firebase -----------------------------------------------------------

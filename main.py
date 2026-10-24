@@ -35,13 +35,15 @@ def snapshot() -> list[dict]:
 
 
 def on_device_change(dev_id: str, state: dict) -> None:
-    broadcast({"type": "state", "device": dev_id, "state": state, "at": devices[dev_id].changed_at})
+    broadcast({"type": "state", "device": dev_id, "state": state})
 
 
 for _dev in devices.values():
     _dev.subscribe(partial(on_device_change, _dev.id))
 load_automations(devices)
 history = datalog.setup(devices)
+if history:
+    history.subscribe(lambda points: broadcast({"type": "datalog", "points": points}))
 
 
 @asynccontextmanager
@@ -125,8 +127,9 @@ async def read_history(path: str, start: int, end: int):
 
 
 # --- WebSocket : événements dans les deux sens -------------------------------
-# serveur -> page : {"type": "init", "blocks": [...]} puis {"type": "state", "device", "state",
-#                   "at"} (at : horodatage du changement en ms, sert aux graphiques en direct)
+# serveur -> page : {"type": "init", "blocks": [...]} puis {"type": "state", "device", "state"},
+#                   et {"type": "datalog", "points": [[chemin, ms, valeur], ...]} à chaque
+#                   enregistrement du datalog (graphiques en direct)
 #                   et {"type": "error", "device", "detail"} pour une commande refusée
 # page -> serveur : {"type": "set", "device", "name", "value", "transition"?}
 
