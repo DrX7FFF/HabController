@@ -14,7 +14,7 @@ Lecture : fp2.zone.<alias> ou fp2.zone[<index>] (l'index est traduit en alias s'
 Déclencheur : @on_change("fp2.zone.<alias>") ; l'index n'est utilisable que pour une zone sans
 alias (@on_change("fp2.zone.3")), car l'état ne contient qu'une clé par capteur.
 
-Équipement créé et appairé par `./habctrl pair homekit`.
+Équipement créé et appairé par l'appairage HomeKit.
 """
 
 import asyncio

@@ -16,7 +16,7 @@ os.environ["HABCTRL_CONFIG"] = str(Path(__file__).resolve().parent / "config")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import drivers.zigbee as zigbee  # noqa: E402
-from core import pair as pair_cli  # noqa: E402
+from core import pair as core_pair  # noqa: E402
 import drivers.zigbee.pair as zigbee_pair  # noqa: E402
 import drivers.zigbee.plug as zigbee_plug  # noqa: E402
 import drivers.homekit as homekit  # noqa: E402
@@ -253,7 +253,7 @@ class MappingTestCase(unittest.IsolatedAsyncioTestCase):
         self.declared = {}  # équipements déclarés dans devices/
         for target, name, value in (
             (zigbee, "MAPPING", self.mapping),
-            (pair_cli, "load_devices", lambda: self.declared),
+            (core_pair, "load_devices", lambda: self.declared),
         ):
             patcher = mock.patch.object(target, name, value)
             patcher.start()
@@ -366,7 +366,7 @@ class SummaryTest(MappingTestCase):
                 "id     nom    pilote         physique",
                 "lampe  lampe  yeelight.bulb  Yeelight 192.0.2.1",
                 "prise  Prise  zigbee.plug    Zigbee a4:c1:38:d6:d7:c6:db:f6",
-                "seule  seule  zigbee.plug    -> non appairé : ./habctrl pair zigbee",
+                "seule  seule  zigbee.plug    -> non appairé (zigbee)",
                 "",
                 "# Appareils physiques non liés (équipement absent de devices/)",
                 "",
@@ -377,9 +377,64 @@ class SummaryTest(MappingTestCase):
         )
 
 
-class PairCommandTest(unittest.TestCase):
+class CoordinatorSessionTest(unittest.IsolatedAsyncioTestCase):
+    """L'appairage emprunte la clé : ouverte pour l'occasion, refermée ensuite."""
+
+    async def test_opens_and_closes_key(self):
+        app = SimpleNamespace(add_listener=lambda _l: None)
+        closed = asyncio.Event()
+
+        @asynccontextmanager
+        async def session():
+            try:
+                yield app
+            finally:
+                closed.set()
+
+        coordinator = zigbee.Coordinator()
+        with mock.patch.object(zigbee, "open_session", session):
+            async with coordinator.session() as borrowed:
+                self.assertIs(borrowed, app)
+            await asyncio.wait_for(closed.wait(), 1)
+        self.assertIsNone(coordinator._task)
+
+    async def test_key_unavailable(self):
+        @asynccontextmanager
+        async def session():
+            raise OSError("port absent")
+            yield
+
+        coordinator = zigbee.Coordinator()
+        with (
+            mock.patch.object(zigbee, "open_session", session),
+            mock.patch.object(zigbee, "READY_WAIT", 0.05),
+            self.assertLogs("drivers.zigbee", "WARNING"),
+        ):
+            with self.assertRaises(zigbee.ERRORS):
+                async with coordinator.session():
+                    pass
+        self.assertIsNone(coordinator._task)
+
+
+class ScriptedDialog:
+    """Dialogue de l'appairage sans page : réponses données d'avance."""
+
+    def __init__(self, *answers: str):
+        self.answers = list(answers)
+
+    def say(self, text: str) -> None:
+        pass
+
+    def wait(self, seconds: int) -> None:
+        pass
+
+    async def ask(self, prompt: str, choices=None, secret: bool = False) -> str:
+        return self.answers.pop(0)
+
+
+class PairProtocolsTest(unittest.TestCase):
     def test_protocols_found(self):
-        self.assertEqual(set(pair_cli.protocols()), {"homekit", "zigbee"})
+        self.assertEqual(set(core_pair.protocols()), {"homekit", "zigbee"})
 
     def test_id_from_name(self):
         self.assertEqual(id_from_name("Prise salon"), "prise_salon")
@@ -387,41 +442,38 @@ class PairCommandTest(unittest.TestCase):
 
 
 class PairRunTest(MappingTestCase):
-    """Déroulé de ./habctrl pair zigbee, clé simulée : l'appareil s'est appairé."""
+    """Déroulé de l'appairage Zigbee, clé simulée : l'appareil s'est appairé."""
 
     async def pair(self, *answers, model="TS011F"):
         device = make_zdev(model=model)
 
         @asynccontextmanager
-        async def coordinator():
+        async def session():
             yield SimpleNamespace(devices={device.ieee: device})
 
         with (
-            mock.patch.object(zigbee, "open_session", coordinator),
-            mock.patch.object(zigbee_pair, "joined_devices", return_value=[]),
+            mock.patch.object(zigbee.coordinator, "session", session),
             mock.patch.object(zigbee_pair, "wait_device", mock.AsyncMock(return_value=device)),
             mock.patch.object(zigbee_pair, "SETTLE", 0),
             mock.patch.object(zigbee_pair, "save_snapshot") as snapshot,
-            mock.patch.object(pair_cli, "add_device") as add,
-            mock.patch("builtins.input", side_effect=answers),
-            mock.patch("builtins.print"),
+            mock.patch.object(core_pair, "add_device") as add,
         ):
-            code = await zigbee_pair.Pairing().run(1)
+            ok = await zigbee_pair.Pairing(ScriptedDialog(*answers)).run(1)
         snapshot.assert_called_once()
-        return code, add
+        return ok, add
 
     async def test_known_device_keeps_name(self):
         self.link(prise=IEEE)
         self.declared["prise"] = Plug(name="Prise")
-        code, add = await self.pair("")  # Entrée : garder le nom
-        self.assertEqual(code, 0)
+        ok, add = await self.pair("")  # Entrée : garder le nom
+        self.assertTrue(ok)
         add.assert_not_called()
         self.assertEqual(zigbee.load_mapping(), {EUI64.convert(IEEE): "prise"})
 
     async def test_known_device_renamed(self):
         self.link(prise=IEEE)
-        code, add = await self.pair("n", "", "Prise bureau")  # nom vide : redemandé
-        self.assertEqual(code, 0)
+        ok, add = await self.pair("n", "", "Prise bureau")  # nom vide : redemandé
+        self.assertTrue(ok)
         self.assertEqual(zigbee.load_mapping(), {EUI64.convert(IEEE): "prise_bureau"})
         self.assertEqual(add.call_args.args[:2], ("prise_bureau", "zigbee.plug"))
         self.assertEqual(add.call_args.kwargs["name"], "Prise bureau")
@@ -429,14 +481,14 @@ class PairRunTest(MappingTestCase):
     async def test_replaces_dead_device(self):
         self.link(prise="00:11:22:33:44:55:66:77")  # ancien appareil, HS
         self.declared["prise"] = Plug(name="Prise")
-        code, add = await self.pair("Prise", "n", "Prise", "o")  # refus, puis remplacement
-        self.assertEqual(code, 0)
+        ok, add = await self.pair("Prise", "n", "Prise", "o")  # refus, puis remplacement
+        self.assertTrue(ok)
         add.assert_not_called()  # déclaration gardée
         self.assertEqual(zigbee.load_mapping(), {EUI64.convert(IEEE): "prise"})
 
     async def test_driver_from_device_type(self):
-        code, add = await self.pair("Ventilateur", model="LOM002")  # modèle absent de la table
-        self.assertEqual(code, 0)
+        ok, add = await self.pair("Ventilateur", model="LOM002")  # modèle absent de la table
+        self.assertTrue(ok)
         self.assertEqual(add.call_args.args[:2], ("ventilateur", "zigbee.plug"))
         self.assertIn("# Fab LOM002", self.mapping.read_text(encoding="utf-8"))
 

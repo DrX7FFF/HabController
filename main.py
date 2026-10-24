@@ -1,14 +1,16 @@
 import asyncio
 import json
+import logging
 from contextlib import asynccontextmanager
 from functools import partial
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.websockets import WebSocketState
 from pydantic import BaseModel, ValidationError
 
-from core import ROOT, TEMP_DIR, check_config, datalog
+from core import ROOT, TEMP_DIR, check_config, datalog, pair
 from core.automation import load_automations, stop_automations
 from core.base import DeviceError
 from core.charts import downsample, load_charts
@@ -19,9 +21,12 @@ from core.widgets import load_blocks
 
 check_config()
 setup_logging()
+log = logging.getLogger("habctrl")
 devices = load_devices()
 blocks = load_blocks(devices)
 charts = load_charts()
+pairings = pair.protocols()  # {protocole: classe Pairing}
+pairing_lock = asyncio.Lock()  # un appairage à la fois
 clients: set[asyncio.Queue] = set()  # une file de messages par page connectée
 
 
@@ -186,6 +191,107 @@ async def websocket(ws: WebSocket):
         sender.cancel()
 
 
+# --- Appairage : WebSocket /ws/pair?protocol=…&duration=… -------------------
+# Un dialogue par appairage (voir core/pair.py), interrompu si la page se ferme.
+# serveur -> page : {"type": "say", "text"}, {"type": "ask", "prompt", "choices", "secret"},
+#                   {"type": "wait", "seconds"} (barre de progression ; 0 : masquée),
+#                   puis {"type": "end", "ok"}
+# page -> serveur : {"type": "answer", "value"}
+
+
+@app.get("/api/pair")
+async def list_pairings():
+    return [
+        {
+            "protocol": name,
+            "label": cls.LABEL or name,
+            "duration": cls.DURATION,
+            "max_duration": cls.MAX_DURATION,
+        }
+        for name, cls in sorted(pairings.items())
+    ]
+
+
+class PairingDialog:
+    """Dialogue de l'appairage (core.pair.Dialog) avec la page, par le WebSocket."""
+
+    def __init__(self, ws: WebSocket):
+        self.ws = ws
+        self.outbox: asyncio.Queue = asyncio.Queue()  # None : fin de l'envoi
+        self.answers: asyncio.Queue = asyncio.Queue()
+
+    def say(self, text: str) -> None:
+        self.outbox.put_nowait({"type": "say", "text": text})
+
+    def wait(self, seconds: int) -> None:
+        self.outbox.put_nowait({"type": "wait", "seconds": seconds})
+
+    async def ask(self, prompt: str, choices=None, secret: bool = False) -> str:
+        while not self.answers.empty():  # réponse arrivée sans question : périmée
+            self.answers.get_nowait()
+        self.outbox.put_nowait(
+            {"type": "ask", "prompt": prompt, "choices": choices or [], "secret": secret}
+        )
+        return (await self.answers.get()).strip()
+
+    async def send_loop(self) -> None:
+        while (message := await self.outbox.get()) is not None:
+            await self.ws.send_json(message)
+
+    async def read_loop(self) -> None:
+        """Rend la main à la déconnexion de la page."""
+        while True:
+            try:
+                message = json.loads(await self.ws.receive_text())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(message, dict) and isinstance(message.get("value"), str):
+                self.answers.put_nowait(message["value"])
+
+
+async def run_pairing(dialog: PairingDialog, cls, duration: int) -> None:
+    pairing = asyncio.create_task(cls(dialog).run(duration))
+    reader = asyncio.create_task(dialog.read_loop())
+    sender = asyncio.create_task(dialog.send_loop())
+    try:
+        await asyncio.wait({pairing, reader}, return_when=asyncio.FIRST_COMPLETED)
+        if not pairing.done():  # page fermée : on abandonne (la session se referme)
+            return
+        try:
+            ok = pairing.result()
+        except Exception:
+            log.exception("Appairage %s : erreur inattendue", cls.LABEL)
+            dialog.say("Erreur inattendue, voir le journal.")
+            ok = False
+        dialog.outbox.put_nowait({"type": "end", "ok": ok})
+        dialog.outbox.put_nowait(None)
+        await asyncio.wait({sender})  # tout est envoyé (ou la page est partie)
+    finally:
+        for task in (pairing, reader, sender):
+            task.cancel()
+        await asyncio.gather(pairing, reader, sender, return_exceptions=True)
+
+
+@app.websocket("/ws/pair")
+async def pair_socket(ws: WebSocket, protocol: str = "", duration: int = 0):
+    await ws.accept()
+    cls = pairings.get(protocol)
+    if cls is None or not 1 <= duration <= cls.MAX_DURATION:
+        error = "protocole inconnu" if cls is None else f"durée entre 1 et {cls.MAX_DURATION} s"
+    elif pairing_lock.locked():
+        error = "un appairage est déjà en cours"
+    else:
+        async with pairing_lock:
+            log.info("Appairage %s lancé (%s s)", cls.LABEL, duration)
+            await run_pairing(PairingDialog(ws), cls, duration)
+        if ws.client_state == WebSocketState.CONNECTED:
+            await ws.close()
+        return
+    await ws.send_json({"type": "say", "text": f"Erreur : {error}."})
+    await ws.send_json({"type": "end", "ok": False})
+    await ws.close()
+
+
 # --- Pages web (web/) --------------------------------------------------------
 # Une page par onglet, servie à son adresse ; styles, scripts et bibliothèques sous /web/.
 
@@ -201,6 +307,11 @@ def index():
 @app.get("/graphiques", include_in_schema=False)
 def charts_page():
     return FileResponse(WEB_DIR / "charts.html")
+
+
+@app.get("/administration", include_in_schema=False)
+def admin_page():
+    return FileResponse(WEB_DIR / "admin.html")
 
 
 if __name__ == "__main__":

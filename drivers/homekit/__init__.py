@@ -65,7 +65,7 @@ def read_pairing_file(dev_id: str) -> dict:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as err:
         raise PairingError(
-            f"appairage absent ({path}) : lancer ./habctrl pair homekit"
+            f"appairage absent ({path}) : l'appairer"
         ) from err
     except tomllib.TOMLDecodeError as err:
         raise PairingError(f"fichier d'appairage illisible ({path})") from err
@@ -125,7 +125,7 @@ def save_pairing(dev_id: str, keys: dict, info: dict | None = None) -> Path:
     info = info or {}
     lines = [
         f"# Appairage HomeKit de « {dev_id} » : lien entre l'équipement logique",
-        "# (déclaré dans devices/) et l'accessoire physique. Écrit par ./habctrl pair homekit.",
+        "# (déclaré dans devices/) et l'accessoire physique. Écrit par l'appairage.",
         "",
     ]
     lines += [

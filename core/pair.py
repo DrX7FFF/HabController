@@ -1,4 +1,4 @@
-"""Appairage : ./habctrl pair <protocole> [--duration N].
+"""Appairage d'un équipement, commun à tous les protocoles.
 
 Le déroulé est commun à tous les protocoles (classe Pairing) :
 1. ouvrir la session du protocole (clé Zigbee, contrôleur HomeKit…) et chercher pendant N s ;
@@ -10,24 +10,40 @@ Le déroulé est commun à tous les protocoles (classe Pairing) :
 4. équipement pas encore déclaré : il est ajouté à devices/devices.py avec le pilote du modèle
    (inconnu : à la main).
 
+Le dialogue passe par l'objet `ui` (voir Dialog), fourni par l'appelant.
 Chaque protocole qui sait appairer fournit drivers/<protocole>/pair.py avec une classe
 `Pairing` dérivée de celle-ci. Redémarrer HabController ensuite.
 """
 
-import argparse
-import asyncio
 import importlib
 import importlib.util
 import pkgutil
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
+from typing import Protocol
 
 import drivers
-from core import check_config
 from core.base import Device
 from core.devices import add_device, check_id, driver_for_model, id_from_name, load_devices
+
+YES_NO = [("o", "Oui"), ("n", "Non")]
+
+
+class Dialog(Protocol):
+    """Échange avec la personne qui appaire."""
+
+    def say(self, text: str) -> None: ...
+
+    def wait(self, seconds: int) -> None:
+        """Attente de `seconds` s qui commence (recherche) ; 0 : attente terminée."""
+
+    async def ask(
+        self, prompt: str, choices: list[tuple[str, str]] | None = None, secret: bool = False
+    ) -> str:
+        """Réponse saisie (sans espaces autour) ; `choices` : réponses proposées (valeur,
+        libellé) ; `secret` : saisie masquée."""
+        ...
 
 
 @dataclass
@@ -41,11 +57,6 @@ class Candidate:
     device: object  # objet du protocole
 
 
-async def ask(prompt: str) -> str:
-    """input() sans bloquer la boucle asyncio : la session du protocole reste vivante."""
-    return (await asyncio.to_thread(input, prompt)).strip()
-
-
 class Pairing:
     """Déroulé commun ; un protocole surcharge les méthodes de la partie « à fournir ».
 
@@ -56,13 +67,16 @@ class Pairing:
     """
 
     PROTOCOL: ModuleType
-    HELP = ""
+    LABEL = ""  # nom affiché du protocole
     DURATION = 10  # s, recherche par défaut
     MAX_DURATION = 600
     HINT = ""  # conseil affiché avec une erreur
     SECRET_ERRORS = False  # erreurs affichées sans leur texte (il pourrait contenir un code)
     previous = ""  # équipement logique auquel l'appareil était lié, s'il en change
     declared: dict[str, Device] = {}  # équipements déclarés dans devices/
+
+    def __init__(self, ui: Dialog):
+        self.ui = ui
 
     @property
     def models(self) -> Path:
@@ -88,79 +102,86 @@ class Pairing:
     def unlink(self, dev_id: str) -> None:
         self.PROTOCOL.pairing_file(dev_id).unlink(missing_ok=True)
 
+    def session(self):
+        """Contexte asynchrone de la session du protocole (clé, contrôleur…)."""
+        return self.PROTOCOL.open_session()
+
     def done(self) -> None:
         """Session fermée, appairage enregistré."""
 
     # --- déroulé -------------------------------------------------------------
 
-    async def run(self, duration: int) -> int:
+    async def run(self, duration: int) -> bool:
+        """Déroulé complet ; True si l'appairage est enregistré."""
+        say = self.ui.say
         self.declared = load_devices()
         try:
-            async with self.PROTOCOL.open_session() as session:
+            async with self.session() as session:
                 candidates = await self.search(session, duration)
                 if not candidates:
-                    print("Aucun équipement trouvé.")
-                    return 1
+                    say("Aucun équipement trouvé.")
+                    return False
                 candidate = await self.choose(candidates)
                 dev_id, name = await self.target(candidate.uid)
                 path = await self.link(session, candidate, dev_id)
         except self.PROTOCOL.ERRORS as err:
             detail = "" if self.SECRET_ERRORS else f" : {err}"
-            print(f"Échec ({type(err).__name__}{detail}). {self.HINT}")
-            return 1
+            say(f"Échec ({type(err).__name__}{detail}). {self.HINT}")
+            return False
         self.done()
-        print(f"Appairage de « {dev_id} » enregistré dans {path}.")
+        say(f"Appairage de « {dev_id} » enregistré dans {path}.")
         if self.previous and self.previous != dev_id:
             self.unlink(self.previous)
-            print(f"« {self.previous} » n'a plus d'appareil : le retirer de devices/.")
+            say(f"« {self.previous} » n'a plus d'appareil : le retirer de devices/.")
         if dev_id in self.declared:
-            print(f"« {dev_id} » déjà déclaré dans devices/, inchangé.")
-            return 0
-        driver = driver_for_model(candidate.models, self.models)
-        if not driver:
-            print(
-                f"\nModèle inconnu : déclarer « {dev_id} » dans devices/ avec le bon pilote, "
+            say(f"« {dev_id} » déjà déclaré dans devices/, inchangé.")
+        elif not (driver := driver_for_model(candidate.models, self.models)):
+            say(
+                f"Modèle inconnu : déclarer « {dev_id} » dans devices/ avec le bon pilote, "
                 f"ou l'ajouter à {self.models}, puis réappairer."
             )
-            return 0
-        try:
-            file = add_device(dev_id, driver, name=name, comment=candidate.comment)
-        except ValueError as err:
-            print(f"Équipement non ajouté : {err}")
-            return 1
-        print(f"Équipement « {name or dev_id} » ajouté à {file}.")
-        return 0
+        else:
+            try:
+                file = add_device(dev_id, driver, name=name, comment=candidate.comment)
+            except ValueError as err:
+                say(f"Équipement non ajouté : {err}")
+                return False
+            say(f"Équipement « {name or dev_id} » ajouté à {file}.")
+        say("Redémarrer HabController pour l'utiliser.")
+        return True
 
     async def choose(self, candidates: list[Candidate]) -> Candidate:
         for number, candidate in enumerate(candidates, start=1):
-            print(f"\n{number}. " + "\n   ".join(candidate.details))
-        print()
+            self.ui.say(f"{number}. " + "\n   ".join(candidate.details))
+        numbers = [(str(n), str(n)) for n in range(1, len(candidates) + 1)]
         while len(candidates) > 1:
-            answer = await ask("Numéro de l'équipement à appairer : ")
+            answer = await self.ui.ask("Numéro de l'équipement à appairer", numbers)
             if answer.isdigit() and 1 <= int(answer) <= len(candidates):
                 return candidates[int(answer) - 1]
-            print("Choix invalide.")
+            self.ui.say("Choix invalide.")
         return candidates[0]
 
     async def target(self, uid) -> tuple[str, str]:
         """(id, nom) de l'équipement logique ; nom vide pour un équipement déjà connu."""
         for dev_id in self.paired_ids(uid):
             label = self.label(dev_id)
-            answer = await ask(f"Équipement reconnu, anciennement {label}. Garder ce nom ? [O/n] ")
+            answer = await self.ui.ask(
+                f"Équipement reconnu, anciennement {label}. Garder ce nom ?", YES_NO
+            )
             if answer.lower() not in ("n", "non"):
                 return dev_id, ""
             self.previous = dev_id
         while True:
-            name = await ask("Nom de l'équipement (ex. Prise salon) : ")
+            name = await self.ui.ask("Nom de l'équipement (ex. Prise salon)")
             dev_id = id_from_name(name)
             try:
                 check_id(dev_id)
             except ValueError as err:
-                print(f"Erreur : {err}")
+                self.ui.say(f"Erreur : {err}")
                 continue
             if dev_id != self.previous and self.linked(dev_id):
-                answer = await ask(
-                    f"{self.label(dev_id)} est lié à un autre appareil : le remplacer ? [o/N] "
+                answer = await self.ui.ask(
+                    f"{self.label(dev_id)} est lié à un autre appareil : le remplacer ?", YES_NO
                 )
                 if answer.lower() not in ("o", "oui"):
                     continue
@@ -179,38 +200,3 @@ def protocols() -> dict:
         if info.ispkg and importlib.util.find_spec(f"drivers.{info.name}.pair"):
             found[info.name] = importlib.import_module(f"drivers.{info.name}.pair").Pairing
     return found
-
-
-def duration_type(maximum: int):
-    def duration(text: str) -> int:
-        value = int(text)
-        if not 1 <= value <= maximum:
-            raise argparse.ArgumentTypeError(f"entre 1 et {maximum} secondes")
-        return value
-
-    return duration
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="habctrl pair", description="Appairer un équipement.")
-    commands = parser.add_subparsers(dest="protocol", required=True, metavar="protocole")
-    for name, cls in sorted(protocols().items()):
-        command = commands.add_parser(name, help=cls.HELP, description=cls.HELP)
-        command.add_argument(
-            "--duration",
-            type=duration_type(cls.MAX_DURATION),
-            default=cls.DURATION,
-            help=f"durée de recherche en secondes (défaut {cls.DURATION})",
-        )
-        command.set_defaults(pairing=cls)
-    args = parser.parse_args(argv)
-    check_config()
-    try:
-        return asyncio.run(args.pairing().run(args.duration))
-    except KeyboardInterrupt:
-        print("\nInterrompu.")
-        return 130
-
-
-if __name__ == "__main__":
-    sys.exit(main())

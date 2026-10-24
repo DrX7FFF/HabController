@@ -75,7 +75,7 @@ def write_summary(devices: dict[str, Device], path: Path) -> None:
         physical = device.physical()
         if not physical:
             unpaired += 1
-            physical = f"-> non appairé : ./habctrl pair {driver.split('.')[0]}"
+            physical = f"-> non appairé ({driver.split('.')[0]})"
         rows.append((dev_id, device.name, driver, physical))
     orphans = []  # un bloc par appareil : ligne « -> id physique », puis sa déclaration
     for info in pkgutil.iter_modules(drivers.__path__):
@@ -150,7 +150,7 @@ def driver_for_model(models: str | list[str], path: Path) -> str:
         try:
             load_driver(driver)
         except ValueError as err:
-            print(f"Pilote « {driver} » associé au modèle {model} inutilisable : {err}")
+            log.warning("Pilote « %s » associé au modèle %s inutilisable : %s", driver, model, err)
             return ""
         return driver
     return ""

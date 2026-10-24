@@ -16,12 +16,19 @@
   button.off { background: #ddd; }
   button.unreachable { background: #f5b5b5; border-color: #b00; }
   label { display: grid; gap: .3rem; }
+  .measures { display: grid; grid-template-columns: auto auto; gap: .3rem 1.2rem; margin: 0;
+              font-size: 1.1rem; }
+  .measures dt { color: #555; }
+  .measures dd { margin: 0; font-weight: 600; text-align: right; }
+  .measures dd:only-child { grid-column: 1 / -1; text-align: left; font-weight: normal;
+                           color: #555; }
 </style>
 </head>
 <body>
 <nav>
   <a href="/" aria-current="page">Commandes</a>
   <a href="/graphiques">Graphiques</a>
+  <a href="/administration">Administration</a>
 </nav>
 <div id="banner" hidden></div>
 <div id="blocks"></div>

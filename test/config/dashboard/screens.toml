@@ -1,4 +1,4 @@
-# Un bloc par widget affiché. "widget" : onoff | white | rgb
+# Un bloc par widget affiché. "widget" : onoff | white | rgb (commandes) | sensor (mesures)
 
 [[blocks]]
 device = "salon"

@@ -1,8 +1,6 @@
 """Tests hors ligne (aucun matériel) : python -m unittest discover -s test -p "test_*.py" -v"""
 
 import asyncio
-import contextlib
-import io
 import stat
 import os
 import sys
@@ -23,7 +21,7 @@ from aiohomekit.zeroconf import HomeKitService  # noqa: E402
 
 import drivers.homekit as homekit  # noqa: E402
 from core import ROOT, devices as core_devices, pair as core_pair  # noqa: E402
-from drivers.homekit import fp2, pair as pair_cli  # noqa: E402
+from drivers.homekit import fp2, pair as homekit_pair  # noqa: E402
 
 BASE = "-0000-1000-8000-0026BB765291"
 
@@ -594,16 +592,16 @@ class DriverForModelTest(unittest.TestCase):
         self.path.write_text('[models]\n"PS-S02D" = "homekit.fp2"\n"X1" = "nexistepas"\n')
         self.assertEqual(core_devices.driver_for_model("PS-S02D", self.path), "homekit.fp2")
         self.assertEqual(core_devices.driver_for_model("inconnu", self.path), "")
-        with contextlib.redirect_stdout(io.StringIO()) as out:
+        with self.assertLogs("core.devices", "WARNING") as logs:
             self.assertEqual(core_devices.driver_for_model("X1", self.path), "")  # pilote absent
-        self.assertIn("inutilisable", out.getvalue())
+        self.assertIn("inutilisable", logs.output[0])
 
     def test_missing_file(self):
         self.assertEqual(core_devices.driver_for_model("PS-S02D", self.path), "")
 
     def test_repo_mapping_points_to_existing_driver(self):
         models = tomllib.loads((ROOT / "drivers" / "homekit" / "models.toml").read_text())
-        table = pair_cli.Pairing().models
+        table = homekit_pair.Pairing(ScriptedDialog()).models
         self.assertEqual(core_devices.driver_for_model("PS-S02D", table), "homekit.fp2")
         for driver in models["models"].values():
             core_devices.load_driver(driver)
@@ -614,7 +612,25 @@ class DriverForModelTest(unittest.TestCase):
             core_devices.load_driver(driver)
 
 
-class PairCliTest(unittest.IsolatedAsyncioTestCase):
+class ScriptedDialog:
+    """Dialogue de l'appairage sans page : réponses données d'avance, messages gardés."""
+
+    def __init__(self, *answers: str):
+        self.answers = list(answers)
+        self.out: list[str] = []
+
+    def say(self, text: str) -> None:
+        self.out.append(text)
+
+    def wait(self, seconds: int) -> None:
+        pass
+
+    async def ask(self, prompt: str, choices=None, secret: bool = False) -> str:
+        self.out.append(prompt)
+        return self.answers.pop(0)
+
+
+class PairRunTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -641,7 +657,7 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
             async_start_pairing=mock.AsyncMock(return_value=finish),
         )
 
-    async def run_cli(self, discovery, models="PS-S02D", name="FP2"):
+    async def run_pairing(self, discovery, models="PS-S02D", name="FP2"):
         @asynccontextmanager
         async def fake_controller():
             yield object()
@@ -649,18 +665,16 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         known = {"PS-S02D": "homekit.fp2"} if models else {}
         with (
             mock.patch.object(homekit, "open_session", fake_controller),
-            mock.patch.object(pair_cli, "discover", mock.AsyncMock(return_value=[discovery])),
+            mock.patch.object(homekit_pair, "discover", mock.AsyncMock(return_value=[discovery])),
             mock.patch.object(core_pair, "driver_for_model", lambda m, _path: known.get(m[0], "")),
-            mock.patch("builtins.input", return_value=name),
-            mock.patch("getpass.getpass", return_value="123-45-678"),
-            contextlib.redirect_stdout(io.StringIO()) as out,
         ):
-            code = await pair_cli.Pairing().run(0)
-        return code, out.getvalue()
+            dialog = ScriptedDialog(name, "123-45-678")  # nom vide : garder le nom reconnu
+            ok = await homekit_pair.Pairing(dialog).run(0)
+        return ok, "\n".join(dialog.out)
 
     async def test_known_model_fills_driver(self):
-        code, out = await self.run_cli(self.discovery())
-        self.assertEqual(code, 0)
+        ok, out = await self.run_pairing(self.discovery())
+        self.assertTrue(ok)
         config_path = self.devices / "devices.py"
         text = config_path.read_text(encoding="utf-8")
         self.assertIn("from drivers.homekit.fp2 import FP2", text)
@@ -670,20 +684,20 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Modèle inconnu", out)
         # second appel (accessoire réinitialisé) : reconnu, Entrée refait le lien
         self.declared["fp2"] = fp2.FP2(name="FP2")
-        code, out = await self.run_cli(self.discovery(), name="")
-        self.assertEqual(code, 0)
+        ok, out = await self.run_pairing(self.discovery(), name="")
+        self.assertTrue(ok)
         self.assertIn("« fp2 » déjà déclaré dans devices/, inchangé", out)
         self.assertEqual(config_path.read_text(encoding="utf-8"), text)
 
     async def test_unknown_model_declares_nothing(self):
-        code, out = await self.run_cli(self.discovery(model="Z9"))
-        self.assertEqual(code, 0)
+        ok, out = await self.run_pairing(self.discovery(model="Z9"))
+        self.assertTrue(ok)
         self.assertFalse((self.devices / "devices.py").exists())
         self.assertIn("Modèle inconnu", out)
         self.assertTrue(homekit.pairing_file("fp2").exists())
 
     async def test_discovery_shows_every_field(self):
-        _code, out = await self.run_cli(self.discovery())
+        _code, out = await self.run_pairing(self.discovery())
         for name in (
             "name",
             "id",
@@ -702,8 +716,8 @@ class PairCliTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn(f"{name} :", out)
 
     async def test_already_paired_accessory(self):
-        code, _out = await self.run_cli(self.discovery(paired=True))
-        self.assertEqual(code, 1)
+        ok, _out = await self.run_pairing(self.discovery(paired=True))
+        self.assertFalse(ok)
         self.assertFalse((self.devices / "fp2.toml").exists())
         self.assertFalse(homekit.pairing_file("fp2").exists())
 

@@ -3,8 +3,9 @@ from pathlib import Path
 
 from core import CONFIG_DIR
 
-# Widgets reconnus dans dashboard/screens.toml.
-WIDGETS = {"onoff", "white", "rgb"}
+# Widgets reconnus dans dashboard/screens.toml : commandes (onoff, white, rgb) ou mesures
+# d'un capteur, en lecture seule (sensor).
+WIDGETS = {"onoff", "white", "rgb", "sensor"}
 
 
 SCREENS = CONFIG_DIR / "dashboard" / "screens.toml"

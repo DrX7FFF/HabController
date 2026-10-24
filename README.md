@@ -31,17 +31,16 @@ prise_salon = Plug(name="Prise salon")
 Dans une automatisation : `from devices.salon import salon, prise_salon`.
 
 ## Pairing
-```batch
-./habctrl pair -h                                  # protocoles disponibles
-./habctrl pair homekit                             # --duration : découverte mDNS (défaut 10 s)
-./habctrl pair zigbee                              # HabController arrêté (il occupe la clé)
-```
+Onglet **Administration** de l'application web (`/administration`) : un bouton par protocole
+(HomeKit : découverte mDNS, défaut 10 s ; Zigbee : réseau ouvert, défaut 120 s, avec la clé de
+HabController qui reste en marche), la durée de recherche est réglable. Un seul appairage à la
+fois ; fermer la page ou « Annuler » l'interrompt.
 Le nom de l'équipement est demandé une fois l'appareil identifié (l'identifiant en est
 déduit) ; un appareil déjà lié propose de garder son nom. Un nom déjà lié à un autre appareil
 le remplace après confirmation (appareil HS) ; un équipement déjà déclaré est gardé, sinon il
 est ajouté à la fin de `devices/devices.py` avec le pilote déduit du modèle
 (`drivers/<protocole>/models.toml`, Zigbee : ou du type d'appareil), à ranger ensuite
-librement. Redémarrer HabController ensuite.
+librement. Redémarrer HabController ensuite pour l'utiliser.
 
 ### Zigbee : `pairing/zigbee.toml` fait foi
 Une ligne par appareil : `"<IEEE>" = "<id>"`. À chaque ouverture de la clé (démarrage,

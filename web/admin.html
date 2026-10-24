@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domotique — administration</title>
+<link rel="stylesheet" href="/web/common.css">
+<style>
+  section { border: 2px solid #aaa; border-radius: 1rem; padding: 1rem 1.5rem; max-width: 50rem; }
+  section h2 { margin-bottom: .8rem; }
+  #protocols { display: grid; gap: .8rem; }
+  .protocol { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
+  button, input { font-size: 1rem; padding: .5rem 1rem; border-radius: .6rem;
+                  border: 2px solid #888; background: #eee; }
+  button { cursor: pointer; }
+  button:disabled { cursor: default; opacity: .5; }
+  button.main { background: #ffd54a; border-color: #c9a100; }
+  input { background: #fff; cursor: text; }
+  input.duration { width: 5rem; }
+  #session[hidden], #question[hidden], #cancel[hidden], #wait[hidden] { display: none; }
+  #running { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; min-height: 2.6rem; }
+  #wait { display: flex; align-items: center; gap: .5rem; }
+  #bar { width: 16rem; height: 1.2rem; accent-color: #c9a100; }
+  #session { margin-top: 1.2rem; display: grid; gap: .8rem; }
+  #log { background: #f4f4f4; border-radius: .5rem; padding: .8rem 1rem; margin: 0;
+         white-space: pre-wrap; max-height: 24rem; overflow-y: auto; }
+  #question { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+  #question form { display: contents; }
+  #prompt { font-weight: 600; flex-basis: 100%; }
+  #status.ok { color: #1a7f1a; }
+  #status.failed { color: #b00; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="/">Commandes</a>
+  <a href="/graphiques">Graphiques</a>
+  <a href="/administration" aria-current="page">Administration</a>
+</nav>
+<div id="banner" hidden></div>
+<section>
+  <h2>Appairage</h2>
+  <div id="protocols"></div>
+  <div id="session" hidden>
+    <div id="running">
+      <button id="cancel">Arrêter</button>
+      <span id="wait" hidden><progress id="bar"></progress> <span id="remaining"></span></span>
+      <span id="status"></span>
+    </div>
+    <pre id="log"></pre>
+    <div id="question" hidden>
+      <span id="prompt"></span>
+      <form id="answer-form">
+        <input id="answer" autocomplete="off">
+        <button class="main">Valider</button>
+      </form>
+      <span id="choices"></span>
+    </div>
+  </div>
+</section>
+<script src="/web/admin.js"></script>
+</body>
+</html>

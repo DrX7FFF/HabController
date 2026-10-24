@@ -17,8 +17,8 @@ mauvais chemin de configuration). Repartir de zéro : supprimer pairing/zigbee.t
 pairing/zigbee.db et temp/zigbee.db.
 
 Une seule clé pour tous les équipements : le coordinateur est partagé (`coordinator`), démarré
-au premier équipement Zigbee et relancé si la clé décroche. Le port série ne s'ouvre qu'une
-fois : l'appairage (./habctrl pair zigbee) et HabController ne doivent pas tourner ensemble.
+au premier équipement Zigbee et relancé si la clé décroche. L'appairage l'emprunte
+(`coordinator.session()`) : le port série ne s'ouvre qu'une fois.
 """
 
 import asyncio
@@ -27,6 +27,7 @@ import logging
 import shutil
 import sqlite3
 import tomllib
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
 
@@ -60,6 +61,7 @@ MODELS = Path(__file__).with_name("models.toml")  # modèle ou type d'appareil -
 HOME_AUTOMATION = 0x0104  # profil Zigbee des types d'appareil standard
 RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à chaque échec)
 RETRY_MAX = 60
+READY_WAIT = 30  # s, laissées à la clé pour s'ouvrir quand l'appairage l'emprunte
 
 
 class PairingError(Exception):
@@ -146,7 +148,7 @@ def linked_ieee(dev_id: str) -> EUI64:
     for ieee, linked_id in load_mapping().items():
         if linked_id == dev_id:
             return ieee
-    raise PairingError(f"absent de {MAPPING} : lancer ./habctrl pair zigbee")
+    raise PairingError(f"absent de {MAPPING} : l'appairer")
 
 
 def device_types(zdev) -> list[str]:
@@ -230,7 +232,7 @@ async def synchronize(app: ZigpyApplication) -> None:
         if ieee not in app.devices:
             log.warning(
                 "%s : déclaré avec l'IEEE %s mais absent du réseau Zigbee : le retirer de %s "
-                "ou réappairer un appareil (./habctrl pair zigbee)",
+                "ou réappairer un appareil",
                 dev_id,
                 ieee,
                 MAPPING.name,
@@ -318,7 +320,8 @@ async def setup_reporting(name: str, cluster, reports: dict[str, tuple[int, int,
 
 
 class Coordinator:
-    """La clé partagée : ouverte tant qu'il reste un équipement Zigbee, rouverte si elle décroche.
+    """La clé partagée : ouverte tant qu'il reste un équipement Zigbee ou un appairage en cours,
+    rouverte si elle décroche.
 
     Reçoit aussi les événements réseau de zigpy (méthodes au nom de l'événement).
     """
@@ -326,19 +329,47 @@ class Coordinator:
     def __init__(self):
         self.app: ZigpyApplication | None = None
         self._devices: dict[EUI64, "ZigbeeDevice"] = {}
+        self._sessions = 0  # appairages qui empruntent la clé
         self._task: asyncio.Task | None = None
         self._lost: asyncio.Event | None = None
+        self._ready = asyncio.Event()  # clé ouverte
 
     def register(self, device: "ZigbeeDevice", ieee: EUI64) -> None:
         self._devices[ieee] = device
         if self._task is None:
-            self._task = asyncio.get_running_loop().create_task(self._run(), name="zigbee")
+            self._launch()
         elif self.app is not None:
             device._attach(self.app)
 
     async def unregister(self, ieee: EUI64) -> None:
         self._devices.pop(ieee, None)
-        if not self._devices and self._task is not None:
+        await self._release()
+
+    @asynccontextmanager
+    async def session(self) -> AsyncIterator[ZigpyApplication]:
+        """La clé ouverte, pour l'appairage (ouverte pour l'occasion si besoin)."""
+        self._sessions += 1
+        try:
+            if self._task is None or self._task.done():
+                self._launch()
+            ready = asyncio.ensure_future(self._ready.wait())
+            await asyncio.wait(
+                {ready, self._task}, timeout=READY_WAIT, return_when=asyncio.FIRST_COMPLETED
+            )
+            ready.cancel()
+            if self.app is None:
+                raise RadioException("clé Zigbee inaccessible, voir le journal")
+            yield self.app
+        finally:
+            self._sessions -= 1
+            await self._release()
+
+    def _launch(self) -> None:
+        self._task = asyncio.get_running_loop().create_task(self._run(), name="zigbee")
+
+    async def _release(self) -> None:
+        """Plus personne n'utilise la clé : on la ferme."""
+        if not self._devices and not self._sessions and self._task is not None:
             self._task.cancel()
             await asyncio.gather(self._task, return_exceptions=True)
             self._task = None
@@ -352,6 +383,7 @@ class Coordinator:
                     log.info("Clé Zigbee démarrée")
                     backoff = RETRY_MIN
                     self.app = app
+                    self._ready.set()
                     app.add_listener(self)
                     for device in self._devices.values():
                         device._attach(app)
@@ -369,6 +401,7 @@ class Coordinator:
                 )
             finally:
                 self.app = None
+                self._ready.clear()
                 for device in self._devices.values():
                     device._detach()
             await asyncio.sleep(backoff)
@@ -455,7 +488,7 @@ class ZigbeeDevice(NetworkDevice):
         zdev = app.devices.get(self.ieee)
         if not isinstance(zdev, ZigpyDevice):
             log.error(
-                "%s : %s inconnu du réseau Zigbee (./habctrl pair zigbee)", self.name, self.ieee
+                "%s : %s inconnu du réseau Zigbee (l'appairer)", self.name, self.ieee
             )
             return
         self.zdev = zdev

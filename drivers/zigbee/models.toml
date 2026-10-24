@@ -1,5 +1,5 @@
 # Équipement Zigbee -> pilote ("zigbee.plug" pour drivers/zigbee/plug.py).
-# Utilisé par `./habctrl pair zigbee` pour déclarer l'équipement dans devices/ ; sinon déclaration à la main.
+# Utilisé par l'appairage Zigbee pour déclarer l'équipement dans devices/ ; sinon déclaration à la main.
 # Clé : le modèle annoncé (affiché à l'appairage), sinon le type d'appareil Zigbee Home
 # Automation d'un endpoint ("0x" + 4 chiffres hexadécimaux en minuscules). Le modèle l'emporte.
 # Un type d'un autre profil (ZLL) ou propre au fabricant (Xiaomi 0x5f01…) n'est pas un type
