@@ -178,8 +178,10 @@ def load_automations(devs: dict[str, Device]) -> None:
 
 
 async def stop_automations() -> None:
-    while _tasks:  # une tâche annulée peut en avoir lancé d'autres
-        tasks = list(_tasks)
+    # Une tâche annulée peut en avoir lancé d'autres. On ne suit que les tâches en cours : une
+    # tâche finie reste dans _tasks jusqu'à son rappel _done, et gather() sur des tâches toutes
+    # finies rend la main sans passer par la boucle, qui tournerait alors à vide.
+    while tasks := [task for task in _tasks if not task.done()]:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

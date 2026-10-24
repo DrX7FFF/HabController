@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_fp2 import FakePairing, make_fp2, presence_key, until  # noqa: E402
 
 from core import automation  # noqa: E402
-from core.base import Attribute, Device, DeviceError  # noqa: E402
+from core.base import Attribute, Device, DeviceError, spawn_task  # noqa: E402
 
 
 class FakeDevice(Device):
@@ -65,8 +65,10 @@ class AutomationTestCase(unittest.IsolatedAsyncioTestCase):
         automation._handlers.clear()
 
     async def idle(self):
-        while automation._tasks:  # les tâches peuvent en lancer d'autres (commandes)
-            await asyncio.gather(*list(automation._tasks), return_exceptions=True)
+        # Les tâches peuvent en lancer d'autres (commandes). Seulement celles en cours : voir
+        # stop_automations(), une tâche finie peut rester dans _tasks.
+        while tasks := [task for task in automation._tasks if not task.done()]:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 class OnEventTest(AutomationTestCase):
@@ -271,6 +273,16 @@ class OnChangeTest(AutomationTestCase):
             automation.bind({})
         self.assertIn("fantome", logs.output[0])
 
+    async def test_stop_with_finished_tasks_not_yet_removed(self):
+        async def quick():
+            pass
+
+        spawn_task(quick(), "quick")
+        await asyncio.sleep(0)  # la tâche est finie, son rappel _done pas encore passé
+        self.assertTrue(all(task.done() for task in automation._tasks))
+        self.assertTrue(automation._tasks)
+        await automation.stop_automations()  # ne doit pas tourner à vide
+
     def test_invalid_declarations(self):
         with self.assertRaises(ValueError):
             automation.on_change(".presence")
@@ -379,7 +391,10 @@ class PresenceRuleTest(AutomationTestCase):
     """
 
     async def asyncSetUp(self):
-        from automations import presence
+        # Import neuf à chaque test : la règle n'est enregistrée qu'une fois (un import suivi d'un
+        # reload l'enregistrait deux fois au premier test, d'où des commandes en double).
+        sys.modules.pop("automations.presence", None)
+        presence = importlib.import_module("automations.presence")
 
         self.salon, self.cuisine = presence.salon, presence.cuisine  # vraies ampoules, sans réseau
         self.salon.configure("salon")  # normalement fait par load_devices()
@@ -387,10 +402,10 @@ class PresenceRuleTest(AutomationTestCase):
         self.commands = {"salon": [], "cuisine": []}
         self.fail: dict[str, Exception] = {}
         for dev in (self.salon, self.cuisine):
+            dev._lock = asyncio.Lock()  # ampoules partagées entre les tests : un verrou par boucle
             patcher = mock.patch.object(dev, "set", self.fake_set(dev))
             patcher.start()
             self.addCleanup(patcher.stop)
-        importlib.reload(presence)  # ré-enregistre la règle après le nettoyage de setUp
         self.fp = make_fp2(zonemapping={0: "Global"})
         automation.bind({"fp2": self.fp})
         self.pairing = FakePairing()
