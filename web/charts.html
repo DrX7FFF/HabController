@@ -7,10 +7,12 @@
 <link rel="stylesheet" href="/web/common.css">
 <link rel="stylesheet" href="/web/vendor/uPlot.min.css">
 <style>
-  #periods { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
-  #periods button { font-size: 1rem; padding: .5rem 1rem; border-radius: .6rem;
-                    border: 2px solid #888; background: #eee; cursor: pointer; }
-  #periods button.selected { background: #ffd54a; border-color: #c9a100; }
+  #toolbar { display: flex; margin-bottom: 1rem; min-height: 2.6rem; }
+  #controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+  #controls[hidden], #unzoom[hidden] { display: none; }
+  #toolbar select, #toolbar button { font-size: 1rem; padding: .5rem 1rem; border-radius: .6rem;
+                                     border: 2px solid #888; background: #eee; cursor: pointer; }
+  #toolbar #unzoom { background: #ffd54a; border-color: #c9a100; }
   .live { display: flex; align-items: center; gap: .4rem; padding: 0 .5rem; cursor: pointer; }
   .live input { width: 1.2rem; height: 1.2rem; }
   #note { color: #8a6d00; margin: 0 0 1rem; }
@@ -26,7 +28,14 @@
   <a href="/graphiques" aria-current="page">Graphiques</a>
 </nav>
 <div id="banner" hidden></div>
-<div id="periods"><label class="live"><input type="checkbox" id="live"> Direct</label></div>
+<div id="toolbar">
+  <span id="controls">
+    <select id="period" aria-label="Période"></select>
+    <button id="reload">Actualiser</button>
+    <label class="live"><input type="checkbox" id="live"> Direct</label>
+  </span>
+  <button id="unzoom" hidden>Annuler zoom</button>
+</div>
 <p id="note" hidden>Données simulées : le datalog n'est pas configuré ([datalog] de habctrl.toml).</p>
 <div id="charts"></div>
 <script src="/web/vendor/uPlot.iife.min.js"></script>

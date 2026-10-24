@@ -1,16 +1,24 @@
 // Page /graphiques : les graphiques de dashboard/charts.toml, sur une période au choix.
-// Glisser sur un graphique zoome (tous suivent), double-clic : retour à la période.
+// Glisser sur un graphique zoome (tous suivent) ; pendant le zoom, les réglages laissent la
+// place à « Annuler zoom » (ou double-clic), et le Direct continue de recevoir sans redessiner.
 // « Direct » : les valeurs reçues par le WebSocket s'ajoutent aux courbes, et la période
 // glisse pour finir à la dernière valeur reçue.
 
 const MINUTE = 60_000;
-const PERIODS = [["30 min", 30 * MINUTE], ["1 h", 60 * MINUTE], ["24 h", 1440 * MINUTE],
-  ["7 jours", 7 * 1440 * MINUTE], ["30 jours", 30 * 1440 * MINUTE]];
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+const PERIODS = [["5 min", 5 * MINUTE], ["20 min", 20 * MINUTE], ["1 h", HOUR], ["4 h", 4 * HOUR],
+  ["12 h", 12 * HOUR], ["1 jour", DAY], ["4 jours", 4 * DAY], ["1 semaine", 7 * DAY],
+  ["1 mois", 30 * DAY]];
 const box = document.getElementById("charts");
 const banner = document.getElementById("banner");
 const note = document.getElementById("note");
 const liveBox = document.getElementById("live");
-let period = 1440 * MINUTE;
+const controls = document.getElementById("controls");
+const unzoom = document.getElementById("unzoom");
+let period = DAY;
+let zoomed = false;
+let pending = false;  // valeurs reçues en Direct pendant le zoom, pas encore dessinées
 let start = 0;
 let end = 0;
 let views = [];  // { chart, plot, points: [[ms, valeur], ...] par série }
@@ -29,28 +37,28 @@ async function getJson(url) {
 }
 
 function toolbar() {
-  const bar = document.getElementById("periods");
-  PERIODS.forEach(([label, ms]) => {
-    const button = Object.assign(document.createElement("button"), { textContent: label });
-    button.onclick = () => { period = ms; refresh(); };
-    button.dataset.period = ms;
-    bar.append(button);
-  });
-  const reload = Object.assign(document.createElement("button"), { textContent: "Actualiser" });
-  reload.onclick = refresh;
-  bar.append(reload, liveBox.parentElement);  // « Direct » en dernier
+  const select = document.getElementById("period");
+  select.append(...PERIODS.map(([label, ms]) => new Option(label, ms, false, ms === period)));
+  select.onchange = () => { period = +select.value; refresh(); };
+  document.getElementById("reload").onclick = refresh;
+  unzoom.onclick = draw;  // redessine sur la période (à jour si Direct), ce qui sort du zoom
   liveBox.onchange = () => (liveBox.checked ? connect() : disconnect());
+}
+
+function setZoomed(value) {
+  zoomed = value;
+  if (!value && pending) redraw = redraw || requestAnimationFrame(draw);
+  controls.hidden = value;
+  unzoom.hidden = !value;
 }
 
 function draw() {
   redraw = null;
+  pending = false;
   views.forEach(v => v.plot.setData(v.points, start, end));
 }
 
 async function refresh() {
-  document.querySelectorAll("#periods button[data-period]").forEach(b => {
-    b.classList.toggle("selected", +b.dataset.period === period);
-  });
   end = Date.now();
   start = end - period;
   try {
@@ -100,7 +108,8 @@ function receive(m) {
     start = end - period;
     views.forEach(v => { v.points = v.points.map(trim); });
   }
-  redraw = redraw || requestAnimationFrame(draw);
+  if (zoomed) pending = true;
+  else redraw = redraw || requestAnimationFrame(draw);
 }
 
 function connect() {
@@ -142,7 +151,7 @@ async function main() {
     const area = document.createElement("div");
     card.append(title, area);
     box.append(card);
-    return { chart, plot: createPlot(area, chart.series, "historique"), points: chart.series.map(() => []) };
+    return { chart, plot: createPlot(area, chart.series, "historique", setZoomed), points: chart.series.map(() => []) };
   });
   refresh();
 }

@@ -1,11 +1,14 @@
 // Tracé des graphiques : seul fichier qui connaît la bibliothèque (uPlot, dans web/vendor/).
 // Pour en changer, réécrire ce fichier en gardant createPlot().
 //
-// createPlot(container, series, group) -> { setData(points, start, end), destroy() }
+// createPlot(container, series, group, onZoom) -> { setData(points, start, end), destroy() }
 //   series : [{ label, unit, type: "number" | "bool" }]
 //   points : pour chaque série, dans le même ordre, [[ms, valeur], ...] triés
 //   start, end : période affichée (ms) ; la dernière valeur de chaque série tient jusqu'à end
 //   group : les graphiques d'un même groupe partagent le curseur et le zoom
+//   onZoom(zoomed) : appelé à chaque changement de la plage affichée ; zoomed vaut true si
+//     elle est plus étroite que la période (sélection à la souris), false au retour
+//     (double-clic, ou setData)
 
 const COLORS = ["#2a7ab0", "#d9822b", "#3f9b52", "#a14fb5", "#c4423f", "#6b7280"];
 const HEIGHT = 260;
@@ -47,7 +50,7 @@ function align(points, hold, end) {
   return [times.map(t => t / 1000), ...columns];
 }
 
-function createPlot(container, series, group) {
+function createPlot(container, series, group, onZoom) {
   const units = [...new Set(series.filter(s => s.type === "number").map(s => s.unit))];
   const bools = series.filter(s => s.type === "bool");
   const realMin = {};  // échelle -> plus petite valeur réelle (graduations en dessous masquées)
@@ -96,12 +99,19 @@ function createPlot(container, series, group) {
   const members = groups.get(group) || new Set();
   groups.set(group, members);
   let syncing = false;
+  let period = [0, 0];  // start, end du dernier setData (s)
   const plot = new uPlot({
     width: container.clientWidth, height: HEIGHT,
     scales, axes, series: uSeries,
-    cursor: { sync: { key: group } },
+    cursor: {
+      sync: { key: group },
+      // double-clic : retour à la période demandée (pas à l'étendue des données)
+      bind: { dblclick: u => () => { u.setScale("x", { min: period[0], max: period[1] }); return null; } },
+    },
     hooks: { setScale: [(u, key) => {
-      if (key !== "x" || syncing) return;
+      if (key !== "x") return;
+      if (onZoom) onZoom(u.scales.x.min > period[0] + 1 || u.scales.x.max < period[1] - 1);
+      if (syncing) return;
       syncing = true;  // le zoom se propage aux autres graphiques du groupe
       members.forEach(other => {
         if (other !== u) other.setScale("x", { min: u.scales.x.min, max: u.scales.x.max });
@@ -127,8 +137,10 @@ function createPlot(container, series, group) {
         const offset = b++ * BOOL_ROW;
         return p.map(([t, v]) => [t, offset + (v ? 1 : 0)]);
       });
-      plot.setData(align(shifted, series.map(s => s.type === "bool"), end));
-      plot.setScale("x", { min: start / 1000, max: end / 1000 });
+      // sans recalcul des échelles : celle de x est posée juste après (un seul onZoom)
+      plot.setData(align(shifted, series.map(s => s.type === "bool"), end), false);
+      period = [start / 1000, end / 1000];
+      plot.setScale("x", { min: period[0], max: period[1] });
     },
     destroy() {
       resize.disconnect();
