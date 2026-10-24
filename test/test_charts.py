@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core.charts import load_charts  # noqa: E402
+from core.charts import downsample, load_charts  # noqa: E402
 from core.history_mock import mock_history  # noqa: E402
 
 CONFIG = Path(__file__).resolve().parent / "config" / "dashboard" / "charts.toml"
@@ -46,6 +46,21 @@ class LoadChartsTest(unittest.TestCase):
         ):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 charts_from(text)
+
+
+class DownsampleTest(unittest.TestCase):
+    def test_short_series_unchanged(self):
+        points = [[t, t % 7] for t in range(10)]
+        self.assertIs(downsample(points, 10), points)
+
+    def test_keeps_peaks_in_order(self):
+        points = [[t, 1.0] for t in range(10_000)]
+        points[5_000][1] = 99.0
+        reduced = downsample(points, 100)
+        self.assertLessEqual(len(reduced), 100)
+        self.assertIn([5_000, 99.0], reduced)
+        self.assertEqual(reduced, sorted(reduced))
+        self.assertEqual((reduced[0][0], reduced[-1][0]), (0, 9_999))
 
 
 class MockHistoryTest(unittest.TestCase):

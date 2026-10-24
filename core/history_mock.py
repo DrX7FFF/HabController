@@ -1,4 +1,5 @@
-"""Historique simulé, en attendant la lecture du datalog : mêmes réponses que Firebase.
+"""Historique simulé quand le datalog n'est pas configuré (tests, essais sans Firebase) :
+mêmes réponses que Datalog.read().
 
 Les valeurs ne dépendent que du chemin et de l'heure : deux requêtes sur des périodes qui se
 recouvrent donnent les mêmes points. Comme le datalog, un booléen n'a un point qu'à chaque

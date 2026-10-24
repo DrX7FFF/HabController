@@ -149,6 +149,25 @@ class PurgeTest(DatalogTestCase):
         )
 
 
+class ReadTest(DatalogTestCase):
+    async def test_points_sorted_with_state_at_start(self):
+        self.answers = [{"300": 2.0, "200": 1.0}, {"50": 9.0}]
+        points = await self.log.read("/devices/prise/active_power/", 100, 400)
+        self.assertEqual(points, [[100, 9.0], [200, 1.0], [300, 2.0]])
+        (_, path, inside), (_, _, before) = self.requests
+        self.assertEqual(path, "devices/prise/active_power")
+        self.assertEqual(inside["params"], {"orderBy": '"$key"', "startAt": '"100"', "endAt": '"400"'})
+        self.assertEqual(
+            before["params"], {"orderBy": '"$key"', "endAt": '"99"', "limitToLast": "1"}
+        )
+
+    async def test_empty_or_point_at_start(self):
+        self.answers = [None, None]
+        self.assertEqual(await self.log.read("devices/prise/on", 100, 400), [])
+        self.answers = [{"100": True}, {"50": False}]
+        self.assertEqual(await self.log.read("devices/prise/on", 100, 400), [[100, True]])
+
+
 class ConfigTest(unittest.TestCase):
     def test_durations(self):
         self.assertEqual(datalog.duration_ms("48h"), 48 * 3600 * 1000)

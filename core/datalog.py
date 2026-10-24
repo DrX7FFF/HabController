@@ -173,6 +173,21 @@ class Datalog:
             log.info("datalog : envoi rétabli")
             self._failing = False
 
+    async def read(self, path: str, start: int, end: int) -> list[list]:
+        """Points [ms, valeur] de path entre start et end (ms), triés. Le premier donne l'état
+        au début de la période : la dernière valeur d'avant, ramenée à start."""
+        path = path.strip("/")
+        inside = await self._request(
+            "GET", path, params={"orderBy": '"$key"', "startAt": f'"{start}"', "endAt": f'"{end}"'}
+        )
+        before = await self._request(
+            "GET", path, params={"orderBy": '"$key"', "endAt": f'"{start - 1}"', "limitToLast": "1"}
+        )
+        points = sorted([int(key), value] for key, value in (inside or {}).items())
+        if before and (not points or points[0][0] > start):
+            points.insert(0, [start, next(iter(before.values()))])
+        return points
+
     async def purge(self) -> None:
         """Supprime, chemin par chemin, les valeurs plus vieilles que leur rétention."""
         for path, retention in list(self.retention.items()):
