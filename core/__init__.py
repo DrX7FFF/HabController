@@ -1,5 +1,6 @@
 """Emplacements des dossiers et lecture de Config/habctrl.toml."""
 
+import logging
 import os
 import sys
 import tomllib
@@ -17,20 +18,17 @@ if str(CONFIG_DIR) not in sys.path:
     sys.path.insert(1, str(CONFIG_DIR))
 
 
-def check_config() -> None:
-    """Arrête le programme avec un message clair si la configuration est introuvable."""
-    if not (CONFIG_DIR / "devices").is_dir():
-        sys.exit(
-            f"Configuration introuvable : {CONFIG_DIR}/devices/ n'existe pas.\n"
-            "Cloner le dépôt de configuration à côté de HabController (../HabConfig),"
-            " ou indiquer son chemin avec HABCTRL_CONFIG."
-        )
-
-
 def settings(section: str) -> dict:
-    """Une section de habctrl.toml ({} si absente)."""
+    """Une section de habctrl.toml ({} si absente, ou fichier illisible : erreur au journal)."""
     try:
         conf = tomllib.loads((CONFIG_DIR / "habctrl.toml").read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {}
-    return conf.get(section, {})
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as err:
+        logging.getLogger(__name__).error("habctrl.toml illisible, [%s] ignoré : %s", section, err)
+        return {}
+    section_conf = conf.get(section, {})
+    if not isinstance(section_conf, dict):
+        logging.getLogger(__name__).error("habctrl.toml : [%s] n'est pas une section", section)
+        return {}
+    return section_conf

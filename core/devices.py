@@ -45,14 +45,23 @@ def load_driver(name: str):
 def load_devices(package: str = "devices") -> dict:
     """Importe chaque `devices/*.py` : toute variable Device est un équipement, d'identifiant
     le nom de la variable. Un même équipement importé dans un autre fichier compte une fois ; un
-    identifiant déclaré dans deux fichiers est signalé (le dernier chargé remplace l'autre)."""
+    identifiant déclaré dans deux fichiers est signalé (le dernier chargé remplace l'autre).
+    Un fichier en erreur est ignoré (erreur au journal), les autres sont chargés."""
     devices = {}
     files = {}  # id -> fichier qui le déclare
-    modules = pkgutil.iter_modules(importlib.import_module(package).__path__)
+    try:
+        modules = list(pkgutil.iter_modules(importlib.import_module(package).__path__))
+    except Exception:
+        log.exception("%s/ introuvable ou illisible : aucun équipement", package)
+        return devices
     for info in sorted(modules, key=lambda module: module.name):
         if info.name.startswith("_"):
             continue
-        module = importlib.import_module(f"{package}.{info.name}")
+        try:
+            module = importlib.import_module(f"{package}.{info.name}")
+        except Exception:
+            log.exception("%s/%s.py : fichier ignoré", package, info.name)
+            continue
         for dev_id, device in vars(module).items():
             if isinstance(device, Device) and device not in devices.values():
                 if dev_id in devices:

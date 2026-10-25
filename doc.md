@@ -8,10 +8,19 @@ Organisation des dépôts, déclaration des équipements et appairage : voir `RE
 équipements, automatisations, écrans, graphiques, `habctrl.toml`. C'est un redémarrage sans
 quitter le programme : tout est arrêté puis relancé (clé Zigbee rouverte, connexions HomeKit
 refaites) ; les automatisations en cours sont annulées, et un capteur sur pile reste injoignable
-jusqu'à son prochain message, comme après un redémarrage. Un fichier d'équipements, `screens.toml`
-ou `charts.toml` illisible : rien n'est arrêté, l'erreur est renvoyée et journalisée. Le code de
-HabController (pilotes, `core/`) n'est pas rechargé. Les pages ouvertes reçoivent les nouveaux
-écrans ; la page des graphiques est à recharger pour voir un `charts.toml` modifié.
+jusqu'à son prochain message, comme après un redémarrage. Le code de HabController (pilotes,
+`core/`) n'est pas rechargé. Les pages ouvertes reçoivent les nouveaux écrans ; la page des
+graphiques est à recharger pour voir un `charts.toml` modifié.
+
+## Erreurs de configuration
+
+Au démarrage comme au rechargement, une erreur dans la configuration n'arrête jamais le
+programme : la partie en erreur est ignorée, le reste est chargé. Un fichier de `devices/` ou
+d'`automations/` en erreur est ignoré en entier ; un bloc de `screens.toml` ou un graphique de
+`charts.toml` incorrect est ignoré seul ; un `screens.toml`, `charts.toml` ou `habctrl.toml`
+illisible compte pour vide ; un équipement qui ne démarre pas reste injoignable. Chaque erreur
+est journalisée (`temp/system.log`, avec la pile d'appels) et listée par `GET /api/config`
+(page Administration) ; la page Commandes signale leur nombre dans son bandeau.
 
 ## Automatisations
 

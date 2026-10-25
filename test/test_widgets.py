@@ -26,5 +26,17 @@ class LoadBlocksTest(unittest.TestCase):
         self.assertEqual(len(logs.output), 2)
 
 
+    def test_unreadable_file_or_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "screens.toml"
+            path.write_text("[[blocks]\n", encoding="utf-8")
+            with self.assertLogs("core.widgets", "ERROR"):
+                self.assertEqual(load_blocks({}, path), [])
+            path.write_text("[[blocks]]\nwidget = \"onoff\"\n", encoding="utf-8")
+            with self.assertLogs("core.widgets", "ERROR"):
+                self.assertEqual(load_blocks({}, path), [])
+            self.assertEqual(load_blocks({}, Path(tmp) / "absent.toml"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

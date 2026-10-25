@@ -28,6 +28,8 @@
   #question { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
   #question form { display: contents; }
   #prompt { font-weight: 600; flex-basis: 100%; }
+  #config-errors { color: #b00; margin: .8rem 0 0; padding-left: 1.2rem; }
+  #config-errors[hidden] { display: none; }
   #status.ok, #reload-status.ok { color: #1a7f1a; }
   #status.failed, #reload-status.failed { color: #b00; }
 </style>
@@ -43,6 +45,7 @@
   <h2>Configuration</h2>
   <button id="reload" class="main">Recharger la configuration</button>
   <span id="reload-status"></span>
+  <ul id="config-errors" hidden></ul>
 </section>
 <section>
   <h2>Appairage</h2>

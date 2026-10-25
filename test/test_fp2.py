@@ -581,6 +581,15 @@ class LoadDevicesTest(unittest.TestCase):
         )
         self.assertEqual(set(devices), {"lampe"})
 
+    def test_file_in_error_is_skipped(self):
+        """Fichier en erreur : ignoré, erreur au journal ; les autres fichiers sont chargés."""
+        self.write("cuisine", "from drivers.zigbee.plug import Plug\nprise = Plug(name='x')\n")
+        self.write("salon", f"from drivers.zigbee.plug import Plug\nlampe = Plug(ieee='{IEEE}')\n")
+        with self.assertLogs("core.devices", "ERROR") as logs:
+            devices = core_devices.load_devices(self.package)
+        self.assertIn("cuisine.py : fichier ignoré", logs.output[0])
+        self.assertEqual(set(devices), {"lampe"})
+
     def test_config_devices_load(self):
         devices = core_devices.load_devices()
         self.assertEqual(set(devices), {"salon", "cuisine", "fp2", "prise_salon"})

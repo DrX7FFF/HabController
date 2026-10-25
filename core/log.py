@@ -1,6 +1,8 @@
 """Configuration des journaux."""
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from logging.handlers import RotatingFileHandler
 
 from core import TEMP_DIR
@@ -49,3 +51,28 @@ def setup() -> None:
     scripts.propagate = False  # ne remonte ni dans la console ni dans system.log
     scripts.addHandler(_file_handler("automations.log"))
     logging.getLogger("habctrl").info("------------- Démarrage -------------")
+
+
+class _Collector(logging.Handler):
+    def __init__(self):
+        super().__init__(logging.ERROR)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        message = record.getMessage()
+        if record.exc_info and (err := record.exc_info[1]):
+            message += f" ({type(err).__name__} : {err})"
+        self.messages.append(message)
+
+
+@contextmanager
+def collect_errors() -> Iterator[list[str]]:
+    """Messages des erreurs journalisées (niveau ERROR et plus) pendant le bloc, sans la pile
+    d'appels : de quoi signaler une configuration incorrecte."""
+    collector = _Collector()
+    root = logging.getLogger()
+    root.addHandler(collector)
+    try:
+        yield collector.messages
+    finally:
+        root.removeHandler(collector)

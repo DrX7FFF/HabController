@@ -164,7 +164,7 @@ def load_automations(devs: dict[str, Device]) -> None:
             importlib.import_module(module)
         except Exception:
             _handlers[:] = [h for h in _handlers if h.func.__module__ != module]
-            log.exception("%s : fichier ignoré", path.name)
+            log.exception("automations/%s : fichier ignoré", path.name)
     bind(devs)
 
 

@@ -16,6 +16,7 @@ const MEASURES = [
 ];
 let views = [];
 let ws;
+let notice = "";  // erreurs de configuration : bandeau affiché à défaut d'autre message
 
 function send(device, name, value) {
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -24,8 +25,8 @@ function send(device, name, value) {
 }
 
 function show(text) {
-  banner.textContent = text;
-  banner.hidden = !text;
+  banner.textContent = text || notice;
+  banner.hidden = !banner.textContent;
 }
 
 // Les contrôles ne sont pas écrasés par un événement pendant qu'on les manipule.
@@ -103,6 +104,8 @@ function handle(m) {
   if (m.type === "init") {
     views = m.blocks.map(b => { const v = build(b); v.update(b.state); return v; });
     box.replaceChildren(...views.map(v => v.el));
+    notice = m.errors.length
+      ? `Configuration : ${m.errors.length} erreur(s), voir Administration.` : "";
     show("");
   } else if (m.type === "state") {
     views.filter(v => v.device === m.device).forEach(v => v.update(m.state));

@@ -5,6 +5,7 @@
 // Protocole qui le permet : bouton de nettoyage, qui retire (après confirmation) les appareils
 // appairés qu'aucun équipement n'utilise (GET puis DELETE /api/pair/<protocole>/unused).
 // « Recharger la configuration » : relit HabConfig sans redémarrer (POST /api/reload).
+// Erreurs de la configuration en cours (parties ignorées) : listées sous ce bouton (GET /api/config).
 
 const banner = document.getElementById("banner");
 const protocols = document.getElementById("protocols");
@@ -179,6 +180,13 @@ function cleanupButton(p) {
 
 const reloadButton = document.getElementById("reload");
 const reloadStatus = document.getElementById("reload-status");
+const configErrors = document.getElementById("config-errors");
+
+function listErrors(errors) {
+  configErrors.replaceChildren(...errors.map(text =>
+    Object.assign(document.createElement("li"), { textContent: text })));
+  configErrors.hidden = !errors.length;
+}
 
 reloadButton.onclick = async () => {
   reloadButton.disabled = true;
@@ -186,8 +194,11 @@ reloadButton.onclick = async () => {
   reloadStatus.textContent = "Rechargement…";
   try {
     const result = await request("/api/reload", "POST");
-    reloadStatus.className = "ok";
-    reloadStatus.textContent = `Configuration rechargée (${result.devices} équipements).`;
+    const failed = result.errors.length;
+    reloadStatus.className = failed ? "failed" : "ok";
+    reloadStatus.textContent = `Configuration rechargée (${result.devices} équipements`
+      + (failed ? `, ${failed} erreur(s)).` : ").");
+    listErrors(result.errors);
   } catch (err) {
     reloadStatus.className = "failed";
     reloadStatus.textContent = `Rechargement impossible : ${err.message}`;
@@ -195,6 +206,10 @@ reloadButton.onclick = async () => {
     reloadButton.disabled = false;
   }
 };
+
+request("/api/config")
+  .then(result => listErrors(result.errors))
+  .catch(err => show(`État de la configuration illisible (${err.message}).`));
 
 fetch("/api/pair")
   .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })

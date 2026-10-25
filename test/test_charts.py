@@ -37,13 +37,20 @@ class LoadChartsTest(unittest.TestCase):
         )
 
     def test_errors(self):
+        """Graphique incorrect : ignoré, erreur au journal ; les autres sont gardés."""
+        valid = '[[charts]]\ntitle = "ok"\nseries = [{ path = "b" }]\n'
         for text in (
-            '[[charts]]\ntitle = "vide"',
-            '[[charts]]\nseries = [{ label = "sans chemin" }]',
-            '[[charts]]\nseries = [{ path = "a", type = "texte" }]',
+            '[[charts]]\ntitle = "vide"\n',
+            '[[charts]]\nseries = [{ label = "sans chemin" }]\n',
+            '[[charts]]\nseries = [{ path = "a", type = "texte" }]\n',
         ):
-            with self.subTest(text=text), self.assertRaises(ValueError):
-                charts_from(text)
+            with self.subTest(text=text), self.assertLogs("core.charts", "ERROR"):
+                charts = charts_from(text + valid)
+                self.assertEqual([c["title"] for c in charts], ["ok"])
+
+    def test_unreadable_file(self):
+        with self.assertLogs("core.charts", "ERROR"):
+            self.assertEqual(charts_from("[[charts]\n"), [])
 
 
 class DownsampleTest(unittest.TestCase):

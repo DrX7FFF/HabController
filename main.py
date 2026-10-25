@@ -12,28 +12,31 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketState
 from pydantic import BaseModel, ValidationError
 
-from core import ROOT, TEMP_DIR, check_config, datalog, pair
+from core import ROOT, TEMP_DIR, datalog, pair
 from core.automation import load_automations, stop_automations
 from core.base import DeviceError
 from core.charts import downsample, load_charts
 from core.devices import load_devices, summarize
+from core.log import collect_errors
 from core.log import setup as setup_logging
 from core.widgets import load_blocks
 
-check_config()
 setup_logging()
 log = logging.getLogger("habctrl")
 
 CONFIG_PACKAGES = ("devices", "automations")  # paquets Python de la configuration
 
 
-def load_config() -> tuple[dict, list[dict], list[dict]]:
-    """Équipements, blocs des écrans et graphiques ; lève une erreur si illisibles."""
-    devs = load_devices()
-    return devs, load_blocks(devs), load_charts()
+def load_config() -> tuple[dict, list[dict], list[dict], list[str]]:
+    """Équipements, blocs des écrans et graphiques, et les erreurs de configuration rencontrées
+    (ce qui est en erreur est ignoré)."""
+    with collect_errors() as errors:
+        devs = load_devices()
+        loaded = devs, load_blocks(devs), load_charts()
+    return *loaded, errors
 
 
-devices, blocks, charts = load_config()
+devices, blocks, charts, config_errors = load_config()
 history: datalog.Datalog | None = None
 summary: asyncio.Task | None = None
 pairings = pair.protocols()  # {protocole: classe Pairing}
@@ -50,26 +53,38 @@ def snapshot() -> list[dict]:
     return [{**b, "state": devices[b["device"]].state()} for b in blocks]
 
 
+def init_message() -> dict:
+    return {"type": "init", "blocks": snapshot(), "errors": config_errors}
+
+
 def on_device_change(dev_id: str, state: dict) -> None:
     broadcast({"type": "state", "device": dev_id, "state": state})
 
 
-async def start() -> None:
-    """Abonne automatisations et datalog aux équipements chargés, puis les démarre."""
+async def start() -> list[str]:
+    """Abonne automatisations et datalog aux équipements chargés, puis les démarre. Renvoie les
+    erreurs de configuration rencontrées (ce qui est en erreur est ignoré)."""
     global history, summary
-    for dev in devices.values():
-        dev.subscribe(partial(on_device_change, dev.id))
-    load_automations(devices)
-    try:
-        history = datalog.setup(devices)
-    except (KeyError, ValueError) as err:  # [datalog] de habctrl.toml incorrect
-        log.error("datalog : réglages incorrects (%s), pas d'historique", datalog.describe(err))
-        history = None
-    if history:
-        history.subscribe(lambda points: broadcast({"type": "datalog", "points": points}))
-        await history.start()
-    await asyncio.gather(*(d.start() for d in devices.values()))
+    with collect_errors() as errors:
+        for dev in devices.values():
+            dev.subscribe(partial(on_device_change, dev.id))
+        load_automations(devices)
+        try:
+            history = datalog.setup(devices)
+        except Exception as err:  # [datalog] de habctrl.toml incorrect
+            log.error("datalog : réglages incorrects (%s), pas d'historique", datalog.describe(err))
+            history = None
+        if history:
+            history.subscribe(lambda points: broadcast({"type": "datalog", "points": points}))
+            await history.start()
+        results = await asyncio.gather(
+            *(d.start() for d in devices.values()), return_exceptions=True
+        )
+        for dev, result in zip(devices.values(), results):
+            if isinstance(result, Exception):
+                log.error("%s : démarrage impossible", dev.id, exc_info=result)
     summary = asyncio.create_task(summarize(devices, TEMP_DIR / "equipements.txt"))
+    return errors
 
 
 async def stop() -> None:
@@ -78,7 +93,10 @@ async def stop() -> None:
     await stop_automations()  # annule aussi les envois du datalog en cours
     if history:
         await history.stop()
-    await asyncio.gather(*(d.stop() for d in devices.values()))
+    results = await asyncio.gather(*(d.stop() for d in devices.values()), return_exceptions=True)
+    for dev, result in zip(devices.values(), results):
+        if isinstance(result, Exception):
+            log.error("%s : arrêt en erreur", dev.id, exc_info=result)
 
 
 def config_modules() -> dict:
@@ -90,9 +108,10 @@ def config_modules() -> dict:
 
 
 async def reload() -> None:
-    """Relit toute la configuration et redémarre équipements, automatisations et datalog.
-    Configuration illisible : l'erreur est levée et l'ancienne configuration reste en marche."""
-    global devices, blocks, charts
+    """Relit toute la configuration et redémarre équipements, automatisations et datalog. Ce qui
+    est en erreur est ignoré (voir config_errors) ; erreur inattendue au chargement : levée, et
+    l'ancienne configuration reste en marche."""
+    global devices, blocks, charts, config_errors
     previous = config_modules()
     for name in previous:
         del sys.modules[name]
@@ -105,15 +124,18 @@ async def reload() -> None:
         sys.modules.update(previous)
         raise
     await stop()
-    devices, blocks, charts = loaded
-    await start()
-    broadcast({"type": "init", "blocks": snapshot()})
+    devices, blocks, charts, errors = loaded
+    config_errors = errors + await start()
+    broadcast(init_message())
     log.info("Configuration rechargée")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await start()
+    global config_errors
+    config_errors = config_errors + await start()
+    if config_errors:
+        log.warning("Configuration : %d erreur(s)", len(config_errors))
     yield
     await stop()
 
@@ -172,7 +194,13 @@ async def reload_config():
             log.exception("Rechargement de la configuration impossible")
             detail = f"configuration illisible : {type(err).__name__} : {err}"
             raise HTTPException(status_code=400, detail=detail) from err
-    return {"devices": len(devices)}
+    return await config_status()
+
+
+@app.get("/api/config")
+async def config_status():
+    """Nombre d'équipements chargés et erreurs de la configuration (parties ignorées)."""
+    return {"devices": len(devices), "errors": config_errors}
 
 
 @app.get("/api/charts")
@@ -200,7 +228,7 @@ async def read_history(path: str, start: int, end: int):
 
 
 # --- WebSocket : événements dans les deux sens -------------------------------
-# serveur -> page : {"type": "init", "blocks": [...]} puis {"type": "state", "device", "state"},
+# serveur -> page : {"type": "init", "blocks": [...], "errors": [...]} puis {"type": "state", "device", "state"},
 #                   et {"type": "datalog", "points": [[chemin, ms, valeur], ...]} à chaque
 #                   enregistrement du datalog (graphiques en direct)
 #                   et {"type": "error", "device", "detail"} pour une commande refusée
@@ -246,7 +274,7 @@ async def read_loop(ws: WebSocket, queue: asyncio.Queue) -> None:
 async def websocket(ws: WebSocket):
     await ws.accept()
     queue: asyncio.Queue = asyncio.Queue()
-    queue.put_nowait({"type": "init", "blocks": snapshot()})  # avant l'inscription : même ordre
+    queue.put_nowait(init_message())  # avant l'inscription : même ordre
     clients.add(queue)
     sender = asyncio.create_task(write_loop(ws, queue))
     sender.add_done_callback(lambda t: t.cancelled() or t.exception())  # évite un avertissement

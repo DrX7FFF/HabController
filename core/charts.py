@@ -1,9 +1,12 @@
 """Lecture des graphiques de Config/dashboard/charts.toml."""
 
+import logging
 import tomllib
 from pathlib import Path
 
 from core import CONFIG_DIR
+
+log = logging.getLogger(__name__)
 
 CHARTS = CONFIG_DIR / "dashboard" / "charts.toml"
 TYPES = {"number", "bool"}
@@ -33,29 +36,43 @@ def downsample(points: list[list], max_points: int = MAX_POINTS) -> list[list]:
 
 
 def load_charts(path: Path = CHARTS) -> list[dict]:
-    if not path.exists():
+    """Graphiques ; graphique incorrect : ignoré, erreur au journal. Fichier absent : aucun
+    graphique ; illisible : aucun graphique, erreur au journal."""
+    try:
+        conf = tomllib.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
         return []
-    conf = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as err:
+        log.error("%s illisible, aucun graphique : %s", path.name, err)
+        return []
     charts = []
     for chart in conf.get("charts", []):
-        title = chart.get("title", "")
-        series = []
-        for s in chart.get("series", []):
-            if "path" not in s:
-                raise ValueError(f"graphique « {title} » : série sans path")
-            path = s["path"].strip("/")
-            kind = s.get("type", "number")
-            if kind not in TYPES:
-                raise ValueError(f"graphique « {title} » : type inconnu « {kind} »")
-            series.append(
-                {
-                    "path": path,
-                    "label": s.get("label", path.rsplit("/", 1)[-1]),
-                    "unit": s.get("unit", ""),
-                    "type": kind,
-                }
-            )
-        if not series:
-            raise ValueError(f"graphique « {title} » : aucune série")
-        charts.append({"title": title, "series": series})
+        try:
+            charts.append(read_chart(chart))
+        except (ValueError, TypeError, AttributeError) as err:
+            log.error("graphique ignoré : %s", err)
     return charts
+
+
+def read_chart(chart: dict) -> dict:
+    """Un graphique de charts.toml ; lève ValueError s'il est incorrect."""
+    title = str(chart.get("title", ""))
+    series = []
+    for s in chart.get("series", []):
+        if "path" not in s:
+            raise ValueError(f"« {title} » : série sans path")
+        path = str(s["path"]).strip("/")
+        kind = s.get("type", "number")
+        if kind not in TYPES:
+            raise ValueError(f"« {title} » : type inconnu « {kind} »")
+        series.append(
+            {
+                "path": path,
+                "label": s.get("label", path.rsplit("/", 1)[-1]),
+                "unit": s.get("unit", ""),
+                "type": kind,
+            }
+        )
+    if not series:
+        raise ValueError(f"« {title} » : aucune série")
+    return {"title": title, "series": series}
