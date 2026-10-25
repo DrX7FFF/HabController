@@ -33,9 +33,6 @@ log = logging.getLogger(__name__)
 RETRY_MIN = 2  # s, entre deux tentatives de connexion (doublé à chaque échec)
 RETRY_MAX = 60
 FIND_TIMEOUT = 30  # s, attente de l'accessoire sur le réseau (mDNS)
-OCCUPANCY = normalize_uuid(Types.OCCUPANCY_DETECTED)
-LIGHT_LEVEL = normalize_uuid(Types.LIGHT_LEVEL_CURRENT)
-SENSOR_INDEX = normalize_uuid("C8622A33-826A-4DD3-9BE9-D496361F29BB")  # propre à Aqara
 
 Key = tuple[int, int]  # (aid, iid) : une caractéristique HomeKit
 
@@ -64,6 +61,9 @@ def build_mapping(accessories: list[dict], aliases: dict[int, str] | None = None
     Chaque service porte au plus un capteur suivi (présence ou luminosité, avec événements) et,
     pour la présence, son « Sensor Index » qui donne le nom de la zone.
     """
+    occupancy = normalize_uuid(Types.OCCUPANCY_DETECTED)
+    light_level = normalize_uuid(Types.LIGHT_LEVEL_CURRENT)
+    sensor_index = normalize_uuid("C8622A33-826A-4DD3-9BE9-D496361F29BB")  # propre à Aqara
     aliases = aliases or {}
     mapping = Mapping()
     for accessory in accessories:
@@ -72,16 +72,16 @@ def build_mapping(accessories: list[dict], aliases: dict[int, str] | None = None
             key = kind = index = None
             for characteristic in service.get("characteristics", []):
                 code = normalize_uuid(str(characteristic.get("type", "")))
-                if code == SENSOR_INDEX:
+                if code == sensor_index:
                     try:
                         index = int(characteristic.get("value"))
                     except (TypeError, ValueError):
                         index = None
-                elif code in (OCCUPANCY, LIGHT_LEVEL) and "ev" in characteristic.get("perms", []):
+                elif code in (occupancy, light_level) and "ev" in characteristic.get("perms", []):
                     key, kind = (aid, int(characteristic.get("iid", 0))), code
             if key is None:
                 continue
-            if kind == LIGHT_LEVEL:
+            if kind == light_level:
                 mapping.entities[key] = Entity("illuminance", float)
             else:
                 mapping.entities[key] = Entity(_zone_name(index, key, aliases), bool)
