@@ -1,13 +1,4 @@
-"""HomeKit (HAP) : appairage et connexion, communs à tous les pilotes HomeKit.
-
-L'appairage d'un équipement est enregistré dans pairing/homekit/<id>.toml (droits 600) : lien
-entre l'équipement logique (déclaré dans devices/) et l'accessoire physique. En tête, ce qui le
-décrit (ce que l'accessoire annonce : fabricant, modèle, n° de série, firmware) ; dans [hap],
-les clés d'appairage d'aiohomekit, à ne pas modifier.
-Il est portable : l'adresse IP n'y figure jamais, elle est résolue par mDNS à chaque connexion
-à partir de l'identifiant HomeKit de l'accessoire. Copié sur une nouvelle installation, il reste
-valable tant que l'accessoire n'a pas été réinitialisé.
-"""
+"""HomeKit : appairage et connexion, communs aux pilotes HomeKit."""
 
 import asyncio
 import json

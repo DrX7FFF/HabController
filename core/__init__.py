@@ -1,14 +1,4 @@
-"""Emplacements : l'application (ce dépôt), la configuration et les fichiers temporaires.
-
-- Configuration (dépôt privé HabConfig) : tout ce qui décrit l'installation et suffit à la
-  restaurer — réglages (habctrl.toml), tableau de bord (dashboard/), équipements (devices/),
-  automatisations (automations/) et appairages (pairing/).
-- temp/ : 100 % jetable, peut être en RAM — journaux, base Zigbee vivante (recréée au
-  démarrage depuis l'instantané de pairing/).
-
-Par défaut, la configuration est le dossier HabConfig cloné à côté de ce dépôt, et temp/ est
-dans le projet ; HABCTRL_CONFIG et HABCTRL_TEMP les déplacent.
-"""
+"""Emplacements des dossiers et lecture de Config/habctrl.toml."""
 
 import os
 import sys

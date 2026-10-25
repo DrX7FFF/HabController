@@ -1,9 +1,4 @@
-"""Appairage HomeKit (déroulé commun : core/pair.py).
-
-La découverte mDNS écoute pendant la durée choisie ; les accessoires déjà appairés sont
-ignorés (les réinitialiser pour les appairer). L'accessoire est reconnu par son identifiant
-HomeKit (ex. après une réinitialisation). Le code HomeKit (XXX-XX-XXX) est saisi masqué.
-"""
+"""Appairage HomeKit."""
 
 from dataclasses import fields
 from pathlib import Path

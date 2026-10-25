@@ -1,17 +1,4 @@
-"""Prise ou relais Zigbee : marche/arrêt, et mesures électriques si l'équipement en fait.
-
-État : {"connected": bool, "on": bool,
-        "active_power": W, "voltage": V, "current": A, "energy": kWh}
-Les mesures n'apparaissent que si l'équipement a les clusters correspondants (0x0b04, 0x0702).
-Chaque prise se déclare dans un fichier de `devices/`, sans adresse : le lien avec l'appareil
-physique est une ligne de pairing/zigbee.toml. Les deux sont créés par l'appairage :
-
-    from drivers.all import Plug
-
-    prise_salon = Plug()
-
-Écriture : prise_salon.on = True | False | "toggle", comme une ampoule.
-"""
+"""Pilote prise Zigbee."""
 
 import logging
 

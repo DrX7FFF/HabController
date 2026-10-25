@@ -1,17 +1,4 @@
-"""TV Samsung d'avant 2016 (ex. UE55ES7000, système Orsay) : protocole « legacy », port 55000.
-
-État : {"connected": bool, "on": bool}. Les deux reflètent la connexion TCP permanente à la
-TV : éteinte, son réseau est coupé et elle ferme la connexion (sinon le keepalive TCP le
-détecte) ; une nouvelle tentative a lieu toutes les `retry` secondes.
-Écriture : tv.on = False l'éteint (touche KEY_POWEROFF) ; l'allumer par le réseau est
-impossible sur ces modèles (refusé).
-À la première connexion, la TV demande d'autoriser « HabController » : accepter une fois,
-elle s'en souvient.
-
-    from drivers.all import SamsungTV
-
-    tv = SamsungTV(host="192.168.1.104")
-"""
+"""Pilote TV Samsung d'avant 2016 (protocole « legacy »)."""
 
 import asyncio
 import base64

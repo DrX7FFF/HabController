@@ -1,17 +1,4 @@
-"""Bouton ou télécommande Zigbee : relaie ses événements (sur pile, base : sensor.py).
-
-État : {"connected": bool, "battery": %} ; les appuis ne sont pas un état mais des événements,
-transmis tels que le correctif zha-quirks de l'appareil les nomme, avec leur valeur éventuelle :
-Xiaomi b1acn01 : single, double, hold, release ; Xiaomi rond : click (valeur : type d'appui) ;
-cube : flip, rotate_right… (valeur : détails, dont l'angle) ; Hue Dimmer : on_press,
-off_long_press…
-
-    from drivers.all import Button
-
-    bouton_lit = Button()
-
-Dans une automatisation : @on_event("bouton_lit.double"), ou @on_event("bouton_lit") pour tous.
-"""
+"""Pilote bouton Zigbee."""
 
 import logging
 

@@ -15,7 +15,6 @@ from core.automation import load_automations, stop_automations
 from core.base import DeviceError
 from core.charts import downsample, load_charts
 from core.devices import load_devices, write_summary
-from core.history_mock import mock_history
 from core.log import setup as setup_logging
 from core.widgets import load_blocks
 
@@ -112,23 +111,21 @@ async def list_charts():
 
 @app.get("/api/history")
 async def read_history(path: str, start: int, end: int):
-    """Points [ms, valeur] d'un chemin du datalog entre start et end (ms).
-    Simulés si le datalog n'est pas configuré (configuration de test)."""
+    """Points [ms, valeur] d'un chemin du datalog entre start et end (ms)."""
     kinds = {s["path"]: s["type"] for c in charts for s in c["series"]}
     if path not in kinds:
         raise HTTPException(status_code=404, detail="série absente de charts.toml")
     if not 0 <= end - start <= 400 * 86_400_000:
         raise HTTPException(status_code=400, detail="période invalide")
     if history is None:
-        points = mock_history(path, kinds[path], start, end)
-    else:
-        try:
-            points = await history.read(path, start, end)
-        except Exception as err:  # réseau, clé, droits
-            raise HTTPException(status_code=502, detail=f"datalog : {datalog.describe(err)}") from err
+        raise HTTPException(status_code=503, detail="datalog non configuré")
+    try:
+        points = await history.read(path, start, end)
+    except Exception as err:  # réseau, clé, droits
+        raise HTTPException(status_code=502, detail=f"datalog : {datalog.describe(err)}") from err
     if kinds[path] == "number":
         points = downsample(points)
-    return {"path": path, "mock": history is None, "points": points}
+    return {"path": path, "points": points}
 
 
 # --- WebSocket : événements dans les deux sens -------------------------------

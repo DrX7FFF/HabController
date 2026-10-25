@@ -1,16 +1,4 @@
-"""Graphiques : dashboard/charts.toml décrit les graphiques de la page /graphiques.
-
-    [[charts]]
-    title = "Prise salon"
-    series = [
-      { path = "devices/prise_salon/active_power", label = "Puissance", unit = "W" },
-      { path = "devices/prise_salon/on", label = "Allumée", type = "bool" },
-    ]
-
-`path` est un chemin du datalog (voir core/datalog.py). `type` : number (par défaut, courbe)
-ou bool (bande allumé / éteint sous la courbe). Les séries de même `unit` partagent un axe.
-Fichier absent : aucun graphique.
-"""
+"""Lecture des graphiques de Config/dashboard/charts.toml."""
 
 import tomllib
 from pathlib import Path

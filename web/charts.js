@@ -14,7 +14,6 @@ const PERIODS = [["5 min", 5 * MINUTE], ["20 min", 20 * MINUTE], ["1 h", HOUR], 
   ["1 mois", 30 * DAY]];
 const box = document.getElementById("charts");
 const banner = document.getElementById("banner");
-const note = document.getElementById("note");
 const liveBox = document.getElementById("live");
 const fromInput = document.getElementById("from");
 const controls = document.getElementById("controls");
@@ -92,7 +91,6 @@ async function refresh() {
       getJson(`/api/history?path=${encodeURIComponent(s.path)}&start=${start}&end=${end}`)))));
     results.forEach((answers, i) => { views[i].points = answers.map(a => a.points); });
     draw();
-    note.hidden = !results.flat().some(a => a.mock);
     show("");
   } catch (err) {
     show(`Lecture de l'historique impossible (${err.message})`);

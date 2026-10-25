@@ -1,14 +1,7 @@
 """Ampoule, quel que soit le protocole : base commune des pilotes d'ampoule.
 
-Règles que chaque pilote respecte :
-- on, brightness : toute ampoule ; color_temp, rgb : seulement si l'ampoule les a (sinon lecture
-  None, écriture ValueError, journalisée sans rien arrêter) ;
-- on accepte True, False ou "toggle" ;
-- régler brightness, color_temp ou rgb allume l'ampoule éteinte.
-
 Le pilote écrit set() ; toggle(), set_temp() et set_rgb() en découlent (deux commandes : intensité
-puis réglage). Un pilote qui sait tout envoyer en un message les réécrit (ex. Yeelight).
-"""
+puis réglage). Un pilote qui sait tout envoyer en un message les réécrit (ex. Yeelight)."""
 
 from core.base import Attribute, Device
 

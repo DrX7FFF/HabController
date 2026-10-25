@@ -1,11 +1,4 @@
-"""Journaux : un pour la vie du système, un pour les scripts d'automatisation.
-
-- Système (pilotes, connexions, serveur, moteur d'automatisation) : console + temp/system.log
-- Scripts (automations/*.py) : temp/automations.log seulement, jamais dans la console
-
-Un script se journalise avec `log = logging.getLogger(__name__)` : son nom (automations.<script>)
-suffit à l'envoyer dans le bon fichier.
-"""
+"""Configuration des journaux."""
 
 import logging
 from logging.handlers import RotatingFileHandler

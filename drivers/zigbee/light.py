@@ -1,18 +1,4 @@
-"""Ampoule Zigbee : marche/arrêt, intensité, température de blanc et couleur selon l'ampoule.
-
-État : {"connected": bool, "on": bool, "brightness": 1-100, "color_temp": K, "rgb": "#rrggbb"}
-Interface commune des ampoules (core/light.py) ; seuls les réglages que l'ampoule a
-apparaissent : clusters 0x0008 intensité, 0x0300 couleur, et dans ce dernier ce que l'ampoule
-déclare (color_capabilities, lu à l'appairage ; non lu : tout est supposé présent). La couleur
-passe par les coordonnées xy de l'ampoule : le rgb relu est approché, à pleine intensité.
-
-    from drivers.all import Light
-
-    plafonnier = Light()
-
-Écriture : plafonnier.on = True | False | "toggle", .brightness = 50, .color_temp = 2700,
-.rgb = "#ff8000" ; transition en ms avec send() (300 par défaut).
-"""
+"""Pilote ampoule Zigbee."""
 
 from core.base import DeviceError, on_value
 import core.light

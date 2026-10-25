@@ -1,25 +1,8 @@
 """Zigbee : coordinateur (clé USB EmberZNet via bellows/zigpy), commun à tous les pilotes Zigbee.
 
-Le réseau (clés, canal) est mémorisé dans la clé elle-même. La base zigpy contient la liste des
-équipements, leur interview (endpoints, clusters) et des sauvegardes du réseau qui permettent de
-le reconstruire sur une nouvelle clé : c'est de la configuration. zigpy l'utilise dans temp/
-(peut être en RAM) ; une copie cohérente est gardée dans pairing/zigbee.db, écrite après
-chaque appairage et reprise au démarrage si temp/ est vide. Changer de clé avec une copie
-ancienne peut obliger à réappairer les équipements : le compteur de trames du réseau,
-sauvegardé avec, a avancé depuis.
-
-L'équipement logique (déclaré dans devices/) ne contient aucune adresse : le lien avec l'appareil
-physique est une ligne de pairing/zigbee.toml (IEEE -> id), écrite par l'appairage. Ce fichier
-fait foi : à chaque ouverture de la clé, les appareils de la base qui n'y sont pas sont retirés
-du réseau (appareil remplacé, appairage perdu ou interrompu : il suffit de le réappairer), et
-les incohérences sont signalées. Fichier absent ou illisible : rien n'est retiré (protège d'un
-mauvais chemin de configuration). Repartir de zéro : supprimer pairing/zigbee.toml,
-pairing/zigbee.db et temp/zigbee.db.
-
 Une seule clé pour tous les équipements : le coordinateur est partagé (`coordinator`), démarré
 au premier équipement Zigbee et relancé si la clé décroche. L'appairage l'emprunte
-(`coordinator.session()`) : le port série ne s'ouvre qu'une fois.
-"""
+(`coordinator.session()`) : le port série ne s'ouvre qu'une fois."""
 
 import asyncio
 import json

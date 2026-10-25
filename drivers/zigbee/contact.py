@@ -1,11 +1,4 @@
-"""Contact d'ouverture Zigbee (porte, fenêtre ; sur pile, base : sensor.py).
-
-État : {"connected": bool, "open": bool, "battery": %}
-
-    from drivers.all import Contact
-
-    porte_entree = Contact()
-"""
+"""Pilote contact d'ouverture Zigbee."""
 
 from core.base import Attribute
 from drivers.zigbee.sensor import Sensor

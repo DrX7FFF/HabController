@@ -1,36 +1,4 @@
-"""Datalog : historique des valeurs dans Firebase (Realtime Database).
-
-Schéma : <chemin>/<horodatage ms> : valeur. Deux sources :
-
-- la table [datalog.devices.<id>] de habctrl.toml : attributs d'équipements enregistrés à
-  chaque changement, sous devices/<id>/<attribut> (le « . » devient « / » : zone.Global ->
-  devices/fp2/zone/Global) ;
-- record(chemin, valeur) depuis une automatisation, pour tout le reste :
-
-    from core.datalog import record
-
-    record("deshum/dewPoint", 12.4)                  # horodaté maintenant
-    record("deshum/dewPoint", 12.4, at=event.time)   # horodaté à l'événement
-
-Réglages (habctrl.toml) :
-
-    [datalog]
-    url = "https://<base>.firebaseio.com"
-    credentials = "../HabSecrets/firebase.json"   # clé du compte de service, relative à HabConfig
-    retention = "30d"                              # par défaut ; unités h, d, y
-
-    [datalog.devices.prise_salon]
-    on = {}                                        # à chaque changement
-    active_power = { hysteresis = 5, retention = "1y" }
-
-    [datalog.purge]                                # rétention des chemins de record()
-    "deshum/dewPoint" = "18d"
-
-L'hystérésis ne s'applique qu'aux nombres : une valeur n'est enregistrée que si elle s'écarte
-d'au moins `hysteresis` de la dernière enregistrée. Un équipement injoignable n'enregistre rien.
-Envoi immédiat en tâche de fond ; sans réseau, la valeur est perdue (journalisé).
-Une fois par jour, les valeurs plus vieilles que leur rétention sont supprimées.
-"""
+"""Historique des valeurs dans Firebase."""
 
 import asyncio
 import logging

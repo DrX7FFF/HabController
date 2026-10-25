@@ -1,13 +1,4 @@
-"""Détecteur de présence Zigbee, avec luminosité s'il la mesure (sur pile, base : sensor.py).
-
-État : {"connected": bool, "presence": bool, "illuminance": lx, "battery": %}
-Un détecteur qui n'envoie jamais « plus personne » (Xiaomi) est remis à faux par son
-correctif zha-quirks après un délai.
-
-    from drivers.all import Motion
-
-    presence_entree = Motion()
-"""
+"""Pilote détecteur de présence Zigbee."""
 
 from core.base import Attribute
 from drivers.zigbee.sensor import Sensor

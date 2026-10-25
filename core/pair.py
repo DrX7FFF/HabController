@@ -1,19 +1,8 @@
-"""Appairage d'un équipement, commun à tous les protocoles.
-
-Le déroulé est commun à tous les protocoles (classe Pairing) :
-1. ouvrir la session du protocole (clé Zigbee, contrôleur HomeKit…) et chercher pendant N s ;
-2. choisir l'appareil parmi ceux trouvés et le reconnaître par son identité stable : déjà lié à
-   un équipement logique, on propose de garder ce nom ; sinon on demande le nom de l'équipement,
-   dont l'identifiant est déduit. Un identifiant déjà lié à un autre appareil est remplacé après
-   confirmation (appareil HS) ; un équipement déjà déclaré dans devices/ est gardé et rattaché ;
-3. lier l'appareil (pairing/) ;
-4. équipement pas encore déclaré : il est ajouté à devices/devices.py avec le pilote du modèle
-   (inconnu : à la main).
+"""Appairage d'un équipement, déroulé commun à tous les protocoles.
 
 Le dialogue passe par l'objet `ui` (voir Dialog), fourni par l'appelant.
 Chaque protocole qui sait appairer fournit drivers/<protocole>/pair.py avec une classe
-`Pairing` dérivée de celle-ci. Redémarrer HabController ensuite.
-"""
+`Pairing` dérivée de celle-ci."""
 
 import importlib
 import importlib.util

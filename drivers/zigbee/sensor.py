@@ -1,12 +1,8 @@
 """Base des appareils Zigbee sur pile (capteurs, boutons) : pas un pilote à déclarer.
 
 Les pilotes climate, motion, contact et button en héritent et ne déclarent que leurs
-attributs. Tous ont `battery` (%). Les appareils non standard (Xiaomi…) sont ramenés aux
-clusters standard par leur correctif zha-quirks (pile, présence remise à faux après un délai,
-luminosité).
-L'appareil dort : il n'est jamais interrogé, il est joignable dès son premier message. Après
-un redémarrage, une valeur reste absente (None) tant que l'appareil ne l'a pas envoyée.
-"""
+attributs. Les appareils non standard (Xiaomi…) sont ramenés aux clusters standard par leur
+correctif zha-quirks. L'appareil dort : il n'est jamais interrogé."""
 
 from core.base import Attribute
 from drivers.zigbee import ZigbeeDevice, find_cluster, setup_reporting

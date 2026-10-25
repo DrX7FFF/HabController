@@ -17,7 +17,7 @@ Habitation domotique home mad
   appairé »), puis les appareils liés à un équipement non déclaré, avec la déclaration à copier
   dans devices/. S'il y a une anomalie, un seul avertissement dans le journal renvoie à ce fichier.
 - **Secrets** (hors dépôt : `../HabSecrets`) : `firebase.json`, clé du compte de service
-  Firebase pour le datalog (section `[datalog]` de `habctrl.toml`, voir `core/datalog.py`).
+  Firebase pour le datalog (section `[datalog]` de `habctrl.toml`, voir `doc.md`).
 
 Emplacements modifiables avec `HABCTRL_CONFIG` et `HABCTRL_TEMP`.
 

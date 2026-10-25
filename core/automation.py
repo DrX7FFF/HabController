@@ -1,42 +1,4 @@
-"""Automatisations : fonctions déclenchées par les changements d'état des équipements.
-
-Un fichier par sujet dans automations/, chargé au démarrage. Les équipements
-s'importent depuis le fichier de devices/ qui les déclare, avec le déclencheur :
-
-    import logging
-
-    from core.automation import Event, on_change
-    from devices.salon import capteur, salon
-    from devices.cuisine import cuisine
-
-    log = logging.getLogger(__name__)  # journal des scripts : temp/automations.log
-
-    @on_change("capteur.presence")            # « équipement.attribut » ; « capteur » = tout l'état
-    async def eclairage(event: Event):        # event.old, event.new, event.changed, event.time
-        if capteur.connected and capteur.presence:
-            salon.on = True                   # écriture : commande envoyée en tâche de fond
-            cuisine.on = True
-
-Lecture : un attribut vaut None si l'équipement est injoignable (l'attribut disparaît de son
-état). Écriture : salon.on = True ne bloque pas et ne lève rien si l'équipement est
-injoignable (c'est journalisé) ; les commandes d'un même équipement partent dans l'ordre.
-Pour attendre la réponse, ou passer une transition : `ok = await salon.send("on", True, 2)`,
-qui renvoie False si la commande n'a pas pu partir. Un équipement inconnu dans un @on_change
-est signalé au démarrage.
-
-`to=` ne déclenche que vers une valeur donnée : @on_change("capteur.presence", to=True).
-
-Événements ponctuels (boutons) : @on_event("bouton.double") à chaque double appui, ou
-@on_event("bouton") pour tous ; event.attr est le nom de l'événement, event.new sa valeur
-éventuelle (ex. angle de rotation du cube), event.old toujours None.
-Un attribut absent de l'état (équipement injoignable) n'est pas un changement : on garde la
-dernière valeur connue, et rien ne se déclenche tant que la valeur revient identique.
-Les événements d'une même fonction sont traités dans l'ordre ; une erreur dans une
-automatisation n'arrête pas les autres.
-Un fichier qui échoue au chargement (erreur de syntaxe, import faux…) est déchargé en entier,
-y compris les automatisations déclarées avant l'erreur ; l'erreur est journalisée et les
-autres fichiers se chargent normalement.
-"""
+"""Moteur des automatisations de Config/automations."""
 
 import asyncio
 import importlib

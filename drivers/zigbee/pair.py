@@ -1,11 +1,4 @@
-"""Appairage Zigbee via la clé USB (déroulé commun : core/pair.py).
-
-Utilise la clé de HabController (coordinateur partagé, ouvert pour l'occasion s'il n'y a encore
-aucun équipement Zigbee). Le réseau est ouvert pendant la durée choisie : mettre l'équipement
-en mode appairage (souvent un appui long). Le premier équipement qui termine son interview est retenu ; il est
-reconnu par son IEEE. Le lien est une ligne de pairing/zigbee.toml ; la copie de la base
-(pairing/zigbee.db) est mise à jour.
-"""
+"""Appairage Zigbee."""
 
 import asyncio
 from collections.abc import Callable
