@@ -39,7 +39,7 @@ fois ; fermer la page ou « Annuler » l'interrompt.
 L'identifiant de l'équipement est demandé une fois l'appareil identifié ; un équipement déjà
 déclaré est gardé, sinon il est ajouté à la fin de `devices/devices.py` avec le pilote déduit du
 modèle (`drivers/<protocole>/models.toml`, Zigbee : ou du type d'appareil), à ranger ensuite
-librement. Redémarrer HabController ensuite pour l'utiliser.
+librement. Recharger ensuite la configuration (Administration) pour l'utiliser.
 HomeKit : un appareil déjà lié propose de garder son identifiant ; un identifiant déjà lié à un
 autre appareil le remplace après confirmation (appareil HS).
 Zigbee : un appareil déjà déclaré (même IEEE) garde son identifiant ; un identifiant déjà

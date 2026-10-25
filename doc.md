@@ -2,6 +2,17 @@
 
 Organisation des dépôts, déclaration des équipements et appairage : voir `README.md`.
 
+## Rechargement de la configuration
+
+`POST /api/reload` (bouton de la page Administration) relit toute la configuration :
+équipements, automatisations, écrans, graphiques, `habctrl.toml`. C'est un redémarrage sans
+quitter le programme : tout est arrêté puis relancé (clé Zigbee rouverte, connexions HomeKit
+refaites) ; les automatisations en cours sont annulées, et un capteur sur pile reste injoignable
+jusqu'à son prochain message, comme après un redémarrage. Un fichier d'équipements, `screens.toml`
+ou `charts.toml` illisible : rien n'est arrêté, l'erreur est renvoyée et journalisée. Le code de
+HabController (pilotes, `core/`) n'est pas rechargé. Les pages ouvertes reçoivent les nouveaux
+écrans ; la page des graphiques est à recharger pour voir un `charts.toml` modifié.
+
 ## Automatisations
 
 Fonctions déclenchées par les changements d'état des équipements. Un fichier par sujet dans

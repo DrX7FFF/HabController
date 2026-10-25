@@ -1,6 +1,8 @@
 import asyncio
+import importlib
 import json
 import logging
+import sys
 from contextlib import asynccontextmanager
 from functools import partial
 
@@ -21,11 +23,21 @@ from core.widgets import load_blocks
 check_config()
 setup_logging()
 log = logging.getLogger("habctrl")
-devices = load_devices()
-blocks = load_blocks(devices)
-charts = load_charts()
+
+CONFIG_PACKAGES = ("devices", "automations")  # paquets Python de la configuration
+
+
+def load_config() -> tuple[dict, list[dict], list[dict]]:
+    """Équipements, blocs des écrans et graphiques ; lève une erreur si illisibles."""
+    devs = load_devices()
+    return devs, load_blocks(devs), load_charts()
+
+
+devices, blocks, charts = load_config()
+history: datalog.Datalog | None = None
+summary: asyncio.Task | None = None
 pairings = pair.protocols()  # {protocole: classe Pairing}
-pairing_lock = asyncio.Lock()  # un appairage à la fois
+admin_lock = asyncio.Lock()  # appairage, nettoyage ou rechargement : un à la fois
 clients: set[asyncio.Queue] = set()  # une file de messages par page connectée
 
 
@@ -42,26 +54,68 @@ def on_device_change(dev_id: str, state: dict) -> None:
     broadcast({"type": "state", "device": dev_id, "state": state})
 
 
-for _dev in devices.values():
-    _dev.subscribe(partial(on_device_change, _dev.id))
-load_automations(devices)
-history = datalog.setup(devices)
-if history:
-    history.subscribe(lambda points: broadcast({"type": "datalog", "points": points}))
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+async def start() -> None:
+    """Abonne automatisations et datalog aux équipements chargés, puis les démarre."""
+    global history, summary
+    for dev in devices.values():
+        dev.subscribe(partial(on_device_change, dev.id))
+    load_automations(devices)
+    try:
+        history = datalog.setup(devices)
+    except (KeyError, ValueError) as err:  # [datalog] de habctrl.toml incorrect
+        log.error("datalog : réglages incorrects (%s), pas d'historique", datalog.describe(err))
+        history = None
     if history:
+        history.subscribe(lambda points: broadcast({"type": "datalog", "points": points}))
         await history.start()
     await asyncio.gather(*(d.start() for d in devices.values()))
     summary = asyncio.create_task(summarize(devices, TEMP_DIR / "equipements.txt"))
-    yield
-    summary.cancel()
+
+
+async def stop() -> None:
+    if summary:
+        summary.cancel()
     await stop_automations()  # annule aussi les envois du datalog en cours
     if history:
         await history.stop()
     await asyncio.gather(*(d.stop() for d in devices.values()))
+
+
+def config_modules() -> dict:
+    return {
+        name: module
+        for name, module in sys.modules.items()
+        if name.partition(".")[0] in CONFIG_PACKAGES
+    }
+
+
+async def reload() -> None:
+    """Relit toute la configuration et redémarre équipements, automatisations et datalog.
+    Configuration illisible : l'erreur est levée et l'ancienne configuration reste en marche."""
+    global devices, blocks, charts
+    previous = config_modules()
+    for name in previous:
+        del sys.modules[name]
+    importlib.invalidate_caches()
+    try:
+        loaded = load_config()
+    except Exception:
+        for name in config_modules():
+            del sys.modules[name]
+        sys.modules.update(previous)
+        raise
+    await stop()
+    devices, blocks, charts = loaded
+    await start()
+    broadcast({"type": "init", "blocks": snapshot()})
+    log.info("Configuration rechargée")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await start()
+    yield
+    await stop()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -103,6 +157,22 @@ async def set_device(dev_id: str, cmd: SetCommand):
     except DeviceError as err:
         raise HTTPException(status_code=502, detail=str(err)) from err
     return devices[dev_id].state()
+
+
+@app.post("/api/reload")
+async def reload_config():
+    """Recharge toute la configuration (équipements, automatisations, écrans, graphiques,
+    datalog) sans redémarrer le programme."""
+    if admin_lock.locked():
+        raise HTTPException(status_code=409, detail="un appairage ou un rechargement est en cours")
+    async with admin_lock:
+        try:
+            await reload()
+        except Exception as err:
+            log.exception("Rechargement de la configuration impossible")
+            detail = f"configuration illisible : {type(err).__name__} : {err}"
+            raise HTTPException(status_code=400, detail=detail) from err
+    return {"devices": len(devices)}
 
 
 @app.get("/api/charts")
@@ -216,9 +286,9 @@ async def cleanup(protocol: str, action: str) -> list[str]:
     cls = pairings.get(protocol)
     if cls is None or not cls.CLEANUP:
         raise HTTPException(status_code=404, detail="protocole inconnu ou sans nettoyage")
-    if pairing_lock.locked():
-        raise HTTPException(status_code=409, detail="un appairage est en cours")
-    async with pairing_lock:
+    if admin_lock.locked():
+        raise HTTPException(status_code=409, detail="un appairage ou un rechargement est en cours")
+    async with admin_lock:
         try:
             return await getattr(cls, action)()
         except cls.PROTOCOL.ERRORS as err:
@@ -301,10 +371,10 @@ async def pair_socket(ws: WebSocket, protocol: str = "", duration: int = 0):
     cls = pairings.get(protocol)
     if cls is None or not 1 <= duration <= cls.MAX_DURATION:
         error = "protocole inconnu" if cls is None else f"durée entre 1 et {cls.MAX_DURATION} s"
-    elif pairing_lock.locked():
-        error = "un appairage est déjà en cours"
+    elif admin_lock.locked():
+        error = "un appairage ou un rechargement est déjà en cours"
     else:
-        async with pairing_lock:
+        async with admin_lock:
             log.info("Appairage %s lancé (%s s)", cls.LABEL, duration)
             await run_pairing(PairingDialog(ws), cls, duration)
         if ws.client_state == WebSocketState.CONNECTED:
@@ -340,4 +410,4 @@ def admin_page():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_config=None)  # journaux : core/log.py

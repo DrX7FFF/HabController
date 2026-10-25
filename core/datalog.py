@@ -205,6 +205,7 @@ _datalog: Datalog | None = None
 def setup(devices: dict[str, Device]) -> Datalog | None:
     """Lit [datalog] de habctrl.toml et s'abonne aux équipements ; None si non configuré."""
     global _datalog
+    _datalog = None  # réglages incorrects : pas d'historique plutôt que l'ancien
     conf = settings("datalog")
     _datalog = Datalog(conf, devices) if conf.get("url") else None
     return _datalog

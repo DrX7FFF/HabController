@@ -6,7 +6,8 @@
 <title>Domotique — administration</title>
 <link rel="stylesheet" href="/web/common.css">
 <style>
-  section { border: 2px solid #aaa; border-radius: 1rem; padding: 1rem 1.5rem; max-width: 50rem; }
+  section { border: 2px solid #aaa; border-radius: 1rem; padding: 1rem 1.5rem; max-width: 50rem;
+            margin-bottom: 1rem; }
   section h2 { margin-bottom: .8rem; }
   #protocols { display: grid; gap: .8rem; }
   .protocol { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
@@ -27,8 +28,8 @@
   #question { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
   #question form { display: contents; }
   #prompt { font-weight: 600; flex-basis: 100%; }
-  #status.ok { color: #1a7f1a; }
-  #status.failed { color: #b00; }
+  #status.ok, #reload-status.ok { color: #1a7f1a; }
+  #status.failed, #reload-status.failed { color: #b00; }
 </style>
 </head>
 <body>
@@ -38,6 +39,11 @@
   <a href="/administration" aria-current="page">Administration</a>
 </nav>
 <div id="banner" hidden></div>
+<section>
+  <h2>Configuration</h2>
+  <button id="reload" class="main">Recharger la configuration</button>
+  <span id="reload-status"></span>
+</section>
 <section>
   <h2>Appairage</h2>
   <div id="protocols"></div>

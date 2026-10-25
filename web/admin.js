@@ -4,6 +4,7 @@
 // « Arrêter » ou fermer la page interrompt l'appairage.
 // Protocole qui le permet : bouton de nettoyage, qui retire (après confirmation) les appareils
 // appairés qu'aucun équipement n'utilise (GET puis DELETE /api/pair/<protocole>/unused).
+// « Recharger la configuration » : relit HabConfig sans redémarrer (POST /api/reload).
 
 const banner = document.getElementById("banner");
 const protocols = document.getElementById("protocols");
@@ -175,6 +176,25 @@ function cleanupButton(p) {
   };
   return button;
 }
+
+const reloadButton = document.getElementById("reload");
+const reloadStatus = document.getElementById("reload-status");
+
+reloadButton.onclick = async () => {
+  reloadButton.disabled = true;
+  reloadStatus.className = "";
+  reloadStatus.textContent = "Rechargement…";
+  try {
+    const result = await request("/api/reload", "POST");
+    reloadStatus.className = "ok";
+    reloadStatus.textContent = `Configuration rechargée (${result.devices} équipements).`;
+  } catch (err) {
+    reloadStatus.className = "failed";
+    reloadStatus.textContent = `Rechargement impossible : ${err.message}`;
+  } finally {
+    reloadButton.disabled = false;
+  }
+};
 
 fetch("/api/pair")
   .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
