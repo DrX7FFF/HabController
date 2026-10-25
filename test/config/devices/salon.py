@@ -1,6 +1,4 @@
-from drivers.homekit.fp2 import FP2
-from drivers.yeelight.bulb import YeelightBulb
-from drivers.zigbee.plug import Plug
+from drivers.all import FP2, Plug, YeelightBulb
 
 salon = YeelightBulb(host="192.0.2.10")
 prise_salon = Plug()

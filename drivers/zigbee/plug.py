@@ -6,7 +6,7 @@ Les mesures n'apparaissent que si l'équipement a les clusters correspondants (0
 Chaque prise se déclare dans un fichier de `devices/`, sans adresse : le lien avec l'appareil
 physique est une ligne de pairing/zigbee.toml. Les deux sont créés par l'appairage :
 
-    from drivers.zigbee.plug import Plug
+    from drivers.all import Plug
 
     prise_salon = Plug()
 

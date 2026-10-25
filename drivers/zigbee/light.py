@@ -6,7 +6,7 @@ apparaissent : clusters 0x0008 intensité, 0x0300 couleur, et dans ce dernier ce
 déclare (color_capabilities, lu à l'appairage ; non lu : tout est supposé présent). La couleur
 passe par les coordonnées xy de l'ampoule : le rgb relu est approché, à pleine intensité.
 
-    from drivers.zigbee.light import Light
+    from drivers.all import Light
 
     plafonnier = Light()
 

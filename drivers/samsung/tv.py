@@ -8,7 +8,7 @@ impossible sur ces modèles (refusé).
 À la première connexion, la TV demande d'autoriser « HabController » : accepter une fois,
 elle s'en souvient.
 
-    from drivers.samsung.tv import SamsungTV
+    from drivers.all import SamsungTV
 
     tv = SamsungTV(host="192.168.1.104")
 """

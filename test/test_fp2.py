@@ -1,6 +1,8 @@
 """Tests hors ligne (aucun matériel) : python -m unittest discover -s test -p "test_*.py" -v"""
 
 import asyncio
+import importlib
+import pkgutil
 import stat
 import os
 import sys
@@ -19,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from aiohomekit.exceptions import AccessoryDisconnectedError, AccessoryNotFoundError  # noqa: E402
 from aiohomekit.zeroconf import HomeKitService  # noqa: E402
 
+import drivers  # noqa: E402
+import drivers.all  # noqa: E402
 import drivers.homekit as homekit  # noqa: E402
 from core import ROOT, devices as core_devices, pair as core_pair  # noqa: E402
 from drivers.homekit import fp2, pair as homekit_pair  # noqa: E402
@@ -468,20 +472,17 @@ class AddDeviceTest(unittest.TestCase):
         self.path.mkdir()
         self.file = self.path / "devices.py"
         self.existing = (
-            "from drivers.yeelight.bulb import YeelightBulb\n\n"
+            "from drivers.all import YeelightBulb\n\n"
             'salon = YeelightBulb(host="192.0.2.10")\n'
         )
         self.file.write_text(self.existing)
 
     def test_appended_with_import(self):
         for dev_id in ("fp2", "capteur"):
-            core_devices.add_device(
-                dev_id, "homekit.fp2", "HomeKit : X", path=self.path
-            )
+            core_devices.add_device(dev_id, "homekit.fp2", "HomeKit : X", path=self.path)
         self.assertEqual(
             self.file.read_text(encoding="utf-8"),
-            "from drivers.yeelight.bulb import YeelightBulb\n"
-            "from drivers.homekit.fp2 import FP2\n\n"
+            "from drivers.all import FP2, YeelightBulb\n\n"
             'salon = YeelightBulb(host="192.0.2.10")\n\n'
             "# HomeKit : X\n"
             'fp2 = FP2(zonemapping={0: "Global"})\n\n'
@@ -513,6 +514,29 @@ class AddDeviceTest(unittest.TestCase):
             with self.subTest(dev_id=dev_id, driver=driver), self.assertRaises(ValueError):
                 core_devices.add_device(dev_id, driver, path=self.path)
         self.assertEqual(self.file.read_text(), self.existing)
+
+    def test_import_added_when_absent(self):
+        self.file.write_text("import logging\n")
+        core_devices.add_device("prise", "zigbee.plug", path=self.path)
+        self.assertEqual(
+            self.file.read_text(encoding="utf-8"),
+            "import logging\nfrom drivers.all import Plug\n\nprise = Plug()\n",
+        )
+
+    def test_star_import_kept(self):
+        self.file.write_text("from drivers.all import *\n")
+        core_devices.add_device("prise", "zigbee.plug", path=self.path)
+        self.assertEqual(
+            self.file.read_text(encoding="utf-8"), "from drivers.all import *\n\nprise = Plug()\n"
+        )
+
+    def test_every_driver_exported_by_all(self):
+        for info in pkgutil.walk_packages(drivers.__path__, "drivers."):
+            module = importlib.import_module(info.name)
+            if cls := getattr(module, "Driver", None):
+                with self.subTest(driver=info.name):
+                    self.assertIs(getattr(drivers.all, cls.__name__, None), cls)
+                    self.assertIn(cls.__name__, drivers.all.__all__)
 
 
 class LoadDevicesTest(unittest.TestCase):
@@ -675,7 +699,7 @@ class PairRunTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok)
         config_path = self.devices / "devices.py"
         text = config_path.read_text(encoding="utf-8")
-        self.assertIn("from drivers.homekit.fp2 import FP2", text)
+        self.assertIn("from drivers.all import FP2", text)
         self.assertIn('fp2 = FP2(zonemapping={0: "Global"})', text)
         self.assertIn("modèle PS-S02D", text)
         self.assertTrue(homekit.pairing_file("fp2").exists())

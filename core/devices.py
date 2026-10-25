@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 
 DEVICES_DIR = CONFIG_DIR / "devices"
 NEW_DEVICES = "devices.py"  # où l'appairage ajoute les équipements, à réorganiser librement
+DRIVERS_IMPORT = "from drivers.all import "  # import commun des classes de pilotes
 
 
 def load_driver(name: str):
@@ -158,7 +159,7 @@ def declaration(dev_id: str, driver: str) -> tuple[str, str]:
     cls = load_driver(driver)
     config_args = getattr(cls, "config_args", None)
     args = config_args() if config_args else []
-    statement = f"from drivers.{driver} import {cls.__name__}"
+    statement = f"{DRIVERS_IMPORT}{cls.__name__}"
     return statement, f"{dev_id} = {cls.__name__}({', '.join(args)})"
 
 
@@ -169,11 +170,18 @@ def add_device(
     path: Path | None = None,
 ) -> Path:
     """Ajoute la déclaration de l'équipement à la fin de devices/devices.py (créé au besoin), avec
-    l'import du pilote s'il manque. Renvoie le fichier."""
+    sa classe dans l'import `from drivers.all import ...` (complété, ou ajouté). Renvoie le
+    fichier."""
     statement, declared = declaration(dev_id, driver)
     file = (path or DEVICES_DIR) / NEW_DEVICES
     lines = file.read_text(encoding="utf-8").splitlines() if file.exists() else []
-    if statement not in lines:
+    common = [i for i, line in enumerate(lines) if line.startswith(DRIVERS_IMPORT)]
+    if common:
+        names = {n.strip() for n in lines[common[0]].removeprefix(DRIVERS_IMPORT).split(",")}
+        if "*" not in names:
+            names.add(statement.removeprefix(DRIVERS_IMPORT))
+            lines[common[0]] = DRIVERS_IMPORT + ", ".join(sorted(names))
+    else:
         imports = [i for i, line in enumerate(lines) if line.startswith(("from ", "import "))]
         lines.insert(imports[-1] + 1 if imports else 0, statement)
     lines += [""] + ([f"# {comment}"] if comment else []) + [declared]

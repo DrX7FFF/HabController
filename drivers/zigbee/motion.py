@@ -4,7 +4,7 @@
 Un détecteur qui n'envoie jamais « plus personne » (Xiaomi) est remis à faux par son
 correctif zha-quirks après un délai.
 
-    from drivers.zigbee.motion import Motion
+    from drivers.all import Motion
 
     presence_entree = Motion()
 """

@@ -3,7 +3,7 @@
 État : {"connected": bool, "temperature": °C, "humidity": %, "pressure": hPa, "battery": %}
 Seules les mesures que l'appareil envoie apparaissent.
 
-    from drivers.zigbee.climate import Climate
+    from drivers.all import Climate
 
     meteo_salon = Climate()
 """

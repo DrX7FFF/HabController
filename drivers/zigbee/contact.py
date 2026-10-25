@@ -2,7 +2,7 @@
 
 État : {"connected": bool, "open": bool, "battery": %}
 
-    from drivers.zigbee.contact import Contact
+    from drivers.all import Contact
 
     porte_entree = Contact()
 """

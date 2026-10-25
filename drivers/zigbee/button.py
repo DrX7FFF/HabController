@@ -6,7 +6,7 @@ Xiaomi b1acn01 : single, double, hold, release ; Xiaomi rond : click (valeur : t
 cube : flip, rotate_right… (valeur : détails, dont l'angle) ; Hue Dimmer : on_press,
 off_long_press…
 
-    from drivers.zigbee.button import Button
+    from drivers.all import Button
 
     bouton_lit = Button()
 

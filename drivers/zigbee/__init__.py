@@ -57,7 +57,6 @@ ERRORS = (ZigbeeException, RadioException, AshException, OSError)  # protocole o
 DB_FILE = TEMP_DIR / "zigbee.db"  # base vivante, utilisée par zigpy
 MAPPING = PAIRING_DIR / "zigbee.toml"  # IEEE -> équipement logique, fait foi
 SNAPSHOT = PAIRING_DIR / "zigbee.db"  # copie de sauvegarde de la base, dans la configuration
-MODELS = Path(__file__).with_name("models.toml")  # modèle ou type d'appareil -> pilote
 HOME_AUTOMATION = 0x0104  # profil Zigbee des types d'appareil standard
 RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à chaque échec)
 RETRY_MAX = 60

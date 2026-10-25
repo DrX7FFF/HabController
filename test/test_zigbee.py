@@ -371,7 +371,7 @@ class SummaryTest(MappingTestCase):
                 "# Appareils physiques non liés (équipement absent de devices/)",
                 "",
                 f"-> ventilateur  Zigbee {OTHER}  à déclarer dans un fichier de devices/ ainsi :",
-                "from drivers.zigbee.plug import Plug",
+                "from drivers.all import Plug",
                 'ventilateur = Plug()  # Zigbee : Philips, modèle LOM002',
             ],
         )
