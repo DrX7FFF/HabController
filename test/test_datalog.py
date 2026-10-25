@@ -12,7 +12,7 @@ from core.base import Device  # noqa: E402
 
 class FakeDevice(Device):
     def __init__(self, dev_id, state=None):
-        super().__init__(dev_id)
+        super().__init__()
         self.configure(dev_id)
         self._state = dict(state or {})
 

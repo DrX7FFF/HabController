@@ -25,8 +25,8 @@ Emplacements modifiables avec `HABCTRL_CONFIG` et `HABCTRL_TEMP`.
 Chaque fichier de `devices/` déclare autant d'équipements que voulu (par pièce, par type…) :
 toute variable qui est un équipement est chargée, son nom de variable est son identifiant.
 ```python
-salon = YeelightBulb(host="192.168.1.110", name="Salon")
-prise_salon = Plug(name="Prise salon")
+salon = YeelightBulb(host="192.168.1.110")
+prise_salon = Plug()
 ```
 Dans une automatisation : `from devices.salon import salon, prise_salon`.
 
@@ -35,9 +35,9 @@ Onglet **Administration** de l'application web (`/administration`) : un bouton p
 (HomeKit : découverte mDNS, défaut 10 s ; Zigbee : réseau ouvert, défaut 120 s, avec la clé de
 HabController qui reste en marche), la durée de recherche est réglable. Un seul appairage à la
 fois ; fermer la page ou « Annuler » l'interrompt.
-Le nom de l'équipement est demandé une fois l'appareil identifié (l'identifiant en est
-déduit) ; un appareil déjà lié propose de garder son nom. Un nom déjà lié à un autre appareil
-le remplace après confirmation (appareil HS) ; un équipement déjà déclaré est gardé, sinon il
+L'identifiant de l'équipement est demandé une fois l'appareil identifié ; un appareil déjà
+lié propose de garder son identifiant. Un identifiant déjà lié à un autre appareil le remplace
+après confirmation (appareil HS) ; un équipement déjà déclaré est gardé, sinon il
 est ajouté à la fin de `devices/devices.py` avec le pilote déduit du modèle
 (`drivers/<protocole>/models.toml`, Zigbee : ou du type d'appareil), à ranger ensuite
 librement. Redémarrer HabController ensuite pour l'utiliser.

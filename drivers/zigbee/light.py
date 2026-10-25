@@ -8,7 +8,7 @@ passe par les coordonnées xy de l'ampoule : le rgb relu est approché, à plein
 
     from drivers.zigbee.light import Light
 
-    plafonnier = Light(name="Plafonnier")
+    plafonnier = Light()
 
 Écriture : plafonnier.on = True | False | "toggle", .brightness = 50, .color_temp = 2700,
 .rgb = "#ff8000" ; transition en ms avec send() (300 par défaut).
@@ -74,8 +74,8 @@ def xy_to_rgb(x: float, y: float) -> str:
 class Light(core.light.Light, ZigbeeDevice):
     """Ampoule Zigbee : l'état vient de ce qu'elle envoie, relu toutes les `poll` secondes."""
 
-    def __init__(self, name: str = "", transition: int = 300, poll: float | None = None):
-        super().__init__(name, poll)
+    def __init__(self, transition: int = 300, poll: float | None = None):
+        super().__init__(poll)
         self.transition = transition  # durée par défaut des transitions (ms)
         self._raw: dict[str, int] = {}  # dernières valeurs ZCL reçues
 
@@ -98,7 +98,7 @@ class Light(core.light.Light, ZigbeeDevice):
 
     async def _configure(self, zdev) -> None:
         for cluster, reports in self._reports(zdev):
-            await setup_reporting(self.name, cluster, reports)
+            await setup_reporting(self.id, cluster, reports)
 
     async def _read(self, zdev) -> None:
         for cluster, reports in self._reports(zdev):
@@ -128,11 +128,11 @@ class Light(core.light.Light, ZigbeeDevice):
 
     async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
         if name not in SETTINGS:
-            raise ValueError(f"{self.name} ne gère pas « {name} »")
+            raise ValueError(f"{self.id} ne gère pas « {name} »")
         if self.zdev is None:
-            raise DeviceError(f"{self.name} : injoignable")
+            raise DeviceError(f"{self.id} : injoignable")
         if (cluster := self._cluster(self.zdev, name)) is None:
-            raise ValueError(f"{self.name} ne gère pas « {name} » (ampoule sans ce réglage)")
+            raise ValueError(f"{self.id} ne gère pas « {name} » (ampoule sans ce réglage)")
         tenths = round((self.transition if transition is None else transition) / 100)
         if name in CAPABILITY and self._raw.get("on_off") != 1:
             # une ampoule éteinte ignore les commandes de couleur : on l'allume d'abord

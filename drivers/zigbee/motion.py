@@ -6,7 +6,7 @@ correctif zha-quirks après un délai.
 
     from drivers.zigbee.motion import Motion
 
-    presence_entree = Motion(name="Présence entrée")
+    presence_entree = Motion()
 """
 
 from core.base import Attribute

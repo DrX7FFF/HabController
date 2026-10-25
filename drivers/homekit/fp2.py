@@ -7,7 +7,7 @@ sous `zone`. Chaque appareil se déclare dans un fichier de `devices/` :
 
     from drivers.homekit.fp2 import FP2
 
-    fp2 = FP2(name="FP2", zonemapping={0: "Global", 1: "salon"})
+    fp2 = FP2(zonemapping={0: "Global", 1: "salon"})
     # accès : fp2.zone.salon ou fp2.zone[1] ; sans alias : fp2.zone[3]
 
 Lecture : fp2.zone.<alias> ou fp2.zone[<index>] (l'index est traduit en alias s'il en a un).
@@ -101,11 +101,10 @@ class FP2(NetworkDevice):
 
     def __init__(
         self,
-        name: str = "",
         find_timeout: float = FIND_TIMEOUT,
         zonemapping: dict[int, str] | None = None,
     ):
-        super().__init__(name)
+        super().__init__()
         self._find_timeout = find_timeout
         self._aliases = {
             int(index): alias
@@ -145,7 +144,7 @@ class FP2(NetworkDevice):
     def _task_done(self, task: asyncio.Task) -> None:
         self._tasks.discard(task)
         if not task.cancelled() and (err := task.exception()):
-            log.error("%s : erreur inattendue", self.name, exc_info=err)
+            log.error("%s : erreur inattendue", self.id, exc_info=err)
 
     async def _run(self) -> None:
         """Se connecte (adresse résolue par mDNS à chaque essai) et réessaie tant qu'il le faut."""
@@ -155,12 +154,12 @@ class FP2(NetworkDevice):
                     pairing = await connect(controller, self.id, self._find_timeout)
                     await self._serve(pairing)
             except PairingError as err:
-                log.error("%s : %s", self.name, err)
+                log.error("%s : %s", self.id, err)
                 return  # inutile de réessayer
             except ERRORS as err:
                 log.warning(
                     "%s : connexion impossible (%s : %s), nouvel essai dans %s s",
-                    self.name,
+                    self.id,
                     type(err).__name__,
                     err,
                     self._backoff,
@@ -208,7 +207,7 @@ class FP2(NetworkDevice):
             results = await pairing.subscribe(sorted(added)) or {}
             refused = {key for key, value in results.items() if value.get("status", 0) != 0}
             if refused:
-                log.warning("%s : abonnement refusé pour %s", self.name, sorted(refused))
+                log.warning("%s : abonnement refusé pour %s", self.id, sorted(refused))
             self._subscribed |= added - refused
         values: dict[str, bool | float] = {}
         if mapping.entities:
@@ -235,7 +234,7 @@ class FP2(NetworkDevice):
                 values[entity.attr] = entity.cast(result["value"])
             except (TypeError, ValueError):
                 log.warning(
-                    "%s : valeur illisible pour %s : %r", self.name, entity.attr, result["value"]
+                    "%s : valeur illisible pour %s : %r", self.id, entity.attr, result["value"]
                 )
         return values
 
@@ -276,13 +275,13 @@ class FP2(NetworkDevice):
                 self._notify()
         except ERRORS as err:
             log.warning(
-                "%s : lecture de l'état impossible (%s : %s)", self.name, type(err).__name__, err
+                "%s : lecture de l'état impossible (%s : %s)", self.id, type(err).__name__, err
             )
 
     # --- commandes ----------------------------------------------------------
 
     async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
-        raise ValueError(f"{self.name} est un capteur : aucune commande")
+        raise ValueError(f"{self.id} est un capteur : aucune commande")
 
 
 class Zones:

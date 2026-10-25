@@ -10,7 +10,7 @@ elle s'en souvient.
 
     from drivers.samsung.tv import SamsungTV
 
-    tv = SamsungTV(host="192.168.1.104", name="TV")
+    tv = SamsungTV(host="192.168.1.104")
 """
 
 import asyncio
@@ -61,8 +61,8 @@ class SamsungTV(NetworkDevice):
 
     on = Attribute[bool]()  # écriture : False seulement
 
-    def __init__(self, host: str, port: int = 55000, retry: float = 30, name: str = ""):
-        super().__init__(name)
+    def __init__(self, host: str, port: int = 55000, retry: float = 30):
+        super().__init__()
         self._host = host
         self._port = port
         self._retry = retry
@@ -100,7 +100,7 @@ class SamsungTV(NetworkDevice):
                 self._writer = None
                 writer.close()
                 if self._connected:
-                    log.info("%s : éteinte", self.name)
+                    log.info("%s : éteinte", self.id)
                 self._set_connected(False)
             await asyncio.sleep(self._retry)
 
@@ -112,15 +112,15 @@ class SamsungTV(NetworkDevice):
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
         writer.write(auth_packet())
         await writer.drain()
-        log.info("%s : allumée", self.name)
+        log.info("%s : allumée", self.id)
         self._writer = writer
         self._set_connected(True)
         while True:  # réponses de la TV, jusqu'à la fermeture de la connexion
             response = await read_response(reader)
             if response.startswith(WAITING):
-                log.warning("%s : accepter « %s » sur l'écran de la TV", self.name, APP)
+                log.warning("%s : accepter « %s » sur l'écran de la TV", self.id, APP)
             elif response == ACCESS_DENIED:
-                log.error("%s : « %s » refusé par la TV (réglages de la TV)", self.name, APP)
+                log.error("%s : « %s » refusé par la TV (réglages de la TV)", self.id, APP)
 
     def _set_connected(self, connected: bool) -> None:
         self._connected = self._synced = connected
@@ -136,16 +136,16 @@ class SamsungTV(NetworkDevice):
 
     async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
         if name != "on":
-            raise ValueError(f"{self.name} ne gère pas « {name} »")
+            raise ValueError(f"{self.id} ne gère pas « {name} »")
         if on_value(value, self._connected):
-            raise ValueError(f"{self.name} : impossible de l'allumer par le réseau")
+            raise ValueError(f"{self.id} : impossible de l'allumer par le réseau")
         if self._writer is None:
             return  # déjà éteinte
         try:
             self._writer.write(key_packet("KEY_POWEROFF"))
             await self._writer.drain()
         except OSError as err:
-            raise DeviceError(f"{self.name} : {err}") from err
+            raise DeviceError(f"{self.id} : {err}") from err
 
 
 Driver = SamsungTV  # convention : le chargeur cherche ce nom

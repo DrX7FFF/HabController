@@ -1,5 +1,4 @@
 import importlib
-import json
 import keyword
 import logging
 import pkgutil
@@ -68,7 +67,7 @@ def write_summary(devices: dict[str, Device], path: Path) -> None:
     liés à un équipement non déclaré (liens de chaque protocole qui fournit links()), chacun avec
     la déclaration à copier dans devices/ si le protocole fournit link_models() et que le modèle
     est connu. Anomalies (non appairé, non déclaré) : un seul avertissement dans le journal."""
-    rows = [("id", "nom", "pilote", "physique")]
+    rows = [("id", "pilote", "physique")]
     unpaired = 0
     for dev_id, device in sorted(devices.items()):
         driver = type(device).__module__.removeprefix("drivers.")
@@ -76,7 +75,7 @@ def write_summary(devices: dict[str, Device], path: Path) -> None:
         if not physical:
             unpaired += 1
             physical = f"-> non appairé ({driver.split('.')[0]})"
-        rows.append((dev_id, device.name, driver, physical))
+        rows.append((dev_id, driver, physical))
     orphans = []  # un bloc par appareil : ligne « -> id physique », puis sa déclaration
     for info in pkgutil.iter_modules(drivers.__path__):
         module = importlib.import_module(f"drivers.{info.name}")
@@ -91,7 +90,7 @@ def write_summary(devices: dict[str, Device], path: Path) -> None:
             keys, comment = known.get(dev_id, ([], ""))
             try:
                 driver = driver_for_model(keys, models_path) if keys else ""
-                statement, line = declaration(dev_id, driver, name_from_id(dev_id))
+                statement, line = declaration(dev_id, driver)
             except ValueError:
                 orphans += [f"-> {dev_id}  {physical}  pilote inconnu, à déclarer à la main", ""]
                 continue
@@ -116,14 +115,9 @@ def table(rows: list[tuple[str, ...]]) -> list[str]:
 
 
 def id_from_name(name: str) -> str:
-    """Identifiant déduit du nom affiché : « Prise salon » → prise_salon."""
+    """Identifiant déduit d'un texte libre : « Prise salon » → prise_salon."""
     ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
     return re.sub(r"\W+", "_", ascii_name.lower()).strip("_")
-
-
-def name_from_id(dev_id: str) -> str:
-    """Nom affiché déduit de l'identifiant : prise_salon → « Prise salon »."""
-    return dev_id.replace("_", " ").capitalize()
 
 
 def check_id(dev_id: str) -> None:
@@ -156,16 +150,14 @@ def driver_for_model(models: str | list[str], path: Path) -> str:
     return ""
 
 
-def declaration(dev_id: str, driver: str, name: str = "") -> tuple[str, str]:
+def declaration(dev_id: str, driver: str) -> tuple[str, str]:
     """(import du pilote, `<id> = <Pilote>(...)`), avec les réglages par défaut du pilote."""
     check_id(dev_id)
     if not driver:
         raise ValueError("pilote requis")
     cls = load_driver(driver)
-    args = [f"name={json.dumps(name, ensure_ascii=False)}"] if name else []
     config_args = getattr(cls, "config_args", None)
-    if config_args:
-        args += config_args()
+    args = config_args() if config_args else []
     statement = f"from drivers.{driver} import {cls.__name__}"
     return statement, f"{dev_id} = {cls.__name__}({', '.join(args)})"
 
@@ -173,13 +165,12 @@ def declaration(dev_id: str, driver: str, name: str = "") -> tuple[str, str]:
 def add_device(
     dev_id: str,
     driver: str,
-    name: str = "",
     comment: str = "",
     path: Path | None = None,
 ) -> Path:
     """Ajoute la déclaration de l'équipement à la fin de devices/devices.py (créé au besoin), avec
     l'import du pilote s'il manque. Renvoie le fichier."""
-    statement, declared = declaration(dev_id, driver, name)
+    statement, declared = declaration(dev_id, driver)
     file = (path or DEVICES_DIR) / NEW_DEVICES
     lines = file.read_text(encoding="utf-8").splitlines() if file.exists() else []
     if statement not in lines:

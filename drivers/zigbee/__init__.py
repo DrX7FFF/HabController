@@ -422,7 +422,7 @@ class Coordinator:
     def device_left(self, zdev) -> None:
         device = self._devices.get(zdev.ieee)
         if device is not None:
-            log.warning("%s : a quitté le réseau Zigbee", device.name)
+            log.warning("%s : a quitté le réseau Zigbee", device.id)
             device._set_connected(False)
 
 
@@ -443,8 +443,8 @@ class ZigbeeDevice(NetworkDevice):
 
     POLL: float | None = 300  # s, période de lecture par défaut ; None : sur pile
 
-    def __init__(self, name: str = "", poll: float | None = None):
-        super().__init__(name)
+    def __init__(self, poll: float | None = None):
+        super().__init__()
         self.ieee: EUI64 | None = None  # lue dans pairing/zigbee.toml au démarrage
         self.poll = self.POLL if poll is None else poll
         self.zdev = None  # objet zigpy de l'équipement, tant que la clé est ouverte
@@ -478,7 +478,7 @@ class ZigbeeDevice(NetworkDevice):
     def _task_done(self, task: asyncio.Task) -> None:
         self._tasks.discard(task)
         if not task.cancelled() and (err := task.exception()):
-            log.error("%s : erreur inattendue", self.name, exc_info=err)
+            log.error("%s : erreur inattendue", self.id, exc_info=err)
 
     def _attach(self, app: ZigpyApplication) -> None:
         """Clé ouverte ou équipement réinterviewé : écoute et lecture de l'objet zigpy courant."""
@@ -488,7 +488,7 @@ class ZigbeeDevice(NetworkDevice):
         zdev = app.devices.get(self.ieee)
         if not isinstance(zdev, ZigpyDevice):
             log.error(
-                "%s : %s inconnu du réseau Zigbee (l'appairer)", self.name, self.ieee
+                "%s : %s inconnu du réseau Zigbee (l'appairer)", self.id, self.ieee
             )
             return
         self.zdev = zdev
@@ -523,11 +523,11 @@ class ZigbeeDevice(NetworkDevice):
                 await self._read(zdev)
             except ERRORS as err:
                 if self._connected:
-                    log.warning("%s : ne répond plus (%s)", self.name, type(err).__name__)
+                    log.warning("%s : ne répond plus (%s)", self.id, type(err).__name__)
                 self._set_connected(False)
             else:
                 if not self._connected:
-                    log.info("%s : connecté", self.name)
+                    log.info("%s : connecté", self.id)
                 self._synced = True
                 self._set_connected(True)
             await asyncio.sleep(self.poll)
@@ -562,7 +562,7 @@ class ZigbeeDevice(NetworkDevice):
     def _received(self) -> None:
         """Message reçu : un équipement sur pile devient joignable (et se configure)."""
         if not self.poll and not self._connected and self.zdev is not None:
-            log.info("%s : connecté", self.name)
+            log.info("%s : connecté", self.id)
             self._connected = self._synced = True
             self._spawn(self._configure_awake(self.zdev))
 
@@ -577,12 +577,12 @@ class ZigbeeDevice(NetworkDevice):
     async def _command(self, cluster, command: str, *args) -> None:
         """Envoie une commande ZCL ; DeviceError si l'équipement ne répond pas ou la refuse."""
         if cluster is None or not (self._connected and self._synced):
-            raise DeviceError(f"{self.name} : injoignable")
+            raise DeviceError(f"{self.id} : injoignable")
         try:
             result = await getattr(cluster, command)(*args)
         except ERRORS as err:
             self._set_connected(False)
-            raise DeviceError(f"{self.name} : {type(err).__name__}") from err
+            raise DeviceError(f"{self.id} : {type(err).__name__}") from err
         status = getattr(result, "status", Status.SUCCESS)
         if status != Status.SUCCESS:
-            raise DeviceError(f"{self.name} : commande {command} refusée ({status.name})")
+            raise DeviceError(f"{self.id} : commande {command} refusée ({status.name})")

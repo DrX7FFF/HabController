@@ -66,9 +66,8 @@ class Device:
 
     connected = Attribute[bool](readonly=True)
 
-    def __init__(self, name: str = ""):
+    def __init__(self):
         self.id = ""  # affecté par configure() : le chargeur le déduit du nom de la variable
-        self.name = name
         self._listeners: list[Callable[[dict], None]] = []
         self._event_listeners: list[Callable[[str, Any], None]] = []
         self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre
@@ -77,10 +76,8 @@ class Device:
         self.last_seen: int | None = None  # ms, dernière mise à jour reçue (même identique)
 
     def configure(self, dev_id: str) -> None:
-        """Appelé par le chargeur, avant start() : identifiant, et nom par défaut."""
+        """Appelé par le chargeur, avant start() : identifiant."""
         self.id = dev_id
-        if not self.name:
-            self.name = dev_id
 
     def subscribe(self, callback: Callable[[dict], None]) -> None:
         """callback(state) est appelé à chaque changement d'état de l'équipement."""
@@ -167,8 +164,8 @@ class Device:
 class NetworkDevice(Device):
     """Base pour les équipements avec connexion réseau (HomeKit, WiFi, etc.)."""
 
-    def __init__(self, name: str = ""):
-        super().__init__(name)
+    def __init__(self):
+        super().__init__()
         self._connected = False
         self._synced = False  # état lu au moins une fois depuis la connexion courante
 

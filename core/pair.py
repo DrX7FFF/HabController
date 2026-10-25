@@ -122,7 +122,7 @@ class Pairing:
                     say("Aucun équipement trouvé.")
                     return False
                 candidate = await self.choose(candidates)
-                dev_id, name = await self.target(candidate.uid)
+                dev_id = await self.target(candidate.uid)
                 path = await self.link(session, candidate, dev_id)
         except self.PROTOCOL.ERRORS as err:
             detail = "" if self.SECRET_ERRORS else f" : {err}"
@@ -142,11 +142,11 @@ class Pairing:
             )
         else:
             try:
-                file = add_device(dev_id, driver, name=name, comment=candidate.comment)
+                file = add_device(dev_id, driver, comment=candidate.comment)
             except ValueError as err:
                 say(f"Équipement non ajouté : {err}")
                 return False
-            say(f"Équipement « {name or dev_id} » ajouté à {file}.")
+            say(f"Équipement « {dev_id} » ajouté à {file}.")
         say("Redémarrer HabController pour l'utiliser.")
         return True
 
@@ -161,19 +161,17 @@ class Pairing:
             self.ui.say("Choix invalide.")
         return candidates[0]
 
-    async def target(self, uid) -> tuple[str, str]:
-        """(id, nom) de l'équipement logique ; nom vide pour un équipement déjà connu."""
+    async def target(self, uid) -> str:
+        """Identifiant de l'équipement logique."""
         for dev_id in self.paired_ids(uid):
-            label = self.label(dev_id)
             answer = await self.ui.ask(
-                f"Équipement reconnu, anciennement {label}. Garder ce nom ?", YES_NO
+                f"Équipement reconnu, anciennement « {dev_id} ». Garder cet identifiant ?", YES_NO
             )
             if answer.lower() not in ("n", "non"):
-                return dev_id, ""
+                return dev_id
             self.previous = dev_id
         while True:
-            name = await self.ui.ask("Nom de l'équipement (ex. Prise salon)")
-            dev_id = id_from_name(name)
+            dev_id = id_from_name(await self.ui.ask("Identifiant de l'équipement (ex. prise_salon)"))
             try:
                 check_id(dev_id)
             except ValueError as err:
@@ -181,16 +179,11 @@ class Pairing:
                 continue
             if dev_id != self.previous and self.linked(dev_id):
                 answer = await self.ui.ask(
-                    f"{self.label(dev_id)} est lié à un autre appareil : le remplacer ?", YES_NO
+                    f"« {dev_id} » est lié à un autre appareil : le remplacer ?", YES_NO
                 )
                 if answer.lower() not in ("o", "oui"):
                     continue
-            return dev_id, "" if dev_id in self.declared else name
-
-    def label(self, dev_id: str) -> str:
-        """« Nom (id) » d'un équipement déclaré, ou l'identifiant seul."""
-        device = self.declared.get(dev_id)
-        return f"{device.name} ({dev_id})" if device else dev_id
+            return dev_id
 
 
 def protocols() -> dict:

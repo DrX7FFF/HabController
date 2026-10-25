@@ -5,7 +5,7 @@ Seules les mesures que l'appareil envoie apparaissent.
 
     from drivers.zigbee.climate import Climate
 
-    meteo_salon = Climate(name="Météo salon")
+    meteo_salon = Climate()
 """
 
 from core.base import Attribute

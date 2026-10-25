@@ -4,7 +4,7 @@
 
     from drivers.zigbee.contact import Contact
 
-    porte_entree = Contact(name="Porte d'entrée")
+    porte_entree = Contact()
 """
 
 from core.base import Attribute

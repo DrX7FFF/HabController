@@ -21,6 +21,6 @@ def load_blocks(devices: dict, path: Path = SCREENS) -> list[dict]:
         if block["widget"] not in WIDGETS:
             raise ValueError(f"écran : widget inconnu « {block['widget']} »")
         blocks.append(
-            {"title": block.get("title", dev.name), "widget": block["widget"], "device": dev.id}
+            {"title": block.get("title", dev.id), "widget": block["widget"], "device": dev.id}
         )
     return blocks

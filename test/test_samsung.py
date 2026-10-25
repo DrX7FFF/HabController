@@ -31,7 +31,7 @@ class SamsungTVTest(unittest.IsolatedAsyncioTestCase):
 
         server = await asyncio.start_server(fake_tv, "127.0.0.1", 0)
         port = server.sockets[0].getsockname()[1]
-        tv = SamsungTV(host="127.0.0.1", port=port, retry=0.05, name="TV")
+        tv = SamsungTV(host="127.0.0.1", port=port, retry=0.05)
         self.assertEqual(tv.state(), {"connected": False, "on": False})
         await tv.start()
         await until(lambda: tv.on)

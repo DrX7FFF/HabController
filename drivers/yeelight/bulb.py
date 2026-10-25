@@ -38,9 +38,8 @@ class YeelightBulb(Light, NetworkDevice):
         host: str,
         port: int = 55443,
         transition: int = 300,
-        name: str = "",
     ):
-        super().__init__(name)
+        super().__init__()
         self.transition = transition  # durée par défaut des transitions (ms)
         self._host = host
         self._port = port
@@ -74,7 +73,7 @@ class YeelightBulb(Light, NetworkDevice):
             try:
                 await self._bulb.async_listen(self._on_update)
             except ERRORS as err:
-                log.warning("%s : connexion impossible (%s), nouvel essai", self.name, err)
+                log.warning("%s : connexion impossible (%s), nouvel essai", self.id, err)
                 await asyncio.sleep(RETRY_DELAY)
             else:
                 return
@@ -102,7 +101,7 @@ class YeelightBulb(Light, NetworkDevice):
         try:
             props = await self._bulb.async_get_properties(PROPERTIES)
         except ERRORS as err:
-            log.warning("%s : lecture de l'état impossible (%s)", self.name, err)
+            log.warning("%s : lecture de l'état impossible (%s)", self.id, err)
             return
         self._merge(props)
         self._synced = True
@@ -139,7 +138,7 @@ class YeelightBulb(Light, NetworkDevice):
         try:
             await self._bulb.async_set_scene(SceneClass.CF, Flow(1, Flow.actions.stay, [step]))
         except ERRORS as err:
-            raise DeviceError(f"{self.name} : {err}") from err
+            raise DeviceError(f"{self.id} : {err}") from err
         self._props.update(power="on", **props)
         self._notify()
 
@@ -148,17 +147,17 @@ class YeelightBulb(Light, NetworkDevice):
 
     def _check_reachable(self) -> None:
         if not (self._connected and self._synced):
-            raise DeviceError(f"{self.name} : injoignable")
+            raise DeviceError(f"{self.id} : injoignable")
 
     async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
         if name not in SETTABLE:
-            raise ValueError(f"{self.name} ne gère pas « {name} »")
+            raise ValueError(f"{self.id} ne gère pas « {name} »")
         self._check_reachable()
         fx = _effect(self._duration(transition))
         try:
             await self._apply(name, value, fx)
         except ERRORS as err:
-            raise DeviceError(f"{self.name} : {err}") from err
+            raise DeviceError(f"{self.id} : {err}") from err
         self._notify()
 
     async def _apply(self, name: str, value: bool | str | int, fx: dict) -> None:

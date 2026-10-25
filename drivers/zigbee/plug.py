@@ -8,7 +8,7 @@ physique est une ligne de pairing/zigbee.toml. Les deux sont créés par l'appai
 
     from drivers.zigbee.plug import Plug
 
-    prise_salon = Plug(name="Prise salon")
+    prise_salon = Plug()
 
 Écriture : prise_salon.on = True | False | "toggle", comme une ampoule.
 """
@@ -52,8 +52,8 @@ class Plug(ZigbeeDevice):
     current = Attribute[float](readonly=True)
     energy = Attribute[float](readonly=True)
 
-    def __init__(self, name: str = "", poll: float | None = None):
-        super().__init__(name, poll)
+    def __init__(self, poll: float | None = None):
+        super().__init__(poll)
         self._values: dict[str, bool | float] = {}
         self._scales: dict[str, float] = {}  # état -> facteur, pour les mesures disponibles
         self._by_zcl: dict[tuple[int, str], str] = {
@@ -76,7 +76,7 @@ class Plug(ZigbeeDevice):
         self._scales = scales
         for cluster_id, reports in REPORTS.items():
             if (cluster := find_cluster(zdev, cluster_id)) is not None:
-                await setup_reporting(self.name, cluster, reports)
+                await setup_reporting(self.id, cluster, reports)
 
     async def _read(self, zdev) -> None:
         for cluster_id, reports in REPORTS.items():
@@ -98,7 +98,7 @@ class Plug(ZigbeeDevice):
 
     async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
         if name != "on":
-            raise ValueError(f"{self.name} ne gère pas « {name} »")
+            raise ValueError(f"{self.id} ne gère pas « {name} »")
         on = on_value(value, self._values.get("on") is True)
         cluster = find_cluster(self.zdev, ON_OFF) if self.zdev is not None else None
         await self._command(cluster, "on" if on else "off")  # commandes ZCL « on » / « off »

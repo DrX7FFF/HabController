@@ -8,7 +8,7 @@ off_long_press…
 
     from drivers.zigbee.button import Button
 
-    bouton_lit = Button(name="Bouton lit")
+    bouton_lit = Button()
 
 Dans une automatisation : @on_event("bouton_lit.double"), ou @on_event("bouton_lit") pour tous.
 """
@@ -35,7 +35,7 @@ class Button(Sensor):
     def zha_send_event(self, action: str, args) -> None:
         """Appelé par le correctif zha-quirks de l'appareil pour chaque appui ou geste."""
         self._received()
-        log.debug("%s : événement %s %s", self.name, action, args)
+        log.debug("%s : événement %s %s", self.id, action, args)
         self._emit(action, args or None)
 
 

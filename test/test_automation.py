@@ -22,7 +22,7 @@ from core.base import Attribute, Device, DeviceError, spawn_task  # noqa: E402
 
 class FakeDevice(Device):
     def __init__(self, id, state=None):
-        super().__init__(id)
+        super().__init__()
         self.configure(id)
         self._state = dict(state or {})
         self.commands: list[tuple] = []

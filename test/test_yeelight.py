@@ -28,7 +28,7 @@ class FakeBulb:
 
 class YeelightOnTest(unittest.IsolatedAsyncioTestCase):
     def make(self):
-        bulb = YeelightBulb(host="192.0.2.1", name="Salon")
+        bulb = YeelightBulb(host="192.0.2.1")
         bulb._connected = bulb._synced = True
         bulb._bulb = FakeBulb()  # type: ignore[assignment]
         return bulb

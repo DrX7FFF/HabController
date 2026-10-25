@@ -68,7 +68,7 @@ def accessories(indexes=(0, 1)):
 
 
 def make_fp2(dev_id="fp2", **kwargs):
-    device = fp2.FP2(name="FP2", **kwargs)
+    device = fp2.FP2(**kwargs)
     device.configure(dev_id)  # normalement fait par load_devices()
     return device
 
@@ -476,7 +476,7 @@ class AddDeviceTest(unittest.TestCase):
     def test_appended_with_import(self):
         for dev_id in ("fp2", "capteur"):
             core_devices.add_device(
-                dev_id, "homekit.fp2", 'Présence "salon"', "HomeKit : X", path=self.path
+                dev_id, "homekit.fp2", "HomeKit : X", path=self.path
             )
         self.assertEqual(
             self.file.read_text(encoding="utf-8"),
@@ -484,9 +484,9 @@ class AddDeviceTest(unittest.TestCase):
             "from drivers.homekit.fp2 import FP2\n\n"
             'salon = YeelightBulb(host="192.0.2.10")\n\n'
             "# HomeKit : X\n"
-            'fp2 = FP2(name="Présence \\"salon\\"", zonemapping={0: "Global"})\n\n'
+            'fp2 = FP2(zonemapping={0: "Global"})\n\n'
             "# HomeKit : X\n"
-            'capteur = FP2(name="Présence \\"salon\\"", zonemapping={0: "Global"})\n',
+            'capteur = FP2(zonemapping={0: "Global"})\n',
         )
 
     def test_generated_file_loads_as_devices(self):
@@ -535,21 +535,20 @@ class LoadDevicesTest(unittest.TestCase):
             "from drivers.zigbee.plug import Plug\n"
             "HOTE = '192.0.2.1'\n"
             "fp2 = FP2(zonemapping={1: 'salon'})\n"
-            "prise = Plug(name='Prise')\n",
+            "prise = Plug()\n",
         )
         self.write("groupe", f"from {self.package}.salon import prise\n")  # importé : compté une fois
         self.write("_ignore", "raise RuntimeError\n")
         devices = core_devices.load_devices(self.package)
         self.assertEqual(set(devices), {"fp2", "prise"})
-        self.assertEqual((devices["fp2"].id, devices["fp2"].name), ("fp2", "fp2"))
-        self.assertEqual((devices["prise"].id, devices["prise"].name), ("prise", "Prise"))
+        self.assertEqual((devices["fp2"].id, devices["prise"].id), ("fp2", "prise"))
         self.assertEqual(devices["fp2"]._aliases, {1: "salon"})
         self.assertEqual(devices["fp2"].state(), {"connected": False})
 
     def test_same_id_in_two_files_is_signalled(self):
-        plug = "from drivers.zigbee.plug import Plug\nlampe = Plug(name='{}')\n"
-        self.write("cuisine", plug.format("Cuisine"))
-        self.write("salon", plug.format("Salon"))
+        plug = "from drivers.zigbee.plug import Plug\nlampe = Plug()\n"
+        self.write("cuisine", plug)
+        self.write("salon", plug)
         with self.assertLogs("core.devices", "WARNING") as logs:
             devices = core_devices.load_devices(self.package)
         self.assertEqual(
@@ -560,7 +559,6 @@ class LoadDevicesTest(unittest.TestCase):
     def test_config_devices_load(self):
         devices = core_devices.load_devices()
         self.assertEqual(set(devices), {"salon", "cuisine", "fp2", "prise_salon"})
-        self.assertEqual(devices["salon"].name, "Salon")
         self.assertEqual(devices["fp2"]._aliases, {0: "Global", 1: "salon", 2: "cuisine"})
 
 
@@ -657,7 +655,7 @@ class PairRunTest(unittest.IsolatedAsyncioTestCase):
             async_start_pairing=mock.AsyncMock(return_value=finish),
         )
 
-    async def run_pairing(self, discovery, models="PS-S02D", name="FP2"):
+    async def run_pairing(self, discovery, models="PS-S02D", answer="fp2"):
         @asynccontextmanager
         async def fake_controller():
             yield object()
@@ -668,7 +666,7 @@ class PairRunTest(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(homekit_pair, "discover", mock.AsyncMock(return_value=[discovery])),
             mock.patch.object(core_pair, "driver_for_model", lambda m, _path: known.get(m[0], "")),
         ):
-            dialog = ScriptedDialog(name, "123-45-678")  # nom vide : garder le nom reconnu
+            dialog = ScriptedDialog(answer, "123-45-678")  # vide : garder l'identifiant reconnu
             ok = await homekit_pair.Pairing(dialog).run(0)
         return ok, "\n".join(dialog.out)
 
@@ -678,13 +676,13 @@ class PairRunTest(unittest.IsolatedAsyncioTestCase):
         config_path = self.devices / "devices.py"
         text = config_path.read_text(encoding="utf-8")
         self.assertIn("from drivers.homekit.fp2 import FP2", text)
-        self.assertIn('fp2 = FP2(name="FP2", zonemapping={0: "Global"})', text)
+        self.assertIn('fp2 = FP2(zonemapping={0: "Global"})', text)
         self.assertIn("modèle PS-S02D", text)
         self.assertTrue(homekit.pairing_file("fp2").exists())
         self.assertNotIn("Modèle inconnu", out)
         # second appel (accessoire réinitialisé) : reconnu, Entrée refait le lien
-        self.declared["fp2"] = fp2.FP2(name="FP2")
-        ok, out = await self.run_pairing(self.discovery(), name="")
+        self.declared["fp2"] = fp2.FP2()
+        ok, out = await self.run_pairing(self.discovery(), answer="")
         self.assertTrue(ok)
         self.assertIn("« fp2 » déjà déclaré dans devices/, inchangé", out)
         self.assertEqual(config_path.read_text(encoding="utf-8"), text)

@@ -52,14 +52,14 @@ class Sensor(ZigbeeDevice):
     POLL = None
     battery = Attribute[int](readonly=True)
 
-    def __init__(self, name: str = ""):
-        super().__init__(name)
+    def __init__(self):
+        super().__init__()
         self._values: dict[str, bool | float] = {}
 
     async def _configure(self, zdev) -> None:
         for cluster_id, reports in REPORTS.items():
             if (cluster := find_cluster(zdev, cluster_id)) is not None:
-                await setup_reporting(self.name, cluster, reports)
+                await setup_reporting(self.id, cluster, reports)
 
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
         if (measure := MEASURES.get((cluster_id, name))) and value is not None:
