@@ -435,6 +435,62 @@ class CoordinatorSessionTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(coordinator._task)
 
 
+class FakeListener:
+    def __init__(self):
+        self.closed = False
+
+    async def shutdown(self):
+        self.closed = True
+
+
+class FakeApp:
+    """Coordinateur dont l'arrêt bloque à la déconnexion de la clé (clé retirée)."""
+
+    def __init__(self):
+        self._dblistener = FakeListener()
+        self.listener = self._dblistener
+        self.stuck = asyncio.Event()
+
+    def _remove_db_listeners(self):
+        self.listener = None
+
+    async def shutdown(self, *, db=True):
+        self.stuck.set()
+        await asyncio.Event().wait()
+
+
+class CloseSessionTest(unittest.IsolatedAsyncioTestCase):
+    """Arrêt du coordinateur bloqué : la base est refermée quand même."""
+
+    async def test_stuck_shutdown_gives_up(self):
+        app = FakeApp()
+        with (
+            mock.patch.object(zigbee, "CLOSE_WAIT", 0.05),
+            self.assertLogs("drivers.zigbee", "WARNING") as logs,
+        ):
+            await zigbee.close_session(app)
+        self.assertTrue(app._dblistener.closed)
+        self.assertIsNone(app.listener)
+        self.assertIn("FakeApp.shutdown", logs.output[0])
+
+    async def test_normal_shutdown(self):
+        app = FakeApp()
+        app.shutdown = mock.AsyncMock()
+        with self.assertNoLogs("drivers.zigbee", "WARNING"):
+            await zigbee.close_session(app)
+        app.shutdown.assert_awaited_once_with(db=False)
+        self.assertTrue(app._dblistener.closed)
+
+    async def test_cancelled_while_stuck(self):
+        app = FakeApp()
+        task = asyncio.create_task(zigbee.close_session(app))
+        await app.stuck.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(app._dblistener.closed)
+
+
 class ScriptedDialog:
     """Dialogue de l'appairage sans page : réponses données d'avance."""
 

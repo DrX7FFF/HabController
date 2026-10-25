@@ -47,6 +47,7 @@ HOME_AUTOMATION = 0x0104  # profil Zigbee des types d'appareil standard
 RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à chaque échec)
 RETRY_MAX = 60
 READY_WAIT = 30  # s, laissées à la clé pour s'ouvrir quand l'appairage l'emprunte
+CLOSE_WAIT = 10  # s, au plus, pour arrêter le coordinateur (clé retirée : il peut bloquer)
 
 
 def device_types(zdev) -> list[str]:
@@ -95,14 +96,46 @@ async def open_session():
     """Coordinateur démarré (réseau créé s'il n'existe pas encore), arrêté à la sortie."""
     config = load_config()
     restore_snapshot()
-    # new() charge la base avant de démarrer : sans elle, les équipements connus sont oubliés
+    # new() charge la base avant de démarrer : sans elle, les équipements connus sont oubliés.
+    # Clé démarrée à part : en cas d'échec, zigpy laisserait la base (et son thread) ouverte.
     app = await ControllerApplication.new(
-        config, auto_form=True, device_resolver=await load_quirks()
+        config, start_radio=False, device_resolver=await load_quirks()
     )
     try:
+        await app.startup(auto_form=True)
         yield app
     finally:
-        await app.shutdown()
+        await close_session(app)
+
+
+async def close_session(app: ZigpyApplication) -> None:
+    """Arrête le coordinateur en CLOSE_WAIT s au plus, puis referme la base dans tous les cas
+    (arrêt bloqué ou annulé) : son thread ouvert empêcherait le programme de se terminer."""
+    stopping = asyncio.ensure_future(app.shutdown(db=False))
+    try:
+        await asyncio.wait({stopping}, timeout=CLOSE_WAIT)
+        if not stopping.done():
+            log.warning(
+                "Clé Zigbee : arrêt bloqué depuis %s s, abandonné ; en attente dans :\n%s",
+                CLOSE_WAIT,
+                asyncio.format_call_graph(stopping),
+            )
+    finally:
+        stopping.cancel()
+        await asyncio.gather(stopping, return_exceptions=True)
+        await close_database(app)
+
+
+async def close_database(app: ZigpyApplication) -> None:
+    """Ce que fait shutdown(db=True) après la déconnexion de la clé (attributs internes de
+    zigpy : shutdown ne permet pas de fermer la base sans passer par la clé)."""
+    if app._dblistener is None:
+        return
+    app._remove_db_listeners()
+    try:
+        await asyncio.wait_for(app._dblistener.shutdown(), CLOSE_WAIT)
+    except Exception as err:  # base bloquée ou abîmée : on ne peut rien de plus
+        log.warning("Base Zigbee : fermeture impossible (%s)", type(err).__name__)
 
 
 def restore_snapshot() -> None:

@@ -21,8 +21,10 @@ def _http_problem(record: logging.LogRecord) -> bool:
     return not isinstance(record.args, tuple) or record.args[-1] >= 400
 
 
-def _not_websocket_routine(record: logging.LogRecord) -> bool:
-    """Ouverture et fermeture d'un WebSocket (une par page ouverte) : pas journalisées."""
+def _uvicorn_server(record: logging.LogRecord) -> bool:
+    """Journal général d'uvicorn (nommé « uvicorn.error » même pour ses INFO) : affiché
+    « uvicorn » ; ouverture et fermeture d'un WebSocket (une par page ouverte) : pas journalisées."""
+    record.name = "uvicorn"
     message = str(record.msg)
     return "[accepted]" not in message and message not in ("connection open", "connection closed")
 
@@ -40,7 +42,7 @@ def setup() -> None:
         logging.getLogger(library).setLevel(logging.WARNING)
     # uvicorn (lancé avec log_config=None) passe par ces mêmes journaux
     logging.getLogger("uvicorn.access").addFilter(_http_problem)
-    logging.getLogger("uvicorn.error").addFilter(_not_websocket_routine)
+    logging.getLogger("uvicorn.error").addFilter(_uvicorn_server)
 
     scripts = logging.getLogger("automations")
     scripts.setLevel(logging.DEBUG)
