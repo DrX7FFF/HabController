@@ -72,3 +72,14 @@ Bus 001 Device 015: ID 10c4:ea60 Silicon Labs CP210x UART Bridge
 ❯ ls -l /dev/serial/by-id/
 total 0
 lrwxrwxrwx 1 root root 13 oct.  10 23:08 usb-SONOFF_SONOFF_Dongle_Plus_MG24_cccd71bbb69aef1193e6b89061ce3355-if00-port0 -> ../../ttyUSB0
+
+## Mise en mode appairage des équipements
+### Philips Hue LWA001 (ampoule E27 Bluetooth)
+Avec une télécommande Hue Dimmer (méthode qui a fonctionné) :
+1. couper puis rallumer l'ampoule (peut échouer si elle est allumée depuis longtemps) ;
+2. tenir la télécommande le plus près possible de l'ampoule ;
+3. appuyer ensemble sur I/On et 0/Off 10 à 12 s, jusqu'au clignotement de l'ampoule ;
+4. garder appuyé jusqu'au dernier clignotement, plus une seconde ;
+5. couper puis rallumer l'ampoule : elle peut être appairée.
+
+Source : [Zigbee2MQTT, Philips 8718699673147](https://www.zigbee2mqtt.io/devices/8718699673147.html).
