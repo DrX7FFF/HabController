@@ -28,6 +28,7 @@ from core import ROOT, devices as core_devices, pair as core_pair  # noqa: E402
 from drivers.homekit import fp2, pair as homekit_pair  # noqa: E402
 
 BASE = "-0000-1000-8000-0026BB765291"
+IEEE = "a4:c1:38:d6:d7:c6:db:f6"  # adresse d'une prise Zigbee
 
 
 def char(iid, short, value, perms):
@@ -493,7 +494,7 @@ class AddDeviceTest(unittest.TestCase):
     def test_generated_file_loads_as_devices(self):
         package = self.path.parent / "devs_generated"
         core_devices.add_device("capteur", "homekit.fp2", path=package)
-        core_devices.add_device("prise", "zigbee.plug", path=package)
+        core_devices.add_device("prise", "zigbee.plug", args=(f'ieee="{IEEE}"',), path=package)
         sys.path.insert(0, str(package.parent))
         self.addCleanup(sys.path.remove, str(package.parent))
         devices = core_devices.load_devices("devs_generated")
@@ -517,10 +518,10 @@ class AddDeviceTest(unittest.TestCase):
 
     def test_import_added_when_absent(self):
         self.file.write_text("import logging\n")
-        core_devices.add_device("prise", "zigbee.plug", path=self.path)
+        core_devices.add_device("prise", "zigbee.plug", args=(f'ieee="{IEEE}"',), path=self.path)
         self.assertEqual(
             self.file.read_text(encoding="utf-8"),
-            "import logging\nfrom drivers.all import Plug\n\nprise = Plug()\n",
+            f'import logging\nfrom drivers.all import Plug\n\nprise = Plug(ieee="{IEEE}")\n',
         )
 
     def test_star_import_kept(self):
@@ -559,7 +560,7 @@ class LoadDevicesTest(unittest.TestCase):
             "from drivers.zigbee.plug import Plug\n"
             "HOTE = '192.0.2.1'\n"
             "fp2 = FP2(zonemapping={1: 'salon'})\n"
-            "prise = Plug()\n",
+            f"prise = Plug(ieee='{IEEE}')\n",
         )
         self.write("groupe", f"from {self.package}.salon import prise\n")  # importé : compté une fois
         self.write("_ignore", "raise RuntimeError\n")
@@ -570,7 +571,7 @@ class LoadDevicesTest(unittest.TestCase):
         self.assertEqual(devices["fp2"].state(), {"connected": False})
 
     def test_same_id_in_two_files_is_signalled(self):
-        plug = "from drivers.zigbee.plug import Plug\nlampe = Plug()\n"
+        plug = f"from drivers.zigbee.plug import Plug\nlampe = Plug(ieee='{IEEE}')\n"
         self.write("cuisine", plug)
         self.write("salon", plug)
         with self.assertLogs("core.devices", "WARNING") as logs:

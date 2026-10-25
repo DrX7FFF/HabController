@@ -48,8 +48,8 @@ class Sensor(ZigbeeDevice):
     POLL = None
     battery = Attribute[int](readonly=True)
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, ieee: str):
+        super().__init__(ieee)
         self._values: dict[str, bool | float] = {}
 
     async def _configure(self, zdev) -> None:

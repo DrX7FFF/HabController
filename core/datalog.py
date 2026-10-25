@@ -49,7 +49,8 @@ class Datalog:
         self.watched: dict[str, dict[str, dict]] = {}  # équipement -> attribut -> réglages
         for dev_id, attrs in conf.get("devices", {}).items():
             if dev_id not in devices:
-                raise ValueError(f"datalog : équipement inconnu « {dev_id} »")
+                log.error("datalog : équipement inconnu « %s », ignoré", dev_id)
+                continue
             self.watched[dev_id] = attrs
             for attr, options in attrs.items():
                 retention = options.get("retention")

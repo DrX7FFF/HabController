@@ -39,8 +39,8 @@ class Plug(ZigbeeDevice):
     current = Attribute[float](readonly=True)
     energy = Attribute[float](readonly=True)
 
-    def __init__(self, poll: float | None = None):
-        super().__init__(poll)
+    def __init__(self, ieee: str, poll: float | None = None):
+        super().__init__(ieee, poll)
         self._values: dict[str, bool | float] = {}
         self._scales: dict[str, float] = {}  # état -> facteur, pour les mesures disponibles
         self._by_zcl: dict[tuple[int, str], str] = {

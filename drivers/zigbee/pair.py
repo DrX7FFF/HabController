@@ -2,20 +2,18 @@
 
 import asyncio
 from collections.abc import Callable
-from pathlib import Path
 
 from core import pair
 from drivers import zigbee
 from drivers.zigbee import (
     ERRORS,
-    PairingError,
+    ZigbeeDevice,
     coordinator,
     describe,
     find_cluster,
-    load_mapping,
+    label,
     model_keys,
     read,
-    save_mapping,
     save_snapshot,
 )
 from drivers.zigbee.light import CAPABILITIES, COLOR
@@ -88,18 +86,12 @@ class Pairing(pair.Pairing):
     DURATION = 120
     MAX_DURATION = MAX_PERMIT
     HINT = "Vérifier le port ([zigbee] de habctrl.toml) et le journal."
-    devices: dict = {}  # appareils de la base, pour commenter pairing/zigbee.toml
+    CLEANUP = True
 
     def session(self):
         return coordinator.session()
 
     async def search(self, app, duration: int) -> list[pair.Candidate]:
-        try:
-            load_mapping(missing_ok=True)
-        except PairingError as err:  # on n'écrase pas un fichier à corriger à la main
-            self.ui.say(f"Erreur : {err}")
-            return []
-        self.devices = app.devices
         device = await wait_device(app, duration, self.ui)
         if device is None:
             return []
@@ -113,27 +105,37 @@ class Pairing(pair.Pairing):
                 comment=f"Zigbee : {device.manufacturer}, modèle {device.model}",
                 details=describe(device),
                 device=device,
+                args=(f'ieee="{device.ieee}"',),
             )
         ]
 
-    async def link(self, app, candidate: pair.Candidate, dev_id: str) -> Path:
-        mapping = load_mapping(missing_ok=True)
-        mapping = {ieee: linked for ieee, linked in mapping.items() if linked != dev_id}
-        mapping[candidate.uid] = dev_id
-        return save_mapping(mapping, self.devices)
+    async def link(self, app, candidate: pair.Candidate, dev_id: str) -> None:
+        """L'appareil a rejoint le réseau : l'adresse dans la déclaration suffit."""
+        coordinator.paired.add(candidate.uid)
 
     def paired_ids(self, uid) -> list[str]:
-        dev_id = load_mapping(missing_ok=True).get(uid)
-        return [dev_id] if dev_id else []
+        return [
+            dev_id
+            for dev_id, device in self.declared.items()
+            if isinstance(device, ZigbeeDevice) and device.ieee == uid
+        ]
 
-    def linked(self, dev_id: str) -> bool:
-        return dev_id in load_mapping(missing_ok=True).values()
-
-    def unlink(self, dev_id: str) -> None:
-        mapping = load_mapping(missing_ok=True)
-        if dev_id in mapping.values():
-            kept = {ieee: linked for ieee, linked in mapping.items() if linked != dev_id}
-            save_mapping(kept, self.devices)
+    async def target(self, uid) -> str:
+        if known := self.paired_ids(uid):
+            self.ui.say(f"Équipement reconnu, déclaré « {known[0]} ».")
+            return known[0]
+        while (dev_id := await self.ask_id()) in self.declared:
+            self.ui.say(f"« {dev_id} » déjà existant, saisir un autre identifiant.")
+        return dev_id
 
     def done(self) -> None:
         save_snapshot()  # le réseau a changé : seule écriture de la copie
+
+    @classmethod
+    async def unused(cls) -> list[str]:
+        async with coordinator.session() as app:
+            return [label(zdev) for zdev in coordinator.unused(app)]
+
+    @classmethod
+    async def remove_unused(cls) -> list[str]:
+        return await coordinator.remove_unused()

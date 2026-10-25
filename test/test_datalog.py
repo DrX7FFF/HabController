@@ -191,9 +191,10 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             datalog.duration_ms("3 semaines")
 
-    def test_unknown_device_is_an_error(self):
-        with self.assertRaises(ValueError):
-            datalog.Datalog({**CONF, "devices": {"fantome": {"on": {}}}}, {})
+    def test_unknown_device_ignored(self):
+        with self.assertLogs("core.datalog", "ERROR"):
+            log = datalog.Datalog({**CONF, "devices": {"fantome": {"on": {}}}}, {})
+        self.assertEqual(log.watched, {})
 
     def test_retention_per_attribute(self):
         log = datalog.Datalog(CONF, {"prise": FakeDevice("prise"), "fp2": FakeDevice("fp2")})

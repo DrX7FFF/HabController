@@ -14,7 +14,7 @@ from core import ROOT, TEMP_DIR, check_config, datalog, pair
 from core.automation import load_automations, stop_automations
 from core.base import DeviceError
 from core.charts import downsample, load_charts
-from core.devices import load_devices, write_summary
+from core.devices import load_devices, summarize
 from core.log import setup as setup_logging
 from core.widgets import load_blocks
 
@@ -55,8 +55,9 @@ async def lifespan(app: FastAPI):
     if history:
         await history.start()
     await asyncio.gather(*(d.start() for d in devices.values()))
-    write_summary(devices, TEMP_DIR / "equipements.txt")
+    summary = asyncio.create_task(summarize(devices, TEMP_DIR / "equipements.txt"))
     yield
+    summary.cancel()
     await stop_automations()  # annule aussi les envois du datalog en cours
     if history:
         await history.stop()
@@ -204,9 +205,34 @@ async def list_pairings():
             "label": cls.LABEL or name,
             "duration": cls.DURATION,
             "max_duration": cls.MAX_DURATION,
+            "cleanup": cls.CLEANUP,
         }
         for name, cls in sorted(pairings.items())
     ]
+
+
+# Appareils appairés qu'aucun équipement n'utilise : liste (GET), retrait (DELETE).
+async def cleanup(protocol: str, action: str) -> list[str]:
+    cls = pairings.get(protocol)
+    if cls is None or not cls.CLEANUP:
+        raise HTTPException(status_code=404, detail="protocole inconnu ou sans nettoyage")
+    if pairing_lock.locked():
+        raise HTTPException(status_code=409, detail="un appairage est en cours")
+    async with pairing_lock:
+        try:
+            return await getattr(cls, action)()
+        except cls.PROTOCOL.ERRORS as err:
+            raise HTTPException(status_code=502, detail=str(err)) from err
+
+
+@app.get("/api/pair/{protocol}/unused")
+async def list_unused(protocol: str) -> list[str]:
+    return await cleanup(protocol, "unused")
+
+
+@app.delete("/api/pair/{protocol}/unused")
+async def remove_unused(protocol: str) -> list[str]:
+    return await cleanup(protocol, "remove_unused")
 
 
 class PairingDialog:

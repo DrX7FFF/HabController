@@ -110,7 +110,7 @@ aucun graphique.
 
 ## Appairage : déroulé et fichiers
 
-Déroulé et `pairing/zigbee.toml` : voir `README.md`.
+Déroulé et nettoyage des appareils Zigbee inutilisés : voir `README.md`.
 
 - **HomeKit** : la découverte mDNS écoute pendant la durée choisie ; les accessoires déjà
   appairés sont ignorés (les réinitialiser pour les appairer). L'accessoire est reconnu par son
@@ -142,14 +142,15 @@ ok = await salon.send("brightness", 50, 2000)  # attend la réponse ; transition
 if prise_salon.on: ...                       # lecture de l'état mémorisé
 ```
 
-Les équipements Zigbee et HomeKit se déclarent sans adresse : le lien avec l'appareil physique
-est enregistré dans `pairing/` par l'appairage, qui crée aussi la déclaration.
+Les équipements Zigbee se déclarent avec l'adresse IEEE de leur appareil (`ieee="…"`, premier
+argument) ; les équipements HomeKit sans adresse : le lien avec l'appareil physique est enregistré
+dans `pairing/`. Dans les deux cas, l'appairage écrit la déclaration.
 
 ### Ampoules — `yeelight.bulb`, `zigbee.light`
 
 ```python
 salon = YeelightBulb(host="192.168.1.110")   # port=55443, transition=300
-plafonnier = Light()                         # Zigbee ; transition=300
+plafonnier = Light(ieee="00:17:88:01:08:b6:48:b3")  # Zigbee ; transition=300
 ```
 
 Interface commune (`core/light.py`) : une automatisation écrite pour une ampoule marche avec
@@ -188,7 +189,7 @@ dixième de seconde près.
 ### Prise Zigbee — `zigbee.plug`
 
 ```python
-prise_salon = Plug()
+prise_salon = Plug(ieee="a4:c1:38:d6:d7:c6:db:f6")
 ```
 
 | Attribut       | Type             | Lecture | Commande                    |
@@ -206,9 +207,9 @@ répond encore.
 ### Capteurs Zigbee sur pile — `zigbee.climate`, `zigbee.motion`, `zigbee.contact`
 
 ```python
-meteo_salon = Climate()
-presence_entree = Motion()
-porte_entree = Contact()
+meteo_salon = Climate(ieee="00:15:8d:00:04:aa:e1:a9")
+presence_entree = Motion(ieee="00:15:8d:00:05:12:34:56")
+porte_entree = Contact(ieee="00:15:8d:00:05:65:43:21")
 ```
 
 | Pilote    | Attribut      | Type                    |
@@ -229,7 +230,7 @@ personne » (Xiaomi) est remis à faux par son correctif zha-quirks après un d�
 ### Bouton Zigbee — `zigbee.button`
 
 ```python
-bouton_lit = Button()
+bouton_lit = Button(ieee="00:15:8d:00:04:01:94:be")
 ```
 
 Seulement `battery` dans l'état. Chaque appui est un événement, nommé par le correctif

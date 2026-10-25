@@ -60,8 +60,8 @@ def xy_to_rgb(x: float, y: float) -> str:
 class Light(core.light.Light, ZigbeeDevice):
     """Ampoule Zigbee : l'état vient de ce qu'elle envoie, relu toutes les `poll` secondes."""
 
-    def __init__(self, transition: int = 300, poll: float | None = None):
-        super().__init__(poll)
+    def __init__(self, ieee: str, transition: int = 300, poll: float | None = None):
+        super().__init__(ieee, poll)
         self.transition = transition  # durée par défaut des transitions (ms)
         self._raw: dict[str, int] = {}  # dernières valeurs ZCL reçues
 

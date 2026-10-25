@@ -2,6 +2,8 @@
 // Le dialogue passe par le WebSocket /ws/pair (voir main.py) : messages du serveur affichés
 // dans le journal, questions posées sous le journal, barre de progression pendant la recherche ;
 // « Arrêter » ou fermer la page interrompt l'appairage.
+// Protocole qui le permet : bouton de nettoyage, qui retire (après confirmation) les appareils
+// appairés qu'aucun équipement n'utilise (GET puis DELETE /api/pair/<protocole>/unused).
 
 const banner = document.getElementById("banner");
 const protocols = document.getElementById("protocols");
@@ -137,7 +139,41 @@ function build(p) {
     start(p, seconds);
   };
   el.append(button, label);
+  if (p.cleanup) el.append(cleanupButton(p));
   return el;
+}
+
+async function request(url, method = "GET") {
+  const r = await fetch(url, { method });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || r.status);
+  return body;
+}
+
+function cleanupButton(p) {
+  const button = Object.assign(document.createElement("button"),
+    { textContent: "Nettoyer l'appairage des équipements non utilisés" });
+  const url = `/api/pair/${p.protocol}/unused`;
+  button.onclick = async () => {
+    show("");
+    button.disabled = true;
+    try {
+      const unused = await request(url);
+      if (!unused.length) {
+        show(`${p.label} : aucun appareil inutilisé.`);
+      } else if (confirm(`Retirer du réseau ${p.label} (à réappairer pour s'en resservir) :\n`
+          + unused.map(d => `- ${d}`).join("\n"))) {
+        const removed = await request(url, "DELETE");
+        show(`${p.label} : ${removed.length} appareil(s) retiré(s)`
+          + (removed.length < unused.length ? ", les autres en échec (voir le journal)." : "."));
+      }
+    } catch (err) {
+      show(`Nettoyage ${p.label} impossible (${err.message}).`);
+    } finally {
+      button.disabled = !!ws;
+    }
+  };
+  return button;
 }
 
 fetch("/api/pair")

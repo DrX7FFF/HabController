@@ -5,26 +5,23 @@ au premier équipement Zigbee et relancé si la clé décroche. L'appairage l'em
 (`coordinator.session()`) : le port série ne s'ouvre qu'une fois."""
 
 import asyncio
-import json
 import logging
 import shutil
 import sqlite3
-import tomllib
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, closing
-from pathlib import Path
+from contextlib import asynccontextmanager
 
-from bellows.ash import AshException
 import zhaquirks
+from bellows.ash import AshException
 from bellows.zigbee.application import ControllerApplication
 from zha.quirks import DEVICE_REGISTRY
+from zigpy.application import ControllerApplication as ZigpyApplication
 from zigpy.config import (
     CONF_DATABASE,
     CONF_DEVICE,
     CONF_DEVICE_BAUDRATE,
     CONF_DEVICE_PATH,
 )
-from zigpy.application import ControllerApplication as ZigpyApplication
 from zigpy.device import Device as ZigpyDevice
 from zigpy.exceptions import RadioException, ZigbeeException
 from zigpy.types import EUI64
@@ -36,101 +33,20 @@ from core.base import DeviceError, NetworkDevice
 
 log = logging.getLogger(__name__)
 
-ERRORS = (ZigbeeException, RadioException, AshException, OSError)  # protocole ou liaison série
+ERRORS = (
+    ZigbeeException,
+    RadioException,
+    AshException,
+    OSError,
+)  # protocole ou liaison série
 DB_FILE = TEMP_DIR / "zigbee.db"  # base vivante, utilisée par zigpy
-MAPPING = PAIRING_DIR / "zigbee.toml"  # IEEE -> équipement logique, fait foi
-SNAPSHOT = PAIRING_DIR / "zigbee.db"  # copie de sauvegarde de la base, dans la configuration
+SNAPSHOT = (
+    PAIRING_DIR / "zigbee.db"
+)  # copie de sauvegarde de la base, dans la configuration
 HOME_AUTOMATION = 0x0104  # profil Zigbee des types d'appareil standard
 RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à chaque échec)
 RETRY_MAX = 60
 READY_WAIT = 30  # s, laissées à la clé pour s'ouvrir quand l'appairage l'emprunte
-
-
-class PairingError(Exception):
-    """Appairage absent ou illisible pour cet équipement."""
-
-
-def load_mapping(missing_ok: bool = False) -> dict[EUI64, str]:
-    """Correspondance IEEE -> id de pairing/zigbee.toml ; PairingError s'il est inutilisable."""
-    try:
-        data = tomllib.loads(MAPPING.read_text(encoding="utf-8"))
-    except FileNotFoundError as err:
-        if missing_ok:
-            return {}
-        raise PairingError(f"{MAPPING} introuvable") from err
-    except tomllib.TOMLDecodeError as err:
-        raise PairingError(f"{MAPPING} illisible : {err}") from err
-    try:
-        if not all(isinstance(dev_id, str) for dev_id in data.values()):
-            raise ValueError("identifiant attendu entre guillemets")
-        return {EUI64.convert(ieee): dev_id for ieee, dev_id in data.items()}
-    except (AssertionError, ValueError) as err:
-        raise PairingError(f"{MAPPING} : ligne invalide ({err})") from err
-
-
-def save_mapping(mapping: dict[EUI64, str], devices: dict) -> Path:
-    """Écrit la correspondance, avec en commentaire le modèle des appareils connus de la base."""
-    lines = [
-        "# Appareil Zigbee (IEEE) -> équipement logique (id dans devices/). Écrit par l'appairage.",
-        "# Fait foi : à l'ouverture de la clé, les appareils absents d'ici sont retirés du réseau.",
-        "",
-    ]
-    for ieee, dev_id in sorted(mapping.items(), key=lambda item: item[1]):
-        line = f'"{ieee}" = {json.dumps(dev_id)}'
-        if (zdev := devices.get(ieee)) is not None:
-            line += f"  # {zdev.manufacturer or '?'} {zdev.model or '?'}"
-        lines.append(line)
-    MAPPING.parent.mkdir(parents=True, exist_ok=True)
-    tmp = MAPPING.with_suffix(".tmp")
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    tmp.replace(MAPPING)
-    return MAPPING
-
-
-def links() -> dict[str, str]:
-    """Appareils liés : {id: description} ({} si pairing/zigbee.toml est inutilisable)."""
-    try:
-        return {dev_id: f"Zigbee {ieee}" for ieee, dev_id in load_mapping(missing_ok=True).items()}
-    except PairingError:
-        return {}
-
-
-
-def link_models() -> dict[str, tuple[list[str], str]]:
-    """Appareils liés : {id: (clés de models.toml, commentaire de déclaration)}, lus dans la base
-    zigpy (la vivante, sinon la copie) : la clé n'a pas besoin d'être ouverte."""
-    db = DB_FILE if DB_FILE.exists() else SNAPSHOT
-    try:
-        mapping = load_mapping(missing_ok=True)
-        with closing(sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro", uri=True)) as con:
-            tables = con.execute("SELECT name FROM sqlite_master WHERE name LIKE 'endpoints_v%'")
-            version = max(int(name.removeprefix("endpoints_v")) for (name,) in tables)
-            basic = con.execute(  # cluster Basic : 4 fabricant, 5 modèle
-                f"SELECT ieee, attr_id, value FROM attributes_cache_v{version}"
-                " WHERE cluster_type = 0 AND cluster_id = 0 AND attr_id IN (4, 5)"
-            ).fetchall()
-            types = con.execute(
-                f"SELECT ieee, device_type FROM endpoints_v{version}"
-                " WHERE endpoint_id != 0 AND profile_id = ? ORDER BY endpoint_id",
-                (HOME_AUTOMATION,),
-            ).fetchall()
-    except (PairingError, sqlite3.Error, ValueError):
-        return {}
-    found = {}
-    for ieee, dev_id in mapping.items():
-        info = {attr: value for i, attr, value in basic if i == str(ieee)}
-        model, manufacturer = info.get(5) or "", info.get(4) or "?"
-        keys = [model, *(f"0x{dtype:04x}" for i, dtype in types if i == str(ieee))]
-        found[dev_id] = (keys, f"Zigbee : {manufacturer}, modèle {model or '?'}")
-    return found
-
-
-def linked_ieee(dev_id: str) -> EUI64:
-    """IEEE de l'appareil lié à l'équipement logique ; PairingError s'il n'y en a pas."""
-    for ieee, linked_id in load_mapping().items():
-        if linked_id == dev_id:
-            return ieee
-    raise PairingError(f"absent de {MAPPING} : l'appairer")
 
 
 def device_types(zdev) -> list[str]:
@@ -184,41 +100,9 @@ async def open_session():
         config, auto_form=True, device_resolver=await load_quirks()
     )
     try:
-        await synchronize(app)
         yield app
     finally:
         await app.shutdown()
-
-
-async def synchronize(app: ZigpyApplication) -> None:
-    """Aligne la base sur pairing/zigbee.toml, qui fait foi, et signale les incohérences."""
-    try:
-        mapping = load_mapping()
-    except PairingError as err:
-        log.warning("Zigbee : %s, appareils non synchronisés", err)
-        return
-    for zdev in joined_devices(app):
-        if zdev.ieee not in mapping:
-            log.warning(
-                "Zigbee : %s (%s %s) absent de %s, retiré du réseau",
-                zdev.ieee,
-                zdev.manufacturer,
-                zdev.model,
-                MAPPING.name,
-            )
-            try:
-                await app.remove(zdev.ieee)
-            except ERRORS as err:
-                log.warning("Zigbee : retrait de %s impossible (%s)", zdev.ieee, err)
-    for ieee, dev_id in mapping.items():
-        if ieee not in app.devices:
-            log.warning(
-                "%s : déclaré avec l'IEEE %s mais absent du réseau Zigbee : le retirer de %s "
-                "ou réappairer un appareil",
-                dev_id,
-                ieee,
-                MAPPING.name,
-            )
 
 
 def restore_snapshot() -> None:
@@ -255,6 +139,11 @@ def joined_devices(app: ZigpyApplication) -> list:
     return [device for ieee, device in app.devices.items() if ieee != coordinator_ieee]
 
 
+def label(device) -> str:
+    """IEEE, fabricant et modèle, sur une ligne."""
+    return f"{device.ieee} ({device.manufacturer or '?'} {device.model or '?'})"
+
+
 def describe(device) -> list[str]:
     """Identité et clusters de chaque endpoint, pour choisir ou écrire un pilote."""
     lines = [
@@ -265,7 +154,9 @@ def describe(device) -> list[str]:
         if ep_id == 0:  # endpoint ZDO : présent partout, sans intérêt ici
             continue
         clusters_in = ", ".join(f"0x{cid:04x}" for cid in sorted(endpoint.in_clusters))
-        clusters_out = ", ".join(f"0x{cid:04x}" for cid in sorted(endpoint.out_clusters))
+        clusters_out = ", ".join(
+            f"0x{cid:04x}" for cid in sorted(endpoint.out_clusters)
+        )
         lines.append(
             f"Endpoint {ep_id} (profil 0x{endpoint.profile_id:04x}, type"
             f" 0x{endpoint.device_type:04x}) : entrée [{clusters_in}]  sortie [{clusters_out}]"
@@ -284,10 +175,14 @@ def find_cluster(zdev, cluster_id: int):
 async def read(cluster, names: list[str]) -> dict:
     """Lit des attributs ; ceux que l'équipement ne gère pas sont absents du résultat."""
     success, _failure = await cluster.read_attributes(names)
-    return {name: value for name, value in success.items() if not isinstance(value, Status)}
+    return {
+        name: value for name, value in success.items() if not isinstance(value, Status)
+    }
 
 
-async def setup_reporting(name: str, cluster, reports: dict[str, tuple[int, int, int]]) -> None:
+async def setup_reporting(
+    name: str, cluster, reports: dict[str, tuple[int, int, int]]
+) -> None:
     """Binding vers le coordinateur et envoi spontané des attributs {nom: (min s, max s, écart)}.
 
     Facultatif : si l'équipement refuse, l'état reste à jour par la lecture périodique.
@@ -295,10 +190,18 @@ async def setup_reporting(name: str, cluster, reports: dict[str, tuple[int, int,
     try:
         await cluster.bind()
         await cluster.configure_reporting_multiple(
-            {cluster.find_attribute(attr): ReportingConfig(*cfg) for attr, cfg in reports.items()}
+            {
+                cluster.find_attribute(attr): ReportingConfig(*cfg)
+                for attr, cfg in reports.items()
+            }
         )
     except ERRORS as err:
-        log.warning("%s : reporting non configuré sur 0x%04x (%s)", name, cluster.cluster_id, err)
+        log.warning(
+            "%s : reporting non configuré sur 0x%04x (%s)",
+            name,
+            cluster.cluster_id,
+            err,
+        )
 
 
 class Coordinator:
@@ -312,20 +215,65 @@ class Coordinator:
         self.app: ZigpyApplication | None = None
         self._devices: dict[EUI64, "ZigbeeDevice"] = {}
         self._sessions = 0  # appairages qui empruntent la clé
+        self.paired: set[EUI64] = (
+            set()
+        )  # appairés depuis le démarrage, déclarés au prochain
         self._task: asyncio.Task | None = None
         self._lost: asyncio.Event | None = None
         self._ready = asyncio.Event()  # clé ouverte
 
-    def register(self, device: "ZigbeeDevice", ieee: EUI64) -> None:
-        self._devices[ieee] = device
+    def register(self, device: "ZigbeeDevice") -> None:
+        other = self._devices.setdefault(device.ieee, device)
+        if other is not device:
+            log.error(
+                "%s : IEEE %s déjà utilisée par %s, ignoré",
+                device.id,
+                device.ieee,
+                other.id,
+            )
+            return
         if self._task is None:
             self._launch()
         elif self.app is not None:
             device._attach(self.app)
 
-    async def unregister(self, ieee: EUI64) -> None:
-        self._devices.pop(ieee, None)
+    async def unregister(self, device: "ZigbeeDevice") -> None:
+        if self._devices.get(device.ieee) is device:
+            del self._devices[device.ieee]
         await self._release()
+
+    @property
+    def idle(self) -> bool:
+        """Clé jamais demandée (aucun équipement Zigbee déclaré, pas d'appairage)."""
+        return self._task is None
+
+    async def wait_ready(self) -> None:
+        """Rend la main quand la clé est ouverte."""
+        await self._ready.wait()
+
+    def unused(self, app: ZigpyApplication) -> list:
+        """Appareils du réseau qu'aucun équipement déclaré n'utilise (hors appairés depuis le
+        démarrage : leur déclaration n'est pas encore chargée)."""
+        used = self._devices.keys() | self.paired
+        return [zdev for zdev in joined_devices(app) if zdev.ieee not in used]
+
+    async def remove_unused(self) -> list[str]:
+        """Retire du réseau les appareils inutilisés ; renvoie la description des retirés."""
+        removed = []
+        async with self.session() as app:
+            for zdev in self.unused(app):
+                try:
+                    await app.remove(zdev.ieee)
+                except ERRORS as err:
+                    log.warning(
+                        "Zigbee : retrait de %s impossible (%s)", label(zdev), err
+                    )
+                    continue
+                log.info("Zigbee : %s retiré du réseau", label(zdev))
+                removed.append(label(zdev))
+        if removed:
+            save_snapshot()
+        return removed
 
     @asynccontextmanager
     async def session(self) -> AsyncIterator[ZigpyApplication]:
@@ -336,7 +284,9 @@ class Coordinator:
                 self._launch()
             ready = asyncio.ensure_future(self._ready.wait())
             await asyncio.wait(
-                {ready, self._task}, timeout=READY_WAIT, return_when=asyncio.FIRST_COMPLETED
+                {ready, self._task},
+                timeout=READY_WAIT,
+                return_when=asyncio.FIRST_COMPLETED,
             )
             ready.cancel()
             if self.app is None:
@@ -411,6 +361,30 @@ class Coordinator:
 coordinator = Coordinator()
 
 
+def undeclared() -> list[tuple[str, list[str], str, tuple[str, ...]]] | None:
+    """Appareils du réseau qu'aucun équipement n'utilise : (description, clés de models.toml,
+    commentaire de déclaration, arguments de déclaration) pour chacun ; None si la clé
+    demandée n'est pas ouverte."""
+    app = coordinator.app
+    if app is None:
+        return [] if coordinator.idle else None
+    return [
+        (
+            f"Zigbee {zdev.ieee}",
+            model_keys(zdev),
+            f"Zigbee : {zdev.manufacturer or '?'}, modèle {zdev.model or '?'}",
+            (f'ieee="{zdev.ieee}"',),
+        )
+        for zdev in coordinator.unused(app)
+    ]
+
+
+async def ready() -> None:
+    """Rend la main quand undeclared() connaît les appareils : clé ouverte, ou jamais demandée."""
+    if not coordinator.idle:
+        await coordinator.wait_ready()
+
+
 class ZigbeeDevice(NetworkDevice):
     """Base des pilotes Zigbee : rattachement au coordinateur, lecture périodique, joignabilité.
 
@@ -421,13 +395,17 @@ class ZigbeeDevice(NetworkDevice):
     vérifie (et rattrape les valeurs que l'équipement n'envoie pas de lui-même).
     Équipement sur pile (POLL = None) : il dort, on ne l'interroge jamais. Il est joignable dès
     son premier message, et configuré à ce moment-là (il est éveillé) ; pas de `_read`.
+    L'appareil physique est désigné par son adresse IEEE (`ieee`, ex. "00:17:88:01:08:9d:f1:10").
     """
 
     POLL: float | None = 300  # s, période de lecture par défaut ; None : sur pile
 
-    def __init__(self, poll: float | None = None):
+    def __init__(self, ieee: str, poll: float | None = None):
         super().__init__()
-        self.ieee: EUI64 | None = None  # lue dans pairing/zigbee.toml au démarrage
+        try:
+            self.ieee = EUI64.convert(ieee)
+        except (AssertionError, ValueError) as err:
+            raise ValueError(f"adresse IEEE invalide « {ieee} »") from err
         self.poll = self.POLL if poll is None else poll
         self.zdev = None  # objet zigpy de l'équipement, tant que la clé est ouverte
         self._unsubscribe: list = []
@@ -436,19 +414,13 @@ class ZigbeeDevice(NetworkDevice):
     # --- cycle de vie -------------------------------------------------------
 
     async def start(self) -> None:
-        try:
-            ieee = linked_ieee(self.id)
-        except PairingError:
-            return  # reste injoignable, signalé par equipements.txt
-        self.ieee = ieee
-        coordinator.register(self, ieee)
+        coordinator.register(self)
 
     def physical(self) -> str:
-        return links().get(self.id, "")
+        return f"Zigbee {self.ieee}"
 
     async def stop(self) -> None:
-        if self.ieee is not None:
-            await coordinator.unregister(self.ieee)
+        await coordinator.unregister(self)
         self._detach()
 
     def _spawn(self, coro) -> asyncio.Task:
@@ -465,8 +437,6 @@ class ZigbeeDevice(NetworkDevice):
     def _attach(self, app: ZigpyApplication) -> None:
         """Clé ouverte ou équipement réinterviewé : écoute et lecture de l'objet zigpy courant."""
         self._detach()
-        if self.ieee is None:
-            return
         zdev = app.devices.get(self.ieee)
         if not isinstance(zdev, ZigpyDevice):
             log.error(
@@ -478,11 +448,16 @@ class ZigbeeDevice(NetworkDevice):
             if endpoint_id == 0:
                 continue
             # clusters de sortie aussi : certains capteurs y rapportent (ex. porte Xiaomi, 0x0006)
-            for cluster in (*endpoint.in_clusters.values(), *endpoint.out_clusters.values()):
+            for cluster in (
+                *endpoint.in_clusters.values(),
+                *endpoint.out_clusters.values(),
+            ):
                 # rapport spontané de l'équipement (attribute_report), ou valeur corrigée par
                 # un quirk (attribute_updated) : zigpy n'émet qu'un des deux par valeur reçue
                 for event in (AttributeReportedEvent, AttributeUpdatedEvent):
-                    self._unsubscribe.append(cluster.on_event(event.event_type, self._on_event))
+                    self._unsubscribe.append(
+                        cluster.on_event(event.event_type, self._on_event)
+                    )
         if self.poll:
             self._spawn(self._poll_loop(zdev))
 
@@ -535,7 +510,9 @@ class ZigbeeDevice(NetworkDevice):
     # --- événements de zigpy ------------------------------------------------
 
     def _on_event(self, event: AttributeReportedEvent | AttributeUpdatedEvent) -> None:
-        if event.attribute_name is None:  # attribut propre au fabricant, inconnu de zigpy
+        if (
+            event.attribute_name is None
+        ):  # attribut propre au fabricant, inconnu de zigpy
             return
         self._received()
         self._on_attribute(event.cluster_id, event.attribute_name, event.value)

@@ -44,6 +44,7 @@ class Candidate:
     comment: str  # au-dessus de la déclaration
     details: list[str]  # affichées pour le choisir
     device: object  # objet du protocole
+    args: tuple[str, ...] = ()  # arguments de la déclaration propres à l'appareil (ex. adresse)
 
 
 class Pairing:
@@ -52,7 +53,8 @@ class Pairing:
     PROTOCOL est le paquet du protocole (drivers/<protocole>/) : il fournit ERRORS et
     open_session() (contexte asynchrone : clé, contrôleur…), et sa table modèle → pilote
     models.toml. Par défaut, un lien est un fichier par équipement : PROTOCOL fournit alors
-    paired_ids(uid) et pairing_file(id).
+    paired_ids(uid) et pairing_file(id). Un protocole dont le lien est porté par la déclaration
+    (arguments de Candidate) n'enregistre rien : link() renvoie None.
     """
 
     PROTOCOL: ModuleType
@@ -61,6 +63,7 @@ class Pairing:
     MAX_DURATION = 600
     HINT = ""  # conseil affiché avec une erreur
     SECRET_ERRORS = False  # erreurs affichées sans leur texte (il pourrait contenir un code)
+    CLEANUP = False  # sait retrouver et retirer les appareils inutilisés (unused, remove_unused)
     previous = ""  # équipement logique auquel l'appareil était lié, s'il en change
     declared: dict[str, Device] = {}  # équipements déclarés dans devices/
 
@@ -76,8 +79,9 @@ class Pairing:
     async def search(self, session, duration: int) -> list[Candidate]:
         raise NotImplementedError
 
-    async def link(self, session, candidate: Candidate, dev_id: str) -> Path:
-        """Appaire l'appareil et enregistre son lien avec `dev_id` (remplace l'ancien)."""
+    async def link(self, session, candidate: Candidate, dev_id: str) -> Path | None:
+        """Appaire l'appareil et enregistre son lien avec `dev_id` (remplace l'ancien) ; renvoie
+        le fichier du lien, None si la déclaration le porte."""
         raise NotImplementedError
 
     def paired_ids(self, uid) -> list[str]:
@@ -97,6 +101,16 @@ class Pairing:
 
     def done(self) -> None:
         """Session fermée, appairage enregistré."""
+
+    @classmethod
+    async def unused(cls) -> list[str]:
+        """Appareils appairés qu'aucun équipement déclaré n'utilise (description de chacun)."""
+        raise NotImplementedError
+
+    @classmethod
+    async def remove_unused(cls) -> list[str]:
+        """Désappaire les appareils inutilisés ; renvoie la description des retirés."""
+        raise NotImplementedError
 
     # --- déroulé -------------------------------------------------------------
 
@@ -118,20 +132,21 @@ class Pairing:
             say(f"Échec ({type(err).__name__}{detail}). {self.HINT}")
             return False
         self.done()
-        say(f"Appairage de « {dev_id} » enregistré dans {path}.")
+        say(f"Appairage de « {dev_id} » enregistré" + (f" dans {path}." if path else "."))
         if self.previous and self.previous != dev_id:
             self.unlink(self.previous)
             say(f"« {self.previous} » n'a plus d'appareil : le retirer de devices/.")
         if dev_id in self.declared:
             say(f"« {dev_id} » déjà déclaré dans devices/, inchangé.")
         elif not (driver := driver_for_model(candidate.models, self.models)):
+            args = f" et {', '.join(candidate.args)}" if candidate.args else ""
             say(
-                f"Modèle inconnu : déclarer « {dev_id} » dans devices/ avec le bon pilote, "
+                f"Modèle inconnu : déclarer « {dev_id} » dans devices/ avec le bon pilote{args}, "
                 f"ou l'ajouter à {self.models}, puis réappairer."
             )
         else:
             try:
-                file = add_device(dev_id, driver, comment=candidate.comment)
+                file = add_device(dev_id, driver, comment=candidate.comment, args=candidate.args)
             except ValueError as err:
                 say(f"Équipement non ajouté : {err}")
                 return False
@@ -160,18 +175,24 @@ class Pairing:
                 return dev_id
             self.previous = dev_id
         while True:
-            dev_id = id_from_name(await self.ui.ask("Identifiant de l'équipement (ex. prise_salon)"))
-            try:
-                check_id(dev_id)
-            except ValueError as err:
-                self.ui.say(f"Erreur : {err}")
-                continue
+            dev_id = await self.ask_id()
             if dev_id != self.previous and self.linked(dev_id):
                 answer = await self.ui.ask(
                     f"« {dev_id} » est lié à un autre appareil : le remplacer ?", YES_NO
                 )
                 if answer.lower() not in ("o", "oui"):
                     continue
+            return dev_id
+
+    async def ask_id(self) -> str:
+        """Identifiant saisi, redemandé tant qu'il est invalide."""
+        while True:
+            dev_id = id_from_name(await self.ui.ask("Identifiant de l'équipement (ex. prise_salon)"))
+            try:
+                check_id(dev_id)
+            except ValueError as err:
+                self.ui.say(f"Erreur : {err}")
+                continue
             return dev_id
 
 

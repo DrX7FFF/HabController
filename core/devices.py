@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import keyword
 import logging
@@ -7,6 +8,7 @@ import time
 import tomllib
 import unicodedata
 from pathlib import Path
+from types import ModuleType
 
 import drivers
 
@@ -63,11 +65,40 @@ def load_devices(package: str = "devices") -> dict:
     return devices
 
 
-def write_summary(devices: dict[str, Device], path: Path) -> None:
+SUMMARY_WAIT = 60  # s, au plus, pour que chaque protocole connaisse ses appareils
+
+
+async def summarize(devices: dict[str, Device], path: Path) -> None:
+    """Écrit le résumé (voir write_summary) une fois que chaque protocole qui fournit ready()
+    connaît ses appareils (au plus SUMMARY_WAIT s). Anomalies (non appairé, non déclaré) : un
+    avertissement dans le journal."""
+    waiting = [
+        asyncio.ensure_future(module.ready())
+        for module in protocol_modules()
+        if hasattr(module, "ready")
+    ]
+    if waiting:
+        _, late = await asyncio.wait(waiting, timeout=SUMMARY_WAIT)
+        for task in late:
+            task.cancel()
+    if anomalies := write_summary(devices, path):
+        log.warning("Équipements : %d anomalie(s) d'appairage, voir %s", anomalies, path)
+
+
+def protocol_modules() -> list[ModuleType]:
+    """Paquets de drivers/ (un par protocole ou marque)."""
+    return [
+        importlib.import_module(f"drivers.{info.name}")
+        for info in pkgutil.iter_modules(drivers.__path__)
+    ]
+
+
+def write_summary(devices: dict[str, Device], path: Path) -> int:
     """Équipements logiques et leur appareil physique (« non appairé » sinon), puis les appareils
-    liés à un équipement non déclaré (liens de chaque protocole qui fournit links()), chacun avec
-    la déclaration à copier dans devices/ si le protocole fournit link_models() et que le modèle
-    est connu. Anomalies (non appairé, non déclaré) : un seul avertissement dans le journal."""
+    appairés sans équipement déclaré, chacun avec la déclaration à copier dans devices/ si le
+    modèle est connu. Un protocole les fournit par links() et link_models() (lien enregistré sous
+    un id), ou par undeclared() (lien porté par la déclaration : id à choisir ; None s'il ne
+    les connaît pas). Renvoie le nombre d'anomalies : non appairés et non déclarés."""
     rows = [("id", "pilote", "physique")]
     unpaired = 0
     for dev_id, device in sorted(devices.items()):
@@ -77,37 +108,47 @@ def write_summary(devices: dict[str, Device], path: Path) -> None:
             unpaired += 1
             physical = f"-> non appairé ({driver.split('.')[0]})"
         rows.append((dev_id, driver, physical))
-    orphans = []  # un bloc par appareil : ligne « -> id physique », puis sa déclaration
-    for info in pkgutil.iter_modules(drivers.__path__):
-        module = importlib.import_module(f"drivers.{info.name}")
-        links = getattr(module, "links", None)
-        if not links:
-            continue
-        unlinked = [(i, p) for i, p in sorted(links().items()) if i not in devices]
-        link_models = getattr(module, "link_models", None)
-        known = link_models() if unlinked and link_models else {}
+    orphans = []  # un bloc par appareil : ligne « -> … », puis sa déclaration
+    for module in protocol_modules():
         models_path = Path(module.__file__).with_name("models.toml")
-        for dev_id, physical in unlinked:
-            keys, comment = known.get(dev_id, ([], ""))
-            try:
-                driver = driver_for_model(keys, models_path) if keys else ""
-                statement, line = declaration(dev_id, driver)
-            except ValueError:
-                orphans += [f"-> {dev_id}  {physical}  pilote inconnu, à déclarer à la main", ""]
+        if links := getattr(module, "links", None):
+            unlinked = [(i, p) for i, p in sorted(links().items()) if i not in devices]
+            link_models = getattr(module, "link_models", None)
+            known = link_models() if unlinked and link_models else {}
+            for dev_id, physical in unlinked:
+                keys, comment = known.get(dev_id, ([], ""))
+                orphans += orphan(f"{dev_id}  {physical}", dev_id, keys, comment, (), models_path)
+        if undeclared := getattr(module, "undeclared", None):
+            if (found := undeclared()) is None:
+                name = module.__name__.removeprefix("drivers.")
+                orphans += [f"{name} : appareils du réseau inconnus (non initialisé)", ""]
                 continue
-            orphans += [
-                f"-> {dev_id}  {physical}  à déclarer dans un fichier de devices/ ainsi :",
-                statement,
-                f"{line}  # {comment}" if comment else line,
-                "",
-            ]
+            for physical, keys, comment, args in found:
+                orphans += orphan(physical, "<id>", keys, comment, args, models_path)
     lines = [f"# Équipements au {time.strftime('%Y-%m-%d %H:%M:%S')}", ""]
     lines += table(rows)
     lines += ["", "# Appareils physiques non liés (équipement absent de devices/)", ""]
     lines += orphans[:-1] if orphans else ["aucun"]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    if anomalies := unpaired + sum(line.startswith("-> ") for line in orphans):
-        log.warning("Équipements : %d anomalie(s) d'appairage, voir %s", anomalies, path)
+    return unpaired + sum(line.startswith("-> ") for line in orphans)
+
+
+def orphan(
+    title: str, dev_id: str, keys: list[str], comment: str, args: tuple[str, ...], models: Path
+) -> list[str]:
+    """Bloc d'un appareil sans équipement : « -> titre », sa déclaration si le pilote est connu
+    (table `models`), puis une ligne vide."""
+    try:
+        statement, call = constructor(driver_for_model(keys, models) if keys else "", args)
+    except ValueError:
+        return [f"-> {title}  pilote inconnu, à déclarer à la main", ""]
+    line = f"{dev_id} = {call}"
+    return [
+        f"-> {title}  à déclarer dans un fichier de devices/ ainsi :",
+        statement,
+        f"{line}  # {comment}" if comment else line,
+        "",
+    ]
 
 
 def table(rows: list[tuple[str, ...]]) -> list[str]:
@@ -151,28 +192,35 @@ def driver_for_model(models: str | list[str], path: Path) -> str:
     return ""
 
 
-def declaration(dev_id: str, driver: str) -> tuple[str, str]:
-    """(import du pilote, `<id> = <Pilote>(...)`), avec les réglages par défaut du pilote."""
-    check_id(dev_id)
+def constructor(driver: str, args: tuple[str, ...] = ()) -> tuple[str, str]:
+    """(import du pilote, `<Pilote>(...)`), avec les arguments `args` (ex. 'ieee="…"') puis les
+    réglages par défaut du pilote."""
     if not driver:
         raise ValueError("pilote requis")
     cls = load_driver(driver)
     config_args = getattr(cls, "config_args", None)
-    args = config_args() if config_args else []
-    statement = f"{DRIVERS_IMPORT}{cls.__name__}"
-    return statement, f"{dev_id} = {cls.__name__}({', '.join(args)})"
+    args += tuple(config_args()) if config_args else ()
+    return f"{DRIVERS_IMPORT}{cls.__name__}", f"{cls.__name__}({', '.join(args)})"
+
+
+def declaration(dev_id: str, driver: str, args: tuple[str, ...] = ()) -> tuple[str, str]:
+    """(import du pilote, `<id> = <Pilote>(...)`), voir constructor."""
+    check_id(dev_id)
+    statement, call = constructor(driver, args)
+    return statement, f"{dev_id} = {call}"
 
 
 def add_device(
     dev_id: str,
     driver: str,
     comment: str = "",
+    args: tuple[str, ...] = (),
     path: Path | None = None,
 ) -> Path:
-    """Ajoute la déclaration de l'équipement à la fin de devices/devices.py (créé au besoin), avec
-    sa classe dans l'import `from drivers.all import ...` (complété, ou ajouté). Renvoie le
-    fichier."""
-    statement, declared = declaration(dev_id, driver)
+    """Ajoute la déclaration de l'équipement (arguments `args`, voir declaration) à la fin de
+    devices/devices.py (créé au besoin), avec sa classe dans l'import `from drivers.all import ...`
+    (complété, ou ajouté). Renvoie le fichier."""
+    statement, declared = declaration(dev_id, driver, args)
     file = (path or DEVICES_DIR) / NEW_DEVICES
     lines = file.read_text(encoding="utf-8").splitlines() if file.exists() else []
     common = [i for i, line in enumerate(lines) if line.startswith(DRIVERS_IMPORT)]
