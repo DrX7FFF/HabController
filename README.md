@@ -20,7 +20,7 @@ Habitation domotique home mad
 - **Secrets** (hors dépôt : `../HabSecrets`) : `firebase.json`, clé du compte de service
   Firebase pour le datalog (section `[datalog]` de `habctrl.toml`, voir `doc.md`).
 
-Emplacements modifiables avec `HABCTRL_CONFIG` et `HABCTRL_TEMP`.
+Emplacements modifiables : configuration avec `HABCTRL_CONFIG`, temp/ avec `[paths] temp` de `habctrl.toml`.
 
 ## Équipements
 Chaque fichier de `devices/` déclare autant d'équipements que voulu (par pièce, par type…) :

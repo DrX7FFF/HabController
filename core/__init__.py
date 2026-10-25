@@ -9,7 +9,6 @@ from pathlib import Path
 # calculé depuis l'emplacement du code : indépendant du dossier de lancement
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = Path(os.environ.get("HABCTRL_CONFIG") or ROOT.parent / "HabConfig").resolve()
-TEMP_DIR = Path(os.environ.get("HABCTRL_TEMP") or ROOT / "temp").resolve()
 PAIRING_DIR = CONFIG_DIR / "pairing"
 
 # devices/ et automations/ sont des paquets Python de la configuration :
@@ -32,3 +31,7 @@ def settings(section: str) -> dict:
         logging.getLogger(__name__).error("habctrl.toml : [%s] n'est pas une section", section)
         return {}
     return section_conf
+
+
+# chemin relatif au dossier de configuration ; par défaut temp/ du code
+TEMP_DIR = (CONFIG_DIR / settings("paths").get("temp", ROOT / "temp")).resolve()
