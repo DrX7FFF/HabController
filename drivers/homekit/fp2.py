@@ -290,10 +290,10 @@ class Zones:
     def __init__(self, device: FP2):
         self._device = device
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> bool | None:
         return self._device.state().get(f"zone.{name}")
 
-    def __getitem__(self, index: int):
+    def __getitem__(self, index: int) -> bool | None:
         return self.__getattr__(str(self._device._aliases.get(index, index)))
 
 

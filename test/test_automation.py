@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import os
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -382,6 +383,32 @@ class AttributeTest(AutomationTestCase):
         fp.update(**{"zone.Global": True})
         await self.idle()
         self.assertEqual(len(salon.commands), 1)  # assez de lumière : pas de nouvelle commande
+
+
+class LoadTest(AutomationTestCase):
+    async def test_failing_file_unloaded(self):
+        def fake_import(module):  # chaque fichier déclare une règle ; « b » échoue ensuite
+            async def rule(event):
+                pass
+
+            rule.__module__ = module
+            automation.on_change("lampe.on")(rule)
+            if module == "automations.b":
+                raise NameError("erreur dans le script")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("a.py", "b.py", "c.py"):
+                (Path(tmp) / name).touch()
+            with (
+                mock.patch.object(automation, "AUTOMATIONS_DIR", Path(tmp)),
+                mock.patch.object(automation.importlib, "import_module", fake_import),
+                self.assertLogs("core.automation", "ERROR") as logs,
+            ):
+                automation.load_automations({"lampe": FakeBulb("lampe")})
+        self.assertEqual(
+            [h.func.__module__ for h in automation._handlers], ["automations.a", "automations.c"]
+        )
+        self.assertIn("b.py : fichier ignoré", logs.output[0])
 
 
 class PresenceRuleTest(AutomationTestCase):

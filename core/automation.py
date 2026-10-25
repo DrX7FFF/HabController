@@ -33,6 +33,9 @@ Un attribut absent de l'état (équipement injoignable) n'est pas un changement 
 dernière valeur connue, et rien ne se déclenche tant que la valeur revient identique.
 Les événements d'une même fonction sont traités dans l'ordre ; une erreur dans une
 automatisation n'arrête pas les autres.
+Un fichier qui échoue au chargement (erreur de syntaxe, import faux…) est déchargé en entier,
+y compris les automatisations déclarées avant l'erreur ; l'erreur est journalisée et les
+autres fichiers se chargent normalement.
 """
 
 import asyncio
@@ -170,10 +173,17 @@ def bind(devs: dict[str, Device]) -> None:
 
 
 def load_automations(devs: dict[str, Device]) -> None:
-    """Charge automations/*.py (sauf les fichiers commençant par _) puis les abonne."""
+    """Charge automations/*.py (sauf les fichiers commençant par _) puis les abonne. Un fichier
+    en erreur est ignoré en entier : ses automatisations déjà déclarées sont retirées."""
     for path in sorted(AUTOMATIONS_DIR.glob("*.py")):
-        if not path.name.startswith("_"):
-            importlib.import_module(f"automations.{path.stem}")
+        if path.name.startswith("_"):
+            continue
+        module = f"automations.{path.stem}"
+        try:
+            importlib.import_module(module)
+        except Exception:
+            _handlers[:] = [h for h in _handlers if h.func.__module__ != module]
+            log.exception("%s : fichier ignoré", path.name)
     bind(devs)
 
 
