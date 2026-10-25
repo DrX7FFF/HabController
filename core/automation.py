@@ -9,7 +9,8 @@ from functools import partial
 from typing import Any, TypeVar
 
 from core import CONFIG_DIR
-from core.base import Device, DeviceError, spawn_task, tasks as _tasks
+from core.base import Device, DeviceError, spawn_task
+from core.base import tasks as _tasks
 
 log = logging.getLogger(__name__)
 __all__ = ["Event", "on_change", "on_event"]
@@ -21,7 +22,9 @@ _ANY = object()  # « to » non précisé (None et False sont des valeurs valide
 @dataclass(frozen=True)
 class Event:
     device: str
-    attr: str | None  # None : automatisation sur tout l'équipement (old/new = états complets) ;
+    attr: (
+        str | None
+    )  # None : automatisation sur tout l'équipement (old/new = états complets) ;
     # nom de l'événement pour @on_event
     old: Any  # dernière valeur connue (None si jamais vue)
     new: Any
@@ -57,7 +60,9 @@ def on_event(target: str) -> Callable[[Rule], Rule]:
 def _register(target: str, to: Any, event: bool) -> Callable[[Rule], Rule]:
     device, _, attr = target.partition(".")
     if not device:
-        raise ValueError(f"cible invalide « {target} » (attendu « équipement.attribut »)")
+        raise ValueError(
+            f"cible invalide « {target} » (attendu « équipement.attribut »)"
+        )
 
     def register(func: Rule) -> Rule:
         if not asyncio.iscoroutinefunction(func):
@@ -76,10 +81,14 @@ class _Watcher:
         self.device = device
         self.dev_id = device.id
         self.handlers = handlers
-        self.last: dict = dict(device.state())  # dernières valeurs connues, par attribut
+        self.last: dict = dict(
+            device.state()
+        )  # dernières valeurs connues, par attribut
 
     def on_state(self, state: dict) -> None:
-        changed = frozenset(a for a, v in state.items() if a not in self.last or self.last[a] != v)
+        changed = frozenset(
+            a for a, v in state.items() if a not in self.last or self.last[a] != v
+        )
         if not changed:
             return
         old = dict(self.last)
@@ -92,17 +101,23 @@ class _Watcher:
                 new = state[handler.attr]
                 if handler.to is not _ANY and new != handler.to:
                     continue
-                event = Event(self.dev_id, handler.attr, old.get(handler.attr), new, changed, when)
+                event = Event(
+                    self.dev_id, handler.attr, old.get(handler.attr), new, changed, when
+                )
             else:
                 continue
             _spawn(handler, event)
 
 
-def _dispatch_event(device: Device, handlers: list[Handler], name: str, value: Any) -> None:
+def _dispatch_event(
+    device: Device, handlers: list[Handler], name: str, value: Any
+) -> None:
     """Événement ponctuel de l'équipement : lance les @on_event concernés."""
     for handler in handlers:
         if handler.attr in (None, name):
-            event = Event(device.id, name, None, value, frozenset({name}), device.last_seen or 0)
+            event = Event(
+                device.id, name, None, value, frozenset({name}), device.last_seen or 0
+            )
             _spawn(handler, event)
 
 
@@ -111,7 +126,9 @@ def _spawn(handler: Handler, event: Event) -> None:
 
 
 async def _run(handler: Handler, event: Event) -> None:
-    async with handler.lock:  # même fonction : un événement à la fois, dans l'ordre d'arrivée
+    async with (
+        handler.lock
+    ):  # même fonction : un événement à la fois, dans l'ordre d'arrivée
         try:
             await handler.func(event)
         except (DeviceError, ValueError) as err:
@@ -123,7 +140,9 @@ def bind(devs: dict[str, Device]) -> None:
     by_device: dict[str, list[Handler]] = {}
     for handler in _handlers:
         if handler.device not in devs:
-            log.error("%s : équipement inconnu « %s », ignorée", handler.name, handler.device)
+            log.error(
+                "%s : équipement inconnu « %s », ignorée", handler.name, handler.device
+            )
             continue
         by_device.setdefault(handler.device, []).append(handler)
     for dev_id, handlers in by_device.items():
