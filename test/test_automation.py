@@ -385,6 +385,59 @@ class AttributeTest(AutomationTestCase):
         self.assertEqual(len(salon.commands), 1)  # assez de lumière : pas de nouvelle commande
 
 
+class TimerTest(AutomationTestCase):
+    async def test_fires_after_delay(self):
+        fired = []
+        timer = automation.Timer(0.05, lambda: fired.append(1))
+        timer.start()
+        self.assertTrue(timer.running)
+        await self.idle()
+        self.assertEqual(fired, [1])
+        self.assertFalse(timer.running)
+
+    async def test_restart_keeps_a_single_countdown(self):
+        fired = []
+        timer = automation.Timer(0.1, lambda: fired.append(time.monotonic()))
+        start = time.monotonic()
+        for _ in range(50):  # détection qui bagote : un seul décompte, relancé à chaque fois
+            timer.start()
+            await asyncio.sleep(0.002)
+        last = time.monotonic()
+        self.assertEqual(len([t for t in automation._tasks if not t.done()]), 1)
+        await self.idle()
+        self.assertEqual(len(fired), 1)
+        self.assertGreaterEqual(fired[0] - last, 0.09)
+        self.assertGreater(fired[0] - start, 0.1)
+
+    async def test_cancel(self):
+        fired = []
+        timer = automation.Timer(0.05, lambda: fired.append(1))
+        timer.start()
+        timer.cancel()
+        timer.cancel()  # sans effet
+        await asyncio.sleep(0.1)
+        self.assertEqual(fired, [])
+        self.assertFalse(timer.running)
+
+    async def test_async_action_and_error(self):
+        async def action():
+            raise DeviceError("injoignable")
+
+        timer = automation.Timer(0, action)
+        with self.assertLogs("core.automation", "WARNING") as logs:
+            timer.start()
+            await self.idle()
+        self.assertIn("injoignable", logs.output[0])
+
+    async def test_cancelled_on_reload(self):
+        fired = []
+        timer = automation.Timer(0.05, lambda: fired.append(1))
+        timer.start()
+        await automation.stop_automations()
+        await asyncio.sleep(0.1)
+        self.assertEqual(fired, [])
+
+
 class LoadTest(AutomationTestCase):
     async def test_failing_file_unloaded(self):
         def fake_import(module):  # chaque fichier déclare une règle ; « b » échoue ensuite
