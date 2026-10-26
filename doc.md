@@ -59,6 +59,27 @@ async def eclairage(event: Event):        # event.old, event.new, event.changed,
 - Les événements d'une même fonction sont traités dans l'ordre ; une erreur dans une
   automatisation n'arrête pas les autres.
 - Un équipement inconnu dans un `@on_change` est signalé au démarrage.
+- **Minuteur** : `Timer(délai_s, action)` appelle `action()` (fonction simple ou async) à la
+  fin du délai. `start()` (re)lance le décompte depuis zéro, même s'il tourne déjà : un seul
+  minuteur, quel que soit le nombre de départs ; `cancel()` l'arrête ; `running` indique s'il
+  tourne. Annulé au rechargement.
+
+```python
+from core.automation import Timer
+
+def eteindre():
+    salon.on = False
+
+extinction = Timer(5 * 60, eteindre)
+
+@on_change("capteur.presence")
+async def eclairage(event: Event):
+    if event.new:
+        extinction.cancel()
+        salon.on = True
+    else:
+        extinction.start()                # extinction 5 min après le dernier départ
+```
 - Un fichier qui échoue au chargement (erreur de syntaxe, import faux…) est déchargé en entier,
   y compris les automatisations déclarées avant l'erreur ; l'erreur est journalisée et les
   autres fichiers se chargent normalement.

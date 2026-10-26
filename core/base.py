@@ -16,10 +16,11 @@ def _done(task: asyncio.Task) -> None:
         log.error("%s : erreur inattendue", task.get_name(), exc_info=err)
 
 
-def spawn_task(coro, name: str) -> None:
+def spawn_task(coro, name: str) -> asyncio.Task:
     task = asyncio.get_running_loop().create_task(coro, name=name)
     tasks.add(task)
     task.add_done_callback(_done)
+    return task
 
 
 class DeviceError(Exception):
