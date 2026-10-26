@@ -13,7 +13,7 @@ from core.base import Device, DeviceError, spawn_task
 from core.base import tasks as _tasks
 
 log = logging.getLogger(__name__)
-__all__ = ["Event", "on_change", "on_event"]
+__all__ = ["Event", "Timer", "on_change", "on_event"]
 
 AUTOMATIONS_DIR = CONFIG_DIR / "automations"
 _ANY = object()  # « to » non précisé (None et False sont des valeurs valides)
@@ -133,6 +133,40 @@ async def _run(handler: Handler, event: Event) -> None:
             await handler.func(event)
         except (DeviceError, ValueError) as err:
             log.warning("%s : %s : %s", handler.name, type(err).__name__, err)
+
+
+class Timer:
+    """Minuteur réarmable : start() (re)lance le décompte, cancel() l'arrête. À l'échéance,
+    action() est appelée (fonction simple ou async). Annulé au rechargement, comme les
+    automatisations en cours."""
+
+    def __init__(self, delay: float, action: Callable[[], Any]):
+        self.delay = delay  # s
+        self.action = action
+        self.name = f"{action.__module__.rpartition('.')[2]}.{action.__name__}"
+        self._task: asyncio.Task | None = None
+
+    @property
+    def running(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    def start(self) -> None:
+        self.cancel()
+        self._task = spawn_task(self._wait(), self.name)
+
+    def cancel(self) -> None:
+        if self._task:
+            self._task.cancel()
+            self._task = None
+
+    async def _wait(self) -> None:
+        await asyncio.sleep(self.delay)
+        try:
+            result = self.action()
+            if asyncio.iscoroutine(result):
+                await result
+        except (DeviceError, ValueError) as err:
+            log.warning("%s : %s : %s", self.name, type(err).__name__, err)
 
 
 def bind(devs: dict[str, Device]) -> None:
