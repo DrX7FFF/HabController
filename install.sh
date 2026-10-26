@@ -31,4 +31,5 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 sudo systemctl daemon-reload
-sudo systemctl enable --now habctrl
+sudo systemctl enable habctrl
+sudo systemctl restart habctrl  # déjà en marche : repart avec le code et le service à jour
