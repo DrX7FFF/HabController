@@ -4,14 +4,12 @@
 // « Arrêter » ou fermer la page interrompt l'appairage.
 // Protocole qui le permet : bouton de nettoyage, qui retire (après confirmation) les appareils
 // appairés qu'aucun équipement n'utilise (GET puis DELETE /api/pair/<protocole>/unused).
-// « Recharger la configuration » : relit HabConfig sans redémarrer (POST /api/reload).
-// Erreurs de la configuration en cours (parties ignorées) : listées sous ce bouton (GET /api/config).
-// Notifications (web/notifications.js) : celles des surveillances (configuration modifiée,
-// sauvegarde de HabConfig, mise à jour de HabController) au-dessus du bouton de leur section,
-// les autres en tête de page.
-// « Sauvegarder » : commit et push de HabConfig (POST /api/backup).
-// « Mettre à jour et redémarrer » : git pull de HabController puis redémarrage
-// (POST /api/update) ; la page se recharge quand le programme répond à nouveau.
+// Synchronisations (une section chacune, voir core/sync.py) : « Contrôler » (GET /api/sync/<nom>)
+// affiche s'il y a quelque chose à faire, le bouton principal lance la synchro
+// (POST /api/sync/<nom>) puis rafraîchit le contrôle des sections concernées.
+// HabController mis à jour : la page se recharge quand le programme répond à nouveau.
+// Erreurs de la configuration en cours (parties ignorées) : listées sous « Recharger » (GET /api/config).
+// Notifications sans section (web/notifications.js) : listées en tête de page.
 
 const banner = document.getElementById("banner");
 const protocols = document.getElementById("protocols");
@@ -184,8 +182,6 @@ function cleanupButton(p) {
   return button;
 }
 
-const reloadButton = document.getElementById("reload");
-const reloadStatus = document.getElementById("reload-status");
 const configErrors = document.getElementById("config-errors");
 
 function listErrors(errors) {
@@ -193,25 +189,6 @@ function listErrors(errors) {
     Object.assign(document.createElement("li"), { textContent: text })));
   configErrors.hidden = !errors.length;
 }
-
-reloadButton.onclick = async () => {
-  reloadButton.disabled = true;
-  reloadStatus.className = "";
-  reloadStatus.textContent = "Rechargement…";
-  try {
-    const result = await request("/api/reload", "POST");
-    const failed = result.errors.length;
-    reloadStatus.className = failed ? "failed" : "ok";
-    reloadStatus.textContent = `Configuration rechargée (${result.devices} équipements`
-      + (failed ? `, ${failed} erreur(s)).` : ").");
-    listErrors(result.errors);
-  } catch (err) {
-    reloadStatus.className = "failed";
-    reloadStatus.textContent = `Rechargement impossible : ${err.message}`;
-  } finally {
-    reloadButton.disabled = false;
-  }
-};
 
 request("/api/config")
   .then(result => listErrors(result.errors))
@@ -222,63 +199,11 @@ fetch("/api/pair")
   .then(list => protocols.replaceChildren(...list.map(build)))
   .catch(err => show(`Protocoles d'appairage illisibles (${err.message}).`));
 
-// Notifications : texte de la section qui en a une (vide : message neutre), sinon en tête.
-const notices = {
-  config: [document.getElementById("config-notice"), "Configuration chargée à jour."],
-  backup: [document.getElementById("backup-notice"), "HabConfig est sauvegardé."],
-  update: [document.getElementById("update-notice"), "HabController est à jour."],
-};
 const others = document.getElementById("notifications");
-
 window.addEventListener("notifications", e => {
-  const list = e.detail;
-  for (const [id, [el, idle]] of Object.entries(notices)) {
-    const n = list.find(n => n.id === id);
-    el.textContent = n ? n.text : idle;
-    el.classList.toggle("pending", !!n);
-  }
-  const rest = list.filter(n => !(n.id in notices));
-  others.replaceChildren(...rest.map(n =>
+  others.replaceChildren(...e.detail.map(n =>
     Object.assign(document.createElement("li"), { textContent: n.text })));
-  others.hidden = !rest.length;
-});
-
-// Bouton qui lance `action` : désactivé pendant, résultat (ou erreur) affiché à côté.
-function action(button, status, busy, run) {
-  button.onclick = async () => {
-    button.disabled = true;
-    status.className = "";
-    status.textContent = busy;
-    try {
-      status.textContent = await run();
-      status.className = "ok";
-    } catch (err) {
-      status.className = "failed";
-      status.textContent = err.message;
-    } finally {
-      button.disabled = false;
-      refreshNotifications();
-    }
-  };
-}
-
-const backupStatus = document.getElementById("backup-status");
-action(document.getElementById("backup"), backupStatus, "Sauvegarde…", async () => {
-  try {
-    return `Sauvegarde : ${(await request("/api/backup", "POST")).detail}.`;
-  } catch (err) {
-    throw new Error(`Sauvegarde impossible : ${err.message}`);
-  }
-});
-
-const updateStatus = document.getElementById("update-status");
-action(document.getElementById("update-check"), updateStatus, "Recherche…", async () => {
-  try {
-    const { notification } = await request("/api/update/check", "POST");
-    return notification ? "" : "Aucune mise à jour.";
-  } catch (err) {
-    throw new Error(`Recherche impossible : ${err.message}`);
-  }
+  others.hidden = !e.detail.length;
 });
 
 // Attend que le programme redémarré réponde (date de démarrage changée), puis recharge la page.
@@ -298,17 +223,51 @@ async function awaitRestart(boot) {
   throw new Error("le programme ne répond plus après 3 min (voir journalctl -u habctrl).");
 }
 
-const updateButton = document.getElementById("update");
-action(updateButton, updateStatus, "Mise à jour…", async () => {
-  if (!confirm("Mettre à jour HabController puis le redémarrer ?")) return "";
-  let result, boot;
-  try {
-    boot = (await request("/api/config")).boot;
-    result = await request("/api/update", "POST");
-  } catch (err) {
-    throw new Error(`Mise à jour impossible : ${err.message}`);
+const syncs = {};  // nom : { setState(contrôle) }
+
+function setupSync(section) {
+  const name = section.dataset.sync;
+  const stateText = section.querySelector(".state");
+  const result = section.querySelector(".result");
+  const buttons = section.querySelectorAll("button");
+  const run = section.querySelector(".run");
+  const setState = ({ pending, text }) => {
+    stateText.className = pending ? "state pending" : "state";
+    stateText.textContent = text;
+  };
+  syncs[name] = { setState };
+
+  // Lance `action` boutons désactivés ; son erreur s'affiche (préfixée de `failure`).
+  async function busy(target, failure, action) {
+    const base = target === stateText ? "state" : "result";
+    buttons.forEach(b => { b.disabled = true; });
+    target.className = base;
+    target.textContent = "…";
+    try {
+      await action();
+    } catch (err) {
+      target.className = `${base} failed`;
+      target.textContent = `${failure} : ${err.message}`;
+    } finally {
+      buttons.forEach(b => { b.disabled = false; });
+    }
   }
-  if (!result.restarting) return `HabController ${result.detail}.`;
-  updateStatus.textContent = `Mise à jour : ${result.detail}…`;
-  return awaitRestart(boot);
-});
+
+  section.querySelector(".check").onclick = () => busy(stateText, "Contrôle impossible",
+    async () => { result.textContent = ""; setState(await request(`/api/sync/${name}`)); });
+
+  run.onclick = () => {
+    if (run.dataset.confirm && !confirm(run.dataset.confirm)) return;
+    busy(result, "Échec", async () => {
+      const boot = name === "app" ? (await request("/api/config")).boot : null;
+      const r = await request(`/api/sync/${name}`, "POST");
+      result.className = "result ok";
+      result.textContent = r.text;
+      for (const [other, check] of Object.entries(r.checks || {})) syncs[other].setState(check);
+      if (r.errors) listErrors(r.errors);
+      if (r.restarting) await awaitRestart(boot);
+    });
+  };
+}
+
+document.querySelectorAll("section.sync").forEach(setupSync);

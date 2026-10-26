@@ -66,31 +66,34 @@ inutilisés ici (pilotes d'autres clés). Pour s'en passer : retirer `zha-quirks
 puis réécrire dans chaque pilote ce que son correctif apportait (ex. TS011F : diviseurs 100 pour
 l'énergie, 1000 pour le courant, que la prise n'annonce pas).
 
-## Administration : notifications, sauvegarde, mise à jour
-Une pastille rouge sur l'onglet **Administration** signale une notification en attente
-(`core/notifications.py` : toute partie du programme peut en poser ou en retirer ; texte en
-info-bulle, détail sur la page). Notifications des surveillances (`core/watch.py`) :
-- **Configuration modifiée** : la date et l'heure du dernier chargement (démarrage ou
-  « Recharger la configuration ») sont mémorisées ; un fichier ou un dossier de HabConfig
-  (hors `pairing/` et fichiers cachés) modifié après cette date, ou un fichier supprimé, est
-  signalé au-dessus de « Recharger la configuration ».
-- **Sauvegarde à faire** : HabConfig a des modifications non commitées ou des commits non
-  poussés ; « Sauvegarder » commit le tout (message « sauvegarde du <date> ») et pousse.
-- **Mise à jour disponible** : la branche suivie de HabController a des commits à tirer
-  (recherche une fois par heure, ou « Rechercher une mise à jour ») ; « Mettre à jour et
-  redémarrer » fait un `git pull --ff-only` (rien n'est fusionné ni écrasé : en cas de
-  divergence, mise à jour refusée), réinstalle les dépendances si `requirements.txt` a changé,
-  puis le programme s'arrête proprement et se relance lui-même (même processus : sans sudo ni
-  systemd). La page se recharge quand il répond à nouveau. Si le nouveau code plante au
-  lancement, systemd le relance (`Restart=on-failure`) au plus 5 fois en 5 min, puis abandonne
-  (`StartLimitBurst`) : corriger, puis `sudo systemctl reset-failed habctrl` et
+## Administration : mise à jour et synchronisation du paramétrage
+Quatre sections identiques sur la page Administration (`core/sync.py`), rien n'est vérifié
+automatiquement : « Contrôler » indique s'il y a quelque chose à faire, le bouton principal le
+fait.
+- **Application HabController** : commits à tirer (ou code tiré pas encore redémarré) →
+  `git pull --ff-only` (rien n'est fusionné ni écrasé), dépendances réinstallées si
+  `requirements.txt` a changé, puis le programme s'arrête proprement et se relance lui-même
+  (même processus, sans sudo) ; la page se recharge quand il répond à nouveau. Si le nouveau
+  code plante au lancement, systemd le relance (`Restart=on-failure`) au plus 5 fois en 5 min,
+  puis abandonne (`StartLimitBurst`) : corriger, puis `sudo systemctl reset-failed habctrl` et
   `sudo systemctl start habctrl`.
+- **Paramétrage à télécharger** : commits de HabConfig à tirer → `git pull` ; des commits locaux
+  sont fusionnés avec ceux du dépôt distant, en cas de conflit la fusion est annulée (à résoudre
+  à la main). Le contrôle « à charger » suit.
+- **Paramétrage à charger** : la date et l'heure du dernier chargement (démarrage ou
+  rechargement) sont mémorisées ; un fichier ou dossier de HabConfig (hors `pairing/` et fichiers
+  cachés) modifié depuis est signalé → rechargement de la configuration.
+- **Paramétrage à sauvegarder** : modifications non commitées ou commits non poussés → commit de
+  tout (message « sauvegarde du <date> ») et push. Push refusé (HabConfig modifié ailleurs) :
+  télécharger, puis sauvegarder à nouveau.
 
-Rythme des vérifications : `[watch]` de `habctrl.toml`, `check` (s, défaut 30 : configuration et
-sauvegarde) et `fetch` (s, défaut 3600 : mise à jour, réseau).
-Git est lancé sans terminal : pousser HabConfig et tirer HabController demandent des
-identifiants enregistrés sur la machine (clé SSH, ou `git config credential.helper store` avec
-un jeton GitHub), sinon la commande échoue et l'erreur s'affiche.
+Git est lancé sans terminal : pousser et tirer demandent des identifiants enregistrés sur la
+machine (clé SSH, ou `git config credential.helper store` avec un jeton GitHub), sinon l'erreur
+s'affiche.
+
+Notifications (`core/notifications.py`, GET `/api/notifications`) : toute partie du programme
+peut en poser ou en retirer ; une pastille rouge sur l'onglet Administration signale qu'il y en
+a, listées en tête de la page. Aucune n'est posée pour l'instant (prévu pour les alertes).
 
 ## Restauration complète
 Cloner l'application et la configuration côte à côte, brancher la clé Zigbee, lancer. La base Zigbee est
