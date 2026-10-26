@@ -324,3 +324,17 @@ tv = SamsungTV(host="192.168.1.104")   # port=55000, retry=30
 (sinon le keepalive TCP le détecte) ; une nouvelle tentative a lieu toutes les `retry`
 secondes. L'allumer par le réseau est impossible sur ces modèles. À la première connexion,
 accepter « HabController » sur l'écran de la TV : elle s'en souvient.
+
+### WLED — `wled.strip`
+
+```python
+ruban = WLED(host="192.168.1.120")   # port=80, retry=10
+```
+
+| Attribut | Type | Lecture | Commande                    |
+|----------|------|---------|-----------------------------|
+| `on`     | bool | ✓       | `True`, `False`, `"toggle"` |
+
+Connexion WebSocket permanente (`/ws`) : le WLED envoie son état à chaque changement, même
+venu d'ailleurs (appli, bouton). Coupée, une nouvelle tentative a lieu toutes les `retry`
+secondes.

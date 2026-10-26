@@ -2,6 +2,7 @@
 
 from drivers.homekit.fp2 import FP2
 from drivers.samsung.tv import SamsungTV
+from drivers.wled.strip import WLED
 from drivers.yeelight.bulb import YeelightBulb
 from drivers.zigbee.button import Button
 from drivers.zigbee.climate import Climate
@@ -14,6 +15,7 @@ from drivers.zigbee.sensor import Sensor
 __all__ = [
     "FP2",
     "SamsungTV",
+    "WLED",
     "YeelightBulb",
     "Button",
     "Climate",
