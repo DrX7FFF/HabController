@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -9,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from core import git  # noqa: E402
 from core.notifications import Notifications  # noqa: E402
-from core.watch import BACKUP, CONFIG, UPDATE, Watch, changed, config_files  # noqa: E402
+from core.watch import BACKUP, CONFIG, UPDATE, Watch, modified_since  # noqa: E402
 
 
 def run(cwd: Path, *args: str) -> None:
@@ -42,25 +43,36 @@ class RepoTest(unittest.IsolatedAsyncioTestCase):
 
 
 class ConfigWatchTest(RepoTest):
-    def test_changed_files(self):
-        self.assertEqual(changed({"a": 1, "b": 2}, {"a": 1, "b": 3, "c": 1}), ["b", "c"])
-        self.assertEqual(changed({"a": 1}, {}), ["a"])
-
     def test_ignored_dirs(self):
-        for name in ("pairing", "devices/__pycache__"):
-            (self.repo / name).mkdir(parents=True)
+        since = time.time()
+        os.utime(self.repo, (since - 10, since - 10))
+        for name in ("pairing", ".git"):
+            (self.repo / name).mkdir(exist_ok=True)
+            os.utime(self.repo, (since - 10, since - 10))  # dossier créé avant le chargement
             (self.repo / name / "x").write_text("", encoding="utf-8")
-        self.assertEqual(sorted(config_files(self.repo)), ["habctrl.toml"])
+        self.assertEqual(modified_since(since, self.repo), [])
 
     def test_notification_until_reload(self):
-        self.watch.mark_loaded(self.watch.snapshot())
+        os.utime(self.repo / "habctrl.toml", (time.time() - 10,) * 2)
+        os.utime(self.repo, (time.time() - 10,) * 2)
+        self.watch.mark_loaded()
         self.assertIsNone(self.notifications.get(CONFIG))
-        (self.repo / "devices").mkdir()
-        (self.repo / "devices" / "salon.py").write_text("", encoding="utf-8")
+        (self.repo / "habctrl.toml").write_text("[zigbee]\n", encoding="utf-8")
         self.watch.check_config()
-        self.assertIn("devices/salon.py", self.notifications.get(CONFIG)["text"])
-        self.watch.mark_loaded(self.watch.snapshot())
+        self.assertIn("habctrl.toml", self.notifications.get(CONFIG)["text"])
+        self.watch.mark_loaded()
         self.assertIsNone(self.notifications.get(CONFIG))
+
+    def test_deleted_file(self):
+        old = time.time() - 10
+        os.utime(self.repo / "habctrl.toml", (old, old))
+        os.utime(self.repo, (old, old))
+        self.watch.loaded_at = old + 5
+        self.watch.check_config()
+        self.assertIsNone(self.notifications.get(CONFIG))
+        (self.repo / "habctrl.toml").unlink()
+        self.watch.check_config()
+        self.assertIn("modifiée", self.notifications.get(CONFIG)["text"])
 
 
 class BackupTest(RepoTest):

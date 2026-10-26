@@ -35,18 +35,17 @@ notifications = Notifications()  # en attente : pastille sur l'onglet Administra
 watch = Watch(notifications)  # surveillances, sources de notifications
 
 
-def load_config() -> tuple[dict, list[dict], list[dict], list[str], dict[str, int]]:
-    """Équipements, blocs des écrans et graphiques, les erreurs de configuration rencontrées
-    (ce qui est en erreur est ignoré) et l'état des fichiers lus (voir core/watch.py)."""
-    files = watch.snapshot()  # avant la lecture : une modification pendant celle-ci est vue
+def load_config() -> tuple[dict, list[dict], list[dict], list[str]]:
+    """Équipements, blocs des écrans et graphiques, et les erreurs de configuration rencontrées
+    (ce qui est en erreur est ignoré)."""
     with collect_errors() as errors:
         devs = load_devices()
         loaded = devs, load_blocks(devs), load_charts()
-    return *loaded, errors, files
+    return *loaded, errors
 
 
-devices, blocks, charts, config_errors, config_files = load_config()
-watch.mark_loaded(config_files)
+devices, blocks, charts, config_errors = load_config()
+watch.mark_loaded()
 history: datalog.Datalog | None = None
 summary: asyncio.Task | None = None
 pairings = pair.protocols()  # {protocole: classe Pairing}
@@ -136,8 +135,8 @@ async def reload() -> None:
         sys.modules.update(previous)
         raise
     await stop()
-    devices, blocks, charts, errors, files = loaded
-    watch.mark_loaded(files)
+    devices, blocks, charts, errors = loaded
+    watch.mark_loaded()
     config_errors = errors + await start()
     broadcast(init_message())
     log.info("Configuration rechargée")

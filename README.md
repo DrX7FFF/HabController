@@ -70,8 +70,10 @@ l'énergie, 1000 pour le courant, que la prise n'annonce pas).
 Une pastille rouge sur l'onglet **Administration** signale une notification en attente
 (`core/notifications.py` : toute partie du programme peut en poser ou en retirer ; texte en
 info-bulle, détail sur la page). Notifications des surveillances (`core/watch.py`) :
-- **Configuration modifiée** : un fichier de HabConfig (hors `pairing/` et fichiers cachés) a
-  changé depuis son chargement ; le texte s'affiche au-dessus de « Recharger la configuration ».
+- **Configuration modifiée** : la date et l'heure du dernier chargement (démarrage ou
+  « Recharger la configuration ») sont mémorisées ; un fichier ou un dossier de HabConfig
+  (hors `pairing/` et fichiers cachés) modifié après cette date, ou un fichier supprimé, est
+  signalé au-dessus de « Recharger la configuration ».
 - **Sauvegarde à faire** : HabConfig a des modifications non commitées ou des commits non
   poussés ; « Sauvegarder » commit le tout (message « sauvegarde du <date> ») et pousse.
 - **Mise à jour disponible** : la branche suivie de HabController a des commits à tirer
@@ -79,7 +81,10 @@ info-bulle, détail sur la page). Notifications des surveillances (`core/watch.p
   redémarrer » fait un `git pull --ff-only` (rien n'est fusionné ni écrasé : en cas de
   divergence, mise à jour refusée), réinstalle les dépendances si `requirements.txt` a changé,
   puis le programme s'arrête proprement et se relance lui-même (même processus : sans sudo ni
-  systemd). La page se recharge quand il répond à nouveau.
+  systemd). La page se recharge quand il répond à nouveau. Si le nouveau code plante au
+  lancement, systemd le relance (`Restart=on-failure`) au plus 5 fois en 5 min, puis abandonne
+  (`StartLimitBurst`) : corriger, puis `sudo systemctl reset-failed habctrl` et
+  `sudo systemctl start habctrl`.
 
 Rythme des vérifications : `[watch]` de `habctrl.toml`, `check` (s, défaut 30 : configuration et
 sauvegarde) et `fetch` (s, défaut 3600 : mise à jour, réseau).

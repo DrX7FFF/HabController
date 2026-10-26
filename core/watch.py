@@ -1,5 +1,5 @@
 """Surveillances, sources de notifications (core/notifications.py) :
-- configuration : fichiers de HabConfig modifiés, ajoutés ou supprimés depuis leur chargement ;
+- configuration : quelque chose a changé dans HabConfig depuis le dernier chargement ;
 - sauvegarde : modifications de HabConfig pas encore commitées ou poussées ;
 - mise à jour : commits de HabController à tirer, ou code tiré pas encore redémarré.
 
@@ -22,24 +22,21 @@ IGNORED_DIRS = {".git", "__pycache__", "pairing"}
 CONFIG, BACKUP, UPDATE = "config", "backup", "update"  # identifiants des notifications
 
 
-def config_files(directory: Path = CONFIG_DIR) -> dict[str, int]:
-    """{chemin relatif : date de modification (ns)} des fichiers de la configuration."""
-    files = {}
+def modified_since(since: float, directory: Path = CONFIG_DIR) -> list[str]:
+    """Fichiers de la configuration modifiés après la date `since`, et dossiers dont le contenu
+    a changé depuis (fichier ajouté, supprimé ou renommé : la date du dossier change)."""
+    paths = []
     for top, dirs, names in os.walk(directory):
         dirs[:] = [d for d in dirs if d not in IGNORED_DIRS]
-        for name in names:
-            if name.startswith("."):  # .gitignore…
-                continue
-            path = Path(top, name)
+        entries = [(Path(top), True)] + [(Path(top, n), False) for n in names
+                                         if not n.startswith(".")]  # .gitignore…
+        for path, is_dir in entries:
             try:
-                files[path.relative_to(directory).as_posix()] = path.stat().st_mtime_ns
+                if path.stat().st_mtime > since:
+                    paths.append(path.relative_to(directory).as_posix() + ("/" if is_dir else ""))
             except OSError:  # supprimé entre-temps
                 pass
-    return files
-
-
-def changed(before: dict[str, int], after: dict[str, int]) -> list[str]:
-    return sorted(p for p in before.keys() | after.keys() if before.get(p) != after.get(p))
+    return sorted(paths)
 
 
 def describe_files(paths: list[str], shown: int = 3) -> str:
@@ -53,18 +50,14 @@ class Watch:
         self.notifications = notifications
         self.config_dir = config_dir
         self.code_dir = code_dir
-        self.loaded: dict[str, int] = {}  # état des fichiers au dernier chargement
-        self.loaded_at: float | None = None
+        self.loaded_at: float | None = None  # date du dernier chargement de la configuration
         self.boot_commit: str | None = None  # code en marche
         self.behind = 0
         self.errors: dict[str, str] = {}  # dernière erreur par surveillance (journal sans répétition)
 
-    def snapshot(self) -> dict[str, int]:
-        """À prendre juste avant un chargement, puis à passer à mark_loaded() s'il réussit."""
-        return config_files(self.config_dir)
-
-    def mark_loaded(self, files: dict[str, int]) -> None:
-        self.loaded, self.loaded_at = files, time.time()
+    def mark_loaded(self) -> None:
+        """À appeler à chaque chargement réussi de la configuration (démarrage, rechargement)."""
+        self.loaded_at = time.time()
         self.check_config()
 
     def _failed(self, key: str, error: Exception | None) -> None:
@@ -83,7 +76,7 @@ class Watch:
     def check_config(self) -> None:
         if self.loaded_at is None:
             return
-        paths = changed(self.loaded, config_files(self.config_dir))
+        paths = modified_since(self.loaded_at, self.config_dir)
         if paths:
             loaded = time.strftime("%d/%m %H:%M", time.localtime(self.loaded_at))
             self.notifications.set(CONFIG, f"Configuration modifiée depuis son chargement "

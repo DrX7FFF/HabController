@@ -5,6 +5,9 @@ sudo tee /etc/systemd/system/habctrl.service > /dev/null <<EOF
 Description=HabController
 Wants=network-online.target
 After=network-online.target home-habadm-HabController-temp.mount
+# au-delà de 5 démarrages en 5 min (code qui plante dès le lancement) : arrêt définitif
+StartLimitIntervalSec=300
+StartLimitBurst=5
 RequiresMountsFor=/home/habadm/HabController/temp
 
 [Service]
