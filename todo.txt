@@ -41,33 +41,6 @@ Alertes : équipement qui ne vit plus, pile faible.
   - pile faible : battery < 20 %.
 - Seuils dans habctrl.toml ([alerts], avec exceptions par équipement).
 - Une alerte par anomalie, répétée au plus une fois par jour, et un message au retour à la normale.
-- Canal à choisir : journal + bandeau de la page web pour commencer, puis notification (mail,
-  push…).
+- Canal : journal + notification du système (core/notifications.py : pastille sur l'onglet
+  Administration) pour commencer, puis notification externe (mail, push…).
 
-Notifications : mécanisme générique de notifications système.
-- Une notification = un identifiant, un texte, un niveau, une date ; une source peut en ajouter
-  ou en retirer (plusieurs sources indépendantes, liste exposée par une API, ex. GET /api/notifications).
-- Pastille rouge à côté du menu « Administration » dès qu'une notification est en attente
-  (sur toutes les pages).
-- Les surveillances ci-dessous sont des sources de notifications.
-
-Surveillance de la configuration (notification) :
-- Mémoriser la date et l'heure du dernier chargement des fichiers de paramétrage (HabConfig).
-- Vérifier périodiquement si un fichier a été modifié (ou ajouté / supprimé) depuis ce chargement.
-- Vue Administration : au-dessus de « Recharger la configuration », un texte indiquant qu'une
-  modification est en attente de rechargement ; la notification disparaît après le rechargement.
-
-Surveillance de la sauvegarde de HabConfig (notification) :
-- Détecter si le dépôt HabConfig a des modifications non commitées ou des commits non poussés.
-- Vue Administration : une section comme celle du rechargement, avec un texte si une sauvegarde
-  est à faire et un bouton « Sauvegarder » qui commit (message automatique daté) et pousse.
-- Afficher le résultat (succès / erreur git) comme pour le rechargement.
-
-Surveillance des mises à jour de HabController (notification) :
-- Détecter si le dépôt HabController a des commits à tirer (git fetch périodique puis
-  comparaison avec la branche distante).
-- Vue Administration : un texte si une mise à jour est disponible et un bouton « Mettre à jour »
-  qui lance un processus : git pull, puis redémarrage du service (systemctl restart, ou autre
-  alternative : sortie du processus et relance par systemd).
-- Gérer l'échec du pull (conflit, modifications locales) sans redémarrer, et revenir sur la page
-  une fois le service redémarré.

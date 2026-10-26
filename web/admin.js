@@ -6,6 +6,12 @@
 // appairés qu'aucun équipement n'utilise (GET puis DELETE /api/pair/<protocole>/unused).
 // « Recharger la configuration » : relit HabConfig sans redémarrer (POST /api/reload).
 // Erreurs de la configuration en cours (parties ignorées) : listées sous ce bouton (GET /api/config).
+// Notifications (web/notifications.js) : celles des surveillances (configuration modifiée,
+// sauvegarde de HabConfig, mise à jour de HabController) au-dessus du bouton de leur section,
+// les autres en tête de page.
+// « Sauvegarder » : commit et push de HabConfig (POST /api/backup).
+// « Mettre à jour et redémarrer » : git pull de HabController puis redémarrage
+// (POST /api/update) ; la page se recharge quand le programme répond à nouveau.
 
 const banner = document.getElementById("banner");
 const protocols = document.getElementById("protocols");
@@ -215,3 +221,94 @@ fetch("/api/pair")
   .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
   .then(list => protocols.replaceChildren(...list.map(build)))
   .catch(err => show(`Protocoles d'appairage illisibles (${err.message}).`));
+
+// Notifications : texte de la section qui en a une (vide : message neutre), sinon en tête.
+const notices = {
+  config: [document.getElementById("config-notice"), "Configuration chargée à jour."],
+  backup: [document.getElementById("backup-notice"), "HabConfig est sauvegardé."],
+  update: [document.getElementById("update-notice"), "HabController est à jour."],
+};
+const others = document.getElementById("notifications");
+
+window.addEventListener("notifications", e => {
+  const list = e.detail;
+  for (const [id, [el, idle]] of Object.entries(notices)) {
+    const n = list.find(n => n.id === id);
+    el.textContent = n ? n.text : idle;
+    el.classList.toggle("pending", !!n);
+  }
+  const rest = list.filter(n => !(n.id in notices));
+  others.replaceChildren(...rest.map(n =>
+    Object.assign(document.createElement("li"), { textContent: n.text })));
+  others.hidden = !rest.length;
+});
+
+// Bouton qui lance `action` : désactivé pendant, résultat (ou erreur) affiché à côté.
+function action(button, status, busy, run) {
+  button.onclick = async () => {
+    button.disabled = true;
+    status.className = "";
+    status.textContent = busy;
+    try {
+      status.textContent = await run();
+      status.className = "ok";
+    } catch (err) {
+      status.className = "failed";
+      status.textContent = err.message;
+    } finally {
+      button.disabled = false;
+      refreshNotifications();
+    }
+  };
+}
+
+const backupStatus = document.getElementById("backup-status");
+action(document.getElementById("backup"), backupStatus, "Sauvegarde…", async () => {
+  try {
+    return `Sauvegarde : ${(await request("/api/backup", "POST")).detail}.`;
+  } catch (err) {
+    throw new Error(`Sauvegarde impossible : ${err.message}`);
+  }
+});
+
+const updateStatus = document.getElementById("update-status");
+action(document.getElementById("update-check"), updateStatus, "Recherche…", async () => {
+  try {
+    const { notification } = await request("/api/update/check", "POST");
+    return notification ? "" : "Aucune mise à jour.";
+  } catch (err) {
+    throw new Error(`Recherche impossible : ${err.message}`);
+  }
+});
+
+// Attend que le programme redémarré réponde (date de démarrage changée), puis recharge la page.
+async function awaitRestart(boot) {
+  const end = Date.now() + 180000;
+  while (Date.now() < end) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    try {
+      if ((await request("/api/config")).boot !== boot) {
+        location.reload();
+        return new Promise(() => {});  // la page se recharge
+      }
+    } catch {
+      // pas encore redémarré
+    }
+  }
+  throw new Error("le programme ne répond plus après 3 min (voir journalctl -u habctrl).");
+}
+
+const updateButton = document.getElementById("update");
+action(updateButton, updateStatus, "Mise à jour…", async () => {
+  if (!confirm("Mettre à jour HabController puis le redémarrer ?")) return "";
+  let result, boot;
+  try {
+    boot = (await request("/api/config")).boot;
+    result = await request("/api/update", "POST");
+  } catch (err) {
+    throw new Error(`Mise à jour impossible : ${err.message}`);
+  }
+  if (!result.restarting) return `HabController ${result.detail}.`;
+  updateStatus.textContent = `Mise à jour : ${result.detail}…`;
+  return awaitRestart(boot);
+});

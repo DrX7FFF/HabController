@@ -30,8 +30,12 @@
   #prompt { font-weight: 600; flex-basis: 100%; }
   #config-errors { color: #b00; margin: .8rem 0 0; padding-left: 1.2rem; }
   #config-errors[hidden] { display: none; }
-  #status.ok, #reload-status.ok { color: #1a7f1a; }
-  #status.failed, #reload-status.failed { color: #b00; }
+  .ok { color: #1a7f1a; }
+  .failed { color: #b00; }
+  .notice { margin: 0 0 .8rem; }
+  .notice.pending { color: #b00; font-weight: 600; }
+  #notifications { margin: 0 0 1rem; padding-left: 1.2rem; color: #b00; font-weight: 600; }
+  #notifications[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -41,11 +45,26 @@
   <a href="/administration" aria-current="page">Administration</a>
 </nav>
 <div id="banner" hidden></div>
+<ul id="notifications" hidden></ul>
 <section>
   <h2>Configuration</h2>
+  <p class="notice" id="config-notice"></p>
   <button id="reload" class="main">Recharger la configuration</button>
   <span id="reload-status"></span>
   <ul id="config-errors" hidden></ul>
+</section>
+<section>
+  <h2>Sauvegarde de la configuration</h2>
+  <p class="notice" id="backup-notice"></p>
+  <button id="backup" class="main">Sauvegarder (commit et push de HabConfig)</button>
+  <span id="backup-status"></span>
+</section>
+<section>
+  <h2>Mise à jour de HabController</h2>
+  <p class="notice" id="update-notice"></p>
+  <button id="update-check">Rechercher une mise à jour</button>
+  <button id="update" class="main">Mettre à jour et redémarrer</button>
+  <span id="update-status"></span>
 </section>
 <section>
   <h2>Appairage</h2>
@@ -67,6 +86,7 @@
     </div>
   </div>
 </section>
+<script src="/web/notifications.js"></script>
 <script src="/web/admin.js"></script>
 </body>
 </html>

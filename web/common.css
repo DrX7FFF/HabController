@@ -1,4 +1,4 @@
-/* Commun à toutes les pages : fond, barre d'onglets, bandeau de message. */
+/* Commun à toutes les pages : fond, onglets (pastille des notifications), bandeau. */
 body { font-family: system-ui, sans-serif; margin: 0 2rem 2rem; }
 nav { display: flex; gap: .3rem; border-bottom: 2px solid #ccc; margin-bottom: 1.5rem; }
 nav a { padding: .8rem 1.2rem; color: #444; text-decoration: none;
@@ -8,3 +8,6 @@ nav a[aria-current="page"] { color: #000; font-weight: 600; border-bottom-color:
           padding: .6rem 1rem; margin-bottom: 1rem; }
 h2 { margin: 0; font-size: 1.1rem; }
 @media (max-width: 600px) { body { margin: 0 1rem 1rem; } }
+nav .badge { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%;
+             background: #d00; margin-left: .4rem; vertical-align: top; }
+nav .badge[hidden] { display: none; }

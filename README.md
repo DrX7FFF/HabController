@@ -66,6 +66,27 @@ inutilisés ici (pilotes d'autres clés). Pour s'en passer : retirer `zha-quirks
 puis réécrire dans chaque pilote ce que son correctif apportait (ex. TS011F : diviseurs 100 pour
 l'énergie, 1000 pour le courant, que la prise n'annonce pas).
 
+## Administration : notifications, sauvegarde, mise à jour
+Une pastille rouge sur l'onglet **Administration** signale une notification en attente
+(`core/notifications.py` : toute partie du programme peut en poser ou en retirer ; texte en
+info-bulle, détail sur la page). Notifications des surveillances (`core/watch.py`) :
+- **Configuration modifiée** : un fichier de HabConfig (hors `pairing/` et fichiers cachés) a
+  changé depuis son chargement ; le texte s'affiche au-dessus de « Recharger la configuration ».
+- **Sauvegarde à faire** : HabConfig a des modifications non commitées ou des commits non
+  poussés ; « Sauvegarder » commit le tout (message « sauvegarde du <date> ») et pousse.
+- **Mise à jour disponible** : la branche suivie de HabController a des commits à tirer
+  (recherche une fois par heure, ou « Rechercher une mise à jour ») ; « Mettre à jour et
+  redémarrer » fait un `git pull --ff-only` (rien n'est fusionné ni écrasé : en cas de
+  divergence, mise à jour refusée), réinstalle les dépendances si `requirements.txt` a changé,
+  puis le programme s'arrête proprement et se relance lui-même (même processus : sans sudo ni
+  systemd). La page se recharge quand il répond à nouveau.
+
+Rythme des vérifications : `[watch]` de `habctrl.toml`, `check` (s, défaut 30 : configuration et
+sauvegarde) et `fetch` (s, défaut 3600 : mise à jour, réseau).
+Git est lancé sans terminal : pousser HabConfig et tirer HabController demandent des
+identifiants enregistrés sur la machine (clé SSH, ou `git config credential.helper store` avec
+un jeton GitHub), sinon la commande échoue et l'erreur s'affiche.
+
 ## Restauration complète
 Cloner l'application et la configuration côte à côte, brancher la clé Zigbee, lancer. La base Zigbee est
 reprise de `pairing/zigbee.db` (écrite à chaque appairage) ; les appairages

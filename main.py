@@ -2,7 +2,9 @@ import asyncio
 import importlib
 import json
 import logging
+import os
 import sys
+import time
 from contextlib import asynccontextmanager
 from functools import partial
 
@@ -12,35 +14,45 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketState
 from pydantic import BaseModel, ValidationError
 
-from core import ROOT, TEMP_DIR, datalog, pair
+from core import CONFIG_DIR, ROOT, TEMP_DIR, datalog, git, pair
 from core.automation import load_automations, stop_automations
 from core.base import DeviceError
 from core.charts import downsample, load_charts
 from core.devices import load_devices, summarize
 from core.log import collect_errors
 from core.log import setup as setup_logging
+from core.notifications import Notifications
+from core.watch import UPDATE, Watch
 from core.widgets import load_blocks
 
 setup_logging()
 log = logging.getLogger("habctrl")
 
 CONFIG_PACKAGES = ("devices", "automations")  # paquets Python de la configuration
+BOOT = int(time.time() * 1000)  # démarrage du programme : la page voit qu'il a redémarré
+BUSY = "une autre opération d'administration est en cours (appairage, rechargement…)"
+notifications = Notifications()  # en attente : pastille sur l'onglet Administration
+watch = Watch(notifications)  # surveillances, sources de notifications
 
 
-def load_config() -> tuple[dict, list[dict], list[dict], list[str]]:
-    """Équipements, blocs des écrans et graphiques, et les erreurs de configuration rencontrées
-    (ce qui est en erreur est ignoré)."""
+def load_config() -> tuple[dict, list[dict], list[dict], list[str], dict[str, int]]:
+    """Équipements, blocs des écrans et graphiques, les erreurs de configuration rencontrées
+    (ce qui est en erreur est ignoré) et l'état des fichiers lus (voir core/watch.py)."""
+    files = watch.snapshot()  # avant la lecture : une modification pendant celle-ci est vue
     with collect_errors() as errors:
         devs = load_devices()
         loaded = devs, load_blocks(devs), load_charts()
-    return *loaded, errors
+    return *loaded, errors, files
 
 
-devices, blocks, charts, config_errors = load_config()
+devices, blocks, charts, config_errors, config_files = load_config()
+watch.mark_loaded(config_files)
 history: datalog.Datalog | None = None
 summary: asyncio.Task | None = None
 pairings = pair.protocols()  # {protocole: classe Pairing}
-admin_lock = asyncio.Lock()  # appairage, nettoyage ou rechargement : un à la fois
+admin_lock = asyncio.Lock()  # une opération d'administration à la fois (appairage, sauvegarde…)
+server = None  # uvicorn.Server lancé par ./habctrl : arrêté pour redémarrer (voir restart())
+restart_requested = False
 clients: set[asyncio.Queue] = set()  # une file de messages par page connectée
 
 
@@ -124,7 +136,8 @@ async def reload() -> None:
         sys.modules.update(previous)
         raise
     await stop()
-    devices, blocks, charts, errors = loaded
+    devices, blocks, charts, errors, files = loaded
+    watch.mark_loaded(files)
     config_errors = errors + await start()
     broadcast(init_message())
     log.info("Configuration rechargée")
@@ -136,7 +149,9 @@ async def lifespan(app: FastAPI):
     config_errors = config_errors + await start()
     if config_errors:
         log.warning("Configuration : %d erreur(s)", len(config_errors))
+    watcher = asyncio.create_task(watch.run())
     yield
+    watcher.cancel()
     await stop()
 
 
@@ -186,7 +201,7 @@ async def reload_config():
     """Recharge toute la configuration (équipements, automatisations, écrans, graphiques,
     datalog) sans redémarrer le programme."""
     if admin_lock.locked():
-        raise HTTPException(status_code=409, detail="un appairage ou un rechargement est en cours")
+        raise HTTPException(status_code=409, detail=BUSY)
     async with admin_lock:
         try:
             await reload()
@@ -199,8 +214,91 @@ async def reload_config():
 
 @app.get("/api/config")
 async def config_status():
-    """Nombre d'équipements chargés et erreurs de la configuration (parties ignorées)."""
-    return {"devices": len(devices), "errors": config_errors}
+    """Nombre d'équipements chargés, erreurs de la configuration (parties ignorées) et date du
+    démarrage du programme (ms)."""
+    return {"devices": len(devices), "errors": config_errors, "boot": BOOT}
+
+
+# --- Notifications et surveillances (core/notifications.py, core/watch.py) ---
+
+
+@app.get("/api/notifications")
+async def list_notifications():
+    """Notifications en attente : [{id, text, level, since (ms)}], les plus anciennes d'abord."""
+    return notifications.list()
+
+
+@app.post("/api/backup")
+async def backup_config():
+    """Sauvegarde HabConfig : commit de toutes les modifications puis push."""
+    if admin_lock.locked():
+        raise HTTPException(status_code=409, detail=BUSY)
+    async with admin_lock:
+        try:
+            detail = await git.backup(CONFIG_DIR)
+        except git.GitError as err:
+            log.error("Sauvegarde de HabConfig impossible : %s", err)
+            raise HTTPException(status_code=502, detail=str(err)) from err
+        finally:
+            await watch.check_backup()
+    log.info("Sauvegarde de HabConfig : %s", detail)
+    return {"detail": detail}
+
+
+@app.post("/api/update/check")
+async def check_update():
+    """Recherche tout de suite une mise à jour de HabController (sinon : une fois par heure)."""
+    await watch.check_update()
+    if UPDATE in watch.errors:
+        raise HTTPException(status_code=502, detail=watch.errors[UPDATE])
+    return {"notification": notifications.get(UPDATE)}
+
+
+def restart() -> None:
+    """Arrête proprement le serveur (équipements, automatisations, datalog), puis le programme
+    se relance lui-même à la place (même processus : systemd n'y voit rien, voir __main__)."""
+    global restart_requested
+    log.info("Redémarrage demandé")
+    restart_requested = True
+    server.should_exit = True
+
+
+@app.post("/api/update")
+async def update_code():
+    """Met à jour HabController (git pull, dépendances si requirements.txt a changé), puis
+    redémarre le programme si le code a changé depuis son démarrage."""
+    if server is None:
+        raise HTTPException(status_code=501, detail="redémarrage impossible : lancer par ./habctrl")
+    if admin_lock.locked():
+        raise HTTPException(status_code=409, detail=BUSY)
+    async with admin_lock:
+        try:
+            files = await git.pull(ROOT)
+            if "requirements.txt" in files:
+                await install_requirements()
+            head = await git.head(ROOT)
+        except (git.GitError, RuntimeError) as err:
+            log.error("Mise à jour impossible : %s", err)
+            raise HTTPException(status_code=502, detail=str(err)) from err
+        finally:
+            await watch.check_update(fetch=False)
+    if head == watch.boot_commit:
+        return {"detail": "déjà à jour", "restarting": False}
+    log.info("HabController mis à jour (%d fichier(s) tiré(s))", len(files))
+    asyncio.get_running_loop().call_later(0.5, restart)  # la réponse part avant l'arrêt
+    return {"detail": f"{len(files)} fichier(s) mis à jour, redémarrage", "restarting": True}
+
+
+async def install_requirements() -> None:
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "-m", "pip", "install", "--quiet", "-r", str(ROOT / "requirements.txt"),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    out, _ = await proc.communicate()
+    if proc.returncode:
+        lines = out.decode(errors="replace").strip().splitlines()
+        raise RuntimeError("code mis à jour mais dépendances non installées (relancer "
+                           f"install.sh) : {lines[-1] if lines else proc.returncode}")
 
 
 @app.get("/api/charts")
@@ -315,7 +413,7 @@ async def cleanup(protocol: str, action: str) -> list[str]:
     if cls is None or not cls.CLEANUP:
         raise HTTPException(status_code=404, detail="protocole inconnu ou sans nettoyage")
     if admin_lock.locked():
-        raise HTTPException(status_code=409, detail="un appairage ou un rechargement est en cours")
+        raise HTTPException(status_code=409, detail=BUSY)
     async with admin_lock:
         try:
             return await getattr(cls, action)()
@@ -400,7 +498,7 @@ async def pair_socket(ws: WebSocket, protocol: str = "", duration: int = 0):
     if cls is None or not 1 <= duration <= cls.MAX_DURATION:
         error = "protocole inconnu" if cls is None else f"durée entre 1 et {cls.MAX_DURATION} s"
     elif admin_lock.locked():
-        error = "un appairage ou un rechargement est déjà en cours"
+        error = BUSY
     else:
         async with admin_lock:
             log.info("Appairage %s lancé (%s s)", cls.LABEL, duration)
@@ -438,4 +536,9 @@ def admin_page():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_config=None)  # journaux : core/log.py
+    server = uvicorn.Server(  # journaux : core/log.py
+        uvicorn.Config(app, host="0.0.0.0", port=8000, log_config=None)
+    )
+    server.run()
+    if restart_requested:  # mise à jour : le nouveau code remplace ce processus
+        os.execv(sys.executable, [sys.executable, *sys.argv])
