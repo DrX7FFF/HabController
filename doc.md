@@ -10,14 +10,13 @@ pas leur date), avec ce qui en dépend :
 
 | Modifié              | Rechargé                                                              |
 |----------------------|-----------------------------------------------------------------------|
-| `habctrl.toml`       | redémarrage du programme (chemins, clé Zigbee : ne devrait pas changer) |
 | `devices/`           | tout : équipements arrêtés et reconnectés, puis tout le reste         |
 | `automations/`       | les automatisations seules                                            |
 | `datalog.toml`       | le datalog seul                                                       |
 | `dashboard/`         | écrans et graphiques                                                  |
 
 « Contrôler » indique les fichiers modifiés et ce qui sera rechargé. Le reste (`pairing/`,
-README…) n'est jamais relu.
+README…) n'est jamais relu. `habctrl.toml` modifié : redémarrage, par la section Application.
 
 - **Automatisations seules** : les équipements restent connectés et gardent leur état ; les
   automatisations sont désabonnées, celles en cours et les minuteurs annulés (les commandes

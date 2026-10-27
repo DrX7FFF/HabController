@@ -81,7 +81,6 @@ class LoadTest(RepoTest):
         self.assertEqual(sync.reload_plan({"dashboard", "datalog", "automations"}),
                          ["automations", "datalog", "dashboard"])
         self.assertEqual(sync.reload_plan({"devices", "automations"}), ["devices"])
-        self.assertEqual(sync.reload_plan({"devices", "settings"}), ["settings"])
         self.assertEqual(sync.reload_plan({}), [])
 
     def test_check_tells_what_will_be_reloaded(self):
@@ -91,8 +90,6 @@ class LoadTest(RepoTest):
         self.assertTrue(check["pending"])
         self.assertIn("automations/presence.py", check["text"])
         self.assertIn("à recharger : automatisations", check["text"])
-        (self.repo / "habctrl.toml").unlink()
-        self.assertIn("redémarrage", sync.check_load(self.repo, loaded, time.time())["text"])
 
 
 class SaveTest(RepoTest):
@@ -151,11 +148,12 @@ class PullTest(RepoTest):
 
     async def test_app_then_restart_pending(self):
         boot = await git.head(self.repo)
-        self.assertFalse((await sync.check_app(self.repo, boot))["pending"])
+        self.assertFalse((await sync.check_app(self.repo, boot, False))["pending"])
+        self.assertIn("habctrl.toml", (await sync.check_app(self.repo, boot, True))["text"])
         self.push_other("requirements.txt")
-        self.assertIn("1 commit(s)", (await sync.check_app(self.repo, boot))["text"])
+        self.assertIn("1 commit(s)", (await sync.check_app(self.repo, boot, False))["text"])
         self.assertEqual(await git.pull(self.repo), ["requirements.txt"])
-        self.assertIn("redémarrage", (await sync.check_app(self.repo, boot))["text"])
+        self.assertIn("redémarrage", (await sync.check_app(self.repo, boot, False))["text"])
         self.assertEqual(await git.pull(self.repo), [])
 
     async def test_diverged_pull_refused(self):

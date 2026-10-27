@@ -29,7 +29,6 @@ log = logging.getLogger("habctrl")
 
 CONFIG_PACKAGES = ("devices", "automations")  # paquets Python de la configuration
 BOOT = int(time.time() * 1000)  # démarrage du programme : la page voit qu'il a redémarré
-NO_RESTART = "redémarrage impossible : lancer par ./habctrl"
 BUSY = "une autre opération d'administration est en cours (appairage, rechargement…)"
 notifications = Notifications()  # en attente : pastille sur l'onglet Administration
 
@@ -56,6 +55,8 @@ def read_dashboard(devs: dict) -> tuple[list[dict], list[dict], list[str]]:
     return *loaded, errs
 
 
+SETTINGS = CONFIG_DIR / "habctrl.toml"
+boot_settings = SETTINGS.read_bytes()  # modifié : redémarrage (voir sync.check_app)
 loaded_files = sync.snapshot(CONFIG_DIR)  # avant la lecture : une modification pendant sera vue
 loaded_at = time.time()  # dernier chargement de la configuration (voir core/sync.py)
 devices, errors["devices"] = read_devices()
@@ -194,13 +195,10 @@ async def reload_datalog() -> None:
 
 async def reload() -> list[str]:
     """Recharge les parties de la configuration modifiées depuis le dernier chargement (voir
-    sync.reload_plan) ; renvoie le plan suivi. Ce qui est en erreur est ignoré (voir errors).
-    habctrl.toml modifié : renvoie ["settings"], le redémarrage est à faire."""
+    sync.reload_plan) ; renvoie le plan suivi. Ce qui est en erreur est ignoré (voir errors)."""
     global blocks, charts, loaded_files, loaded_at
     current = sync.snapshot(CONFIG_DIR)
     plan = sync.reload_plan(sync.changes(loaded_files, current))
-    if plan == ["settings"]:
-        return plan
     if "devices" in plan:
         await reload_all()
     if "automations" in plan:
@@ -294,7 +292,7 @@ async def list_notifications():
 
 async def check(name: str) -> dict:
     if name == "app":
-        return await sync.check_app(ROOT, boot_commit)
+        return await sync.check_app(ROOT, boot_commit, SETTINGS.read_bytes() != boot_settings)
     if name == "download":
         return await sync.check_download(CONFIG_DIR)
     if name == "load":
@@ -320,7 +318,7 @@ async def run_sync(name: str):
     if name not in SYNCS:
         raise HTTPException(status_code=404, detail="synchronisation inconnue")
     if name == "app" and server is None:
-        raise HTTPException(status_code=501, detail=NO_RESTART)
+        raise HTTPException(status_code=501, detail="redémarrage impossible : lancer par ./habctrl")
     if admin_lock.locked():
         raise HTTPException(status_code=409, detail=BUSY)
     async with admin_lock:
@@ -338,11 +336,11 @@ async def run_sync(name: str):
 
 async def update_code() -> dict:
     """Met à jour HabController (git pull, dépendances si requirements.txt a changé), puis
-    redémarre le programme si le code a changé depuis son démarrage."""
+    redémarre le programme si le code ou habctrl.toml a changé depuis son démarrage."""
     files = await git.pull(ROOT)
     if "requirements.txt" in files:
         await install_requirements()
-    if await git.head(ROOT) == boot_commit:
+    if await git.head(ROOT) == boot_commit and SETTINGS.read_bytes() == boot_settings:
         return {"text": "Déjà à jour."}
     log.info("HabController mis à jour (%d fichier(s) tiré(s))", len(files))
     asyncio.get_running_loop().call_later(0.5, restart)  # la réponse part avant l'arrêt
@@ -356,19 +354,12 @@ async def download_config() -> dict:
 
 
 async def reload_config() -> dict:
-    """Recharge les parties modifiées de la configuration ; habctrl.toml modifié : redémarre
-    le programme."""
+    """Recharge les parties modifiées de la configuration."""
     try:
         plan = await reload()
     except Exception as err:
         log.exception("Rechargement de la configuration impossible")
         raise RuntimeError(f"configuration illisible : {type(err).__name__} : {err}") from err
-    if plan == ["settings"]:
-        if server is None:
-            raise RuntimeError(f"habctrl.toml modifié, {NO_RESTART}")
-        log.info("habctrl.toml modifié")
-        asyncio.get_running_loop().call_later(0.5, restart)  # la réponse part avant l'arrêt
-        return {"text": "habctrl.toml modifié, redémarrage…", "restarting": True}
     if not plan:
         return {"text": "Rien à recharger.", "errors": config_errors()}
     failed = f", {len(config_errors())} erreur(s)" if config_errors() else ""

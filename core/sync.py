@@ -1,6 +1,7 @@
 """Synchronisations de la page Administration, chacune lancée à la main : un contrôle (y a-t-il
 quelque chose à faire ?) puis, au besoin, la synchro.
-- app : commits de HabController à tirer -> pull, puis redémarrage (main.py) ;
+- app : commits de HabController à tirer, ou habctrl.toml modifié -> pull, puis redémarrage
+  (main.py) ;
 - download : commits de HabConfig à tirer -> pull ;
 - load : HabConfig modifié depuis le dernier chargement -> rechargement des seules parties
   modifiées (main.py) ;
@@ -15,9 +16,9 @@ from pathlib import Path
 from core import git
 
 # Parties de la configuration, rechargées séparément (main.py) : premier élément du chemin dans
-# HabConfig -> partie. Le reste (pairing/, écrit par le programme, README…) n'est pas relu.
+# HabConfig -> partie. habctrl.toml : redémarrage (voir check_app). Le reste (pairing/, écrit
+# par le programme, README…) n'est pas relu.
 PARTS = {
-    "habctrl.toml": "settings",
     "devices": "devices",
     "automations": "automations",
     "datalog.toml": "datalog",
@@ -25,7 +26,6 @@ PARTS = {
 }
 # ce que fait le rechargement d'une partie
 ACTIONS = {
-    "settings": "redémarrage du programme",
     "devices": "rechargement complet, équipements reconnectés",
     "automations": "automatisations",
     "datalog": "datalog",
@@ -65,11 +65,10 @@ def changes(loaded: dict[str, str], current: dict[str, str]) -> dict[str, list[s
 
 
 def reload_plan(parts) -> list[str]:
-    """Parties à recharger pour les parties modifiées : habctrl.toml l'emporte (redémarrage),
-    puis devices/ (rechargement complet : tout dépend des équipements)."""
-    for whole in ("settings", "devices"):
-        if whole in parts:
-            return [whole]
+    """Parties à recharger pour les parties modifiées : devices/ l'emporte (rechargement
+    complet : tout dépend des équipements)."""
+    if "devices" in parts:
+        return ["devices"]
     return [part for part in ACTIONS if part in parts]
 
 
@@ -78,14 +77,16 @@ def describe_files(paths: list[str], shown: int = 3) -> str:
     return ", ".join(paths[:shown]) + more
 
 
-async def check_app(repo: Path, boot_commit: str | None) -> dict:
+async def check_app(repo: Path, boot_commit: str | None, settings_changed: bool) -> dict:
     """Commits à tirer, ou code déjà tiré mais pas encore redémarré (boot_commit : code en
-    marche)."""
+    marche), ou habctrl.toml modifié depuis le démarrage."""
     behind = await git.behind(repo)
     if behind:
         return state(True, f"{behind} commit(s) à tirer.")
     if boot_commit and await git.head(repo) != boot_commit:
         return state(True, "Code déjà tiré, redémarrage à faire.")
+    if settings_changed:
+        return state(True, "habctrl.toml modifié, redémarrage à faire.")
     return state(False, "À jour.")
 
 

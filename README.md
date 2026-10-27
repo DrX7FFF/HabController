@@ -70,7 +70,8 @@ l'énergie, 1000 pour le courant, que la prise n'annonce pas).
 Quatre sections identiques sur la page Administration (`core/sync.py`), rien n'est vérifié
 automatiquement : « Contrôler » indique s'il y a quelque chose à faire, le bouton principal le
 fait.
-- **Application HabController** : commits à tirer (ou code tiré pas encore redémarré) →
+- **Application HabController** : commits à tirer (ou code tiré pas encore redémarré, ou
+  `habctrl.toml` modifié depuis le démarrage) →
   `git pull --ff-only` (rien n'est fusionné ni écrasé), dépendances réinstallées si
   `requirements.txt` a changé, puis le programme s'arrête proprement et se relance lui-même
   (même processus, sans sudo) ; la page se recharge quand il répond à nouveau. Si le nouveau
@@ -83,7 +84,7 @@ fait.
 - **Paramétrage à charger** : le contenu de HabConfig au dernier chargement (démarrage ou
   rechargement) est mémorisé ; un fichier ajouté, supprimé ou modifié depuis est signalé, avec
   ce qui sera rechargé → rechargement des seules parties modifiées (automatisations, datalog,
-  écrans… ; `devices/` : tout ; `habctrl.toml` : redémarrage), voir `doc.md`.
+  écrans… ; `devices/` : tout), voir `doc.md`.
 - **Paramétrage à sauvegarder** : modifications non commitées ou commits non poussés → commit de
   tout (message « sauvegarde du <date> ») et push. Push refusé (HabConfig modifié ailleurs) :
   télécharger, puis sauvegarder à nouveau.
