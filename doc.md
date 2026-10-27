@@ -31,7 +31,7 @@ README…) n'est jamais relu.
   sont annulées, et un capteur sur pile reste injoignable jusqu'à son prochain message.
 
 Le code de HabController (pilotes, `core/`) n'est pas rechargé. Les pages ouvertes reçoivent
-les nouveaux écrans ; la page des graphiques est à recharger pour voir un `charts.toml` modifié.
+les nouveaux écrans et graphiques.
 
 ## Erreurs de configuration
 

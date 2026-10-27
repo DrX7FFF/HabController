@@ -80,7 +80,7 @@ def snapshot() -> list[dict]:
 
 
 def init_message() -> dict:
-    return {"type": "init", "blocks": snapshot(), "errors": config_errors()}
+    return {"type": "init", "blocks": snapshot(), "charts": charts, "errors": config_errors()}
 
 
 def on_device_change(dev_id: str, state: dict) -> None:
@@ -405,11 +405,6 @@ async def install_requirements() -> None:
                            f"install.sh) : {lines[-1] if lines else proc.returncode}")
 
 
-@app.get("/api/charts")
-async def list_charts():
-    return charts
-
-
 @app.get("/api/history")
 async def read_history(path: str, start: int, end: int):
     """Points [ms, valeur] d'un chemin du datalog entre start et end (ms)."""
@@ -430,7 +425,7 @@ async def read_history(path: str, start: int, end: int):
 
 
 # --- WebSocket : événements dans les deux sens -------------------------------
-# serveur -> page : {"type": "init", "blocks": [...], "errors": [...]} puis {"type": "state", "device", "state"},
+# serveur -> page : {"type": "init", "blocks": [...], "charts": [...], "errors": [...]} puis {"type": "state", "device", "state"},
 #                   et {"type": "datalog", "points": [[chemin, ms, valeur], ...]} à chaque
 #                   enregistrement du datalog (graphiques en direct)
 #                   et {"type": "error", "device", "detail"} pour une commande refusée

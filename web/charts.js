@@ -5,6 +5,8 @@
 // quand on quitte le direct) ; en direct, elle finit maintenant.
 // « Direct » : les valeurs enregistrées par le datalog arrivent par le WebSocket et s'ajoutent
 // aux courbes ; la période glisse pour finir à la dernière valeur reçue.
+// La liste des graphiques arrive aussi par le WebSocket (message init, renvoyé après chaque
+// rechargement de la configuration) : un charts.toml modifié s'affiche sans recharger la page.
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -24,7 +26,7 @@ let pending = false;  // valeurs reçues en Direct pendant le zoom, pas encore d
 let start = 0;
 let end = 0;
 let views = [];  // { chart, plot, points: [[ms, valeur], ...] par série }
-let ws = null;
+let charts = null;  // liste affichée, telle que reçue
 let redraw = null;  // tracé en attente (au plus un par image)
 
 function show(text) {
@@ -48,9 +50,8 @@ function toolbar() {
   liveBox.onchange = () => {
     fromInput.hidden = liveBox.checked;
     if (liveBox.checked) {
-      connect();
+      refresh();  // repart d'un historique à jour
     } else {
-      disconnect();
       fromInput.value = localInput(start);  // la vue reste celle du direct, déjà chargée
     }
   };
@@ -111,7 +112,8 @@ function trim(points) {
 // Les points arrivent tels que le datalog les enregistre (hystérésis comprise) : le direct
 // montre la même chose que l'historique relu.
 function receive(m) {
-  if (m.type !== "datalog") return;
+  if (m.type === "init") build(m.charts);
+  if (m.type !== "datalog" || !liveBox.checked) return;
   let changed = false;
   let at = 0;
   m.points.forEach(([path, t, value]) => views.forEach(v => v.chart.series.forEach((s, i) => {
@@ -136,46 +138,39 @@ function receive(m) {
 
 function connect() {
   const socket = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
-  ws = socket;
   socket.onmessage = e => receive(JSON.parse(e.data));
-  socket.onopen = refresh;  // repart d'un historique à jour : rien de manqué entre-temps
   socket.onclose = () => {
-    if (ws !== socket) return;  // fermé volontairement
-    show("Direct : connexion au serveur perdue…");
-    setTimeout(() => { if (ws === socket) connect(); }, 2000);
+    show("Connexion au serveur perdue…");
+    setTimeout(connect, 2000);
   };
 }
 
-function disconnect() {
-  const socket = ws;
-  ws = null;
-  if (socket) socket.close();
-}
-
-async function main() {
-  toolbar();
-  let charts;
-  try {
-    charts = await getJson("/api/charts");
-  } catch (err) {
-    show(`Liste des graphiques illisible (${err.message})`);
-    return;
+// Construit les graphiques, si la liste a changé, puis relit l'historique (aussi à la
+// reconnexion : rien de manqué entre-temps).
+function build(list) {
+  if (JSON.stringify(list) !== JSON.stringify(charts)) {
+    charts = list;
+    views.forEach(v => v.plot.destroy());
+    box.replaceChildren();
+    views = charts.map(view);
   }
   if (!charts.length) {
     show("Aucun graphique : les décrire dans dashboard/charts.toml.");
     return;
   }
-  views = charts.map(chart => {
-    const card = document.createElement("section");
-    card.className = "chart";
-    const title = document.createElement("h2");
-    title.textContent = chart.title;
-    const area = document.createElement("div");
-    card.append(title, area);
-    box.append(card);
-    return { chart, plot: createPlot(area, chart.series, "historique", setZoomed), points: chart.series.map(() => []) };
-  });
   refresh();
 }
 
-main();
+function view(chart) {
+  const card = document.createElement("section");
+  card.className = "chart";
+  const title = document.createElement("h2");
+  title.textContent = chart.title;
+  const area = document.createElement("div");
+  card.append(title, area);
+  box.append(card);
+  return { chart, plot: createPlot(area, chart.series, "historique", setZoomed), points: chart.series.map(() => []) };
+}
+
+toolbar();
+connect();
