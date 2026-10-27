@@ -44,3 +44,7 @@ Alertes : équipement qui ne vit plus, pile faible.
 - Canal : journal + notification du système (core/notifications.py : pastille sur l'onglet
   Administration) pour commencer, puis notification externe (mail, push…).
 
+désactiver l’état None des équipements (par exemple sur on) ;
+étudier l’intérêt des 30 s d’attente du Zigbee.
+Surveiller l'utilisation mémoire/CPU, cas de plantage
+Vérifier les horodate utilisé dans l'application
