@@ -259,7 +259,8 @@ function setupSync(section) {
   run.onclick = () => {
     if (run.dataset.confirm && !confirm(run.dataset.confirm)) return;
     busy(result, "Échec", async () => {
-      const boot = name === "app" ? (await request("/api/config")).boot : null;
+      // app, et load si habctrl.toml a changé : le programme redémarre
+      const boot = ["app", "load"].includes(name) ? (await request("/api/config")).boot : null;
       const r = await request(`/api/sync/${name}`, "POST");
       result.className = "result ok";
       result.textContent = r.text;

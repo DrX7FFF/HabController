@@ -10,7 +10,7 @@ Habitation domotique home mad
   `/` commandes, `/graphiques` historique du datalog décrit par `dashboard/charts.toml` ;
   `web/plot.js` est le seul fichier lié à la bibliothèque de tracé, uPlot dans `web/vendor/`).
 - **Configuration** (dépôt privé HabConfig, cloné à côté : `../HabConfig`) : tout ce qui décrit
-  l'installation et suffit à la restaurer — `habctrl.toml` (réglages), `dashboard/`, `devices/`,
+  l'installation et suffit à la restaurer — `habctrl.toml` (réglages), `datalog.toml`, `dashboard/`, `devices/`,
   `automations/`, `pairing/` (appairages HomeKit, copie de la base Zigbee).
 - **temp/** : 100 % jetable (journaux, base Zigbee vivante), peut être en RAM.
   `equipements.txt`, écrit au démarrage une fois la clé Zigbee initialisée (60 s au plus) : chaque
@@ -18,7 +18,7 @@ Habitation domotique home mad
   équipement déclaré, avec la déclaration à copier dans devices/. S'il y a une anomalie, un
   avertissement dans le journal renvoie à ce fichier.
 - **Secrets** (hors dépôt : `../HabSecrets`) : `firebase.json`, clé du compte de service
-  Firebase pour le datalog (section `[datalog]` de `habctrl.toml`, voir `doc.md`).
+  Firebase pour le datalog (`datalog.toml`, voir `doc.md`).
 
 Emplacements modifiables : configuration avec `HABCTRL_CONFIG`, temp/ avec `[paths] temp` de `habctrl.toml`.
 
@@ -80,9 +80,10 @@ fait.
 - **Paramétrage à télécharger** : commits de HabConfig à tirer → `git pull` ; des commits locaux
   sont fusionnés avec ceux du dépôt distant, en cas de conflit la fusion est annulée (à résoudre
   à la main). Le contrôle « à charger » suit.
-- **Paramétrage à charger** : la date et l'heure du dernier chargement (démarrage ou
-  rechargement) sont mémorisées ; un fichier ou dossier de HabConfig (hors `pairing/` et fichiers
-  cachés) modifié depuis est signalé → rechargement de la configuration.
+- **Paramétrage à charger** : le contenu de HabConfig au dernier chargement (démarrage ou
+  rechargement) est mémorisé ; un fichier ajouté, supprimé ou modifié depuis est signalé, avec
+  ce qui sera rechargé → rechargement des seules parties modifiées (automatisations, datalog,
+  écrans… ; `devices/` : tout ; `habctrl.toml` : redémarrage), voir `doc.md`.
 - **Paramétrage à sauvegarder** : modifications non commitées ou commits non poussés → commit de
   tout (message « sauvegarde du <date> ») et push. Push refusé (HabConfig modifié ailleurs) :
   télécharger, puis sauvegarder à nouveau.

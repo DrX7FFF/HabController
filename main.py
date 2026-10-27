@@ -15,8 +15,8 @@ from fastapi.websockets import WebSocketState
 from pydantic import BaseModel, ValidationError
 
 from core import CONFIG_DIR, ROOT, TEMP_DIR, datalog, git, pair, sync
-from core.automation import load_automations, stop_automations
-from core.base import DeviceError
+from core.automation import load_automations, unload_automations
+from core.base import DeviceError, cancel_tasks
 from core.charts import downsample, load_charts
 from core.devices import load_devices, summarize
 from core.log import collect_errors
@@ -29,21 +29,37 @@ log = logging.getLogger("habctrl")
 
 CONFIG_PACKAGES = ("devices", "automations")  # paquets Python de la configuration
 BOOT = int(time.time() * 1000)  # démarrage du programme : la page voit qu'il a redémarré
+NO_RESTART = "redémarrage impossible : lancer par ./habctrl"
 BUSY = "une autre opération d'administration est en cours (appairage, rechargement…)"
 notifications = Notifications()  # en attente : pastille sur l'onglet Administration
 
 
-def load_config() -> tuple[dict, list[dict], list[dict], list[str]]:
-    """Équipements, blocs des écrans et graphiques, et les erreurs de configuration rencontrées
-    (ce qui est en erreur est ignoré)."""
-    with collect_errors() as errors:
+# Erreurs de configuration (ce qui est en erreur est ignoré), par partie rechargeable (voir
+# core/sync.py) : un rechargement partiel ne remplace que celles de sa partie.
+errors: dict[str, list[str]] = {}
+
+
+def config_errors() -> list[str]:
+    return [error for part in sync.ACTIONS if part in errors for error in errors[part]]
+
+
+def read_devices() -> tuple[dict, list[str]]:
+    with collect_errors() as errs:
         devs = load_devices()
-        loaded = devs, load_blocks(devs), load_charts()
-    return *loaded, errors
+    return devs, errs
 
 
-devices, blocks, charts, config_errors = load_config()
+def read_dashboard(devs: dict) -> tuple[list[dict], list[dict], list[str]]:
+    """Blocs des écrans et graphiques."""
+    with collect_errors() as errs:
+        loaded = load_blocks(devs), load_charts()
+    return *loaded, errs
+
+
+loaded_files = sync.snapshot(CONFIG_DIR)  # avant la lecture : une modification pendant sera vue
 loaded_at = time.time()  # dernier chargement de la configuration (voir core/sync.py)
+devices, errors["devices"] = read_devices()
+blocks, charts, errors["dashboard"] = read_dashboard(devices)
 boot_commit: str | None = None  # commit de HabController en marche
 history: datalog.Datalog | None = None
 summary: asyncio.Task | None = None
@@ -64,43 +80,58 @@ def snapshot() -> list[dict]:
 
 
 def init_message() -> dict:
-    return {"type": "init", "blocks": snapshot(), "errors": config_errors}
+    return {"type": "init", "blocks": snapshot(), "errors": config_errors()}
 
 
 def on_device_change(dev_id: str, state: dict) -> None:
     broadcast({"type": "state", "device": dev_id, "state": state})
 
 
-async def start() -> list[str]:
-    """Abonne automatisations et datalog aux équipements chargés, puis les démarre. Renvoie les
-    erreurs de configuration rencontrées (ce qui est en erreur est ignoré)."""
-    global history, summary
-    with collect_errors() as errors:
-        for dev in devices.values():
-            dev.subscribe(partial(on_device_change, dev.id))
+def start_automations() -> None:
+    """Charge automations/ et les abonne aux équipements chargés."""
+    with collect_errors() as errs:
         load_automations(devices)
+    errors["automations"] = errs
+
+
+async def start_datalog() -> None:
+    """Lit datalog.toml, abonne le datalog aux équipements chargés et le démarre."""
+    global history
+    with collect_errors() as errs:
         try:
             history = datalog.setup(devices)
-        except Exception as err:  # [datalog] de habctrl.toml incorrect
+        except Exception as err:  # datalog.toml incorrect
             log.error("datalog : réglages incorrects (%s), pas d'historique", datalog.describe(err))
             history = None
         if history:
             history.subscribe(lambda points: broadcast({"type": "datalog", "points": points}))
             await history.start()
+    errors["datalog"] = errs
+
+
+async def start() -> None:
+    """Abonne pages, automatisations et datalog aux équipements chargés, puis les démarre."""
+    global summary
+    for dev in devices.values():
+        dev.subscribe(partial(on_device_change, dev.id))
+    start_automations()
+    await start_datalog()
+    with collect_errors() as errs:
         results = await asyncio.gather(
             *(d.start() for d in devices.values()), return_exceptions=True
         )
         for dev, result in zip(devices.values(), results):
             if isinstance(result, Exception):
                 log.error("%s : démarrage impossible", dev.id, exc_info=result)
+    errors["devices"] += errs
     summary = asyncio.create_task(summarize(devices, TEMP_DIR / "equipements.txt"))
-    return errors
 
 
 async def stop() -> None:
     if summary:
         summary.cancel()
-    await stop_automations()  # annule aussi les envois du datalog en cours
+    await unload_automations()
+    await cancel_tasks()  # commandes et envois du datalog en cours
     if history:
         await history.stop()
     results = await asyncio.gather(*(d.stop() for d in devices.values()), return_exceptions=True)
@@ -109,44 +140,88 @@ async def stop() -> None:
             log.error("%s : arrêt en erreur", dev.id, exc_info=result)
 
 
-def config_modules() -> dict:
+def config_modules(packages=CONFIG_PACKAGES) -> dict:
     return {
         name: module
         for name, module in sys.modules.items()
-        if name.partition(".")[0] in CONFIG_PACKAGES
+        if name.partition(".")[0] in packages
     }
 
 
-async def reload() -> None:
-    """Relit toute la configuration et redémarre équipements, automatisations et datalog. Ce qui
-    est en erreur est ignoré (voir config_errors) ; erreur inattendue au chargement : levée, et
-    l'ancienne configuration reste en marche."""
-    global devices, blocks, charts, config_errors, loaded_at
-    previous = config_modules()
+def forget_modules(packages=CONFIG_PACKAGES) -> dict:
+    """Retire les modules de la configuration : le prochain import relit leurs fichiers.
+    Renvoie les modules retirés."""
+    previous = config_modules(packages)
     for name in previous:
         del sys.modules[name]
     importlib.invalidate_caches()
+    return previous
+
+
+async def reload_all() -> None:
+    """Relit toute la configuration et redémarre équipements, automatisations et datalog ;
+    erreur inattendue au chargement : levée, et l'ancienne configuration reste en marche."""
+    global devices, blocks, charts
+    previous = forget_modules()
     try:
-        loaded = load_config()
+        devs, devs_errors = read_devices()
+        loaded = read_dashboard(devs)
     except Exception:
-        for name in config_modules():
-            del sys.modules[name]
+        forget_modules()
         sys.modules.update(previous)
         raise
     await stop()
-    devices, blocks, charts, errors = loaded
-    loaded_at = time.time()
-    config_errors = errors + await start()
-    broadcast(init_message())
-    log.info("Configuration rechargée")
+    devices, errors["devices"] = devs, devs_errors
+    blocks, charts, errors["dashboard"] = loaded
+    await start()
+
+
+async def reload_automations() -> None:
+    """Recharge automations/ : équipements et datalog restent en marche (les automatisations
+    importent les équipements en marche, devices/ n'est pas relu)."""
+    await unload_automations()
+    forget_modules(("automations",))
+    start_automations()
+
+
+async def reload_datalog() -> None:
+    """Relit datalog.toml : le nouveau datalog prend la relève, puis l'ancien finit ses envois."""
+    old = history
+    await start_datalog()
+    if old:
+        await old.stop()
+
+
+async def reload() -> list[str]:
+    """Recharge les parties de la configuration modifiées depuis le dernier chargement (voir
+    sync.reload_plan) ; renvoie le plan suivi. Ce qui est en erreur est ignoré (voir errors).
+    habctrl.toml modifié : renvoie ["settings"], le redémarrage est à faire."""
+    global blocks, charts, loaded_files, loaded_at
+    current = sync.snapshot(CONFIG_DIR)
+    plan = sync.reload_plan(sync.changes(loaded_files, current))
+    if plan == ["settings"]:
+        return plan
+    if "devices" in plan:
+        await reload_all()
+    if "automations" in plan:
+        await reload_automations()
+    if "datalog" in plan:
+        await reload_datalog()
+    if "dashboard" in plan:
+        blocks, charts, errors["dashboard"] = read_dashboard(devices)
+    loaded_files, loaded_at = current, time.time()
+    if plan:
+        broadcast(init_message())
+        log.info("Configuration rechargée : %s", ", ".join(sync.ACTIONS[p] for p in plan))
+    return plan
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global config_errors, boot_commit
-    config_errors = config_errors + await start()
-    if config_errors:
-        log.warning("Configuration : %d erreur(s)", len(config_errors))
+    global boot_commit
+    await start()
+    if config_errors():
+        log.warning("Configuration : %d erreur(s)", len(config_errors()))
     try:
         boot_commit = await git.head(ROOT)
     except git.GitError as err:
@@ -200,7 +275,7 @@ async def set_device(dev_id: str, cmd: SetCommand):
 async def config_status():
     """Nombre d'équipements chargés, erreurs de la configuration (parties ignorées) et date du
     démarrage du programme (ms)."""
-    return {"devices": len(devices), "errors": config_errors, "boot": BOOT}
+    return {"devices": len(devices), "errors": config_errors(), "boot": BOOT}
 
 
 # --- Notifications (core/notifications.py) ----------------------------------
@@ -223,7 +298,7 @@ async def check(name: str) -> dict:
     if name == "download":
         return await sync.check_download(CONFIG_DIR)
     if name == "load":
-        return sync.check_load(CONFIG_DIR, loaded_at)
+        return sync.check_load(CONFIG_DIR, loaded_files, loaded_at)
     return await sync.check_save(CONFIG_DIR)
 
 
@@ -245,7 +320,7 @@ async def run_sync(name: str):
     if name not in SYNCS:
         raise HTTPException(status_code=404, detail="synchronisation inconnue")
     if name == "app" and server is None:
-        raise HTTPException(status_code=501, detail="redémarrage impossible : lancer par ./habctrl")
+        raise HTTPException(status_code=501, detail=NO_RESTART)
     if admin_lock.locked():
         raise HTTPException(status_code=409, detail=BUSY)
     async with admin_lock:
@@ -281,16 +356,25 @@ async def download_config() -> dict:
 
 
 async def reload_config() -> dict:
-    """Recharge toute la configuration (équipements, automatisations, écrans, graphiques,
-    datalog) sans redémarrer le programme."""
+    """Recharge les parties modifiées de la configuration ; habctrl.toml modifié : redémarre
+    le programme."""
     try:
-        await reload()
+        plan = await reload()
     except Exception as err:
         log.exception("Rechargement de la configuration impossible")
         raise RuntimeError(f"configuration illisible : {type(err).__name__} : {err}") from err
-    failed = f", {len(config_errors)} erreur(s)" if config_errors else ""
-    return {"text": f"Configuration rechargée ({len(devices)} équipements{failed}).",
-            "errors": config_errors}
+    if plan == ["settings"]:
+        if server is None:
+            raise RuntimeError(f"habctrl.toml modifié, {NO_RESTART}")
+        log.info("habctrl.toml modifié")
+        asyncio.get_running_loop().call_later(0.5, restart)  # la réponse part avant l'arrêt
+        return {"text": "habctrl.toml modifié, redémarrage…", "restarting": True}
+    if not plan:
+        return {"text": "Rien à recharger.", "errors": config_errors()}
+    failed = f", {len(config_errors())} erreur(s)" if config_errors() else ""
+    actions = ", ".join(sync.ACTIONS[part] for part in plan)
+    return {"text": f"Rechargé : {actions} ({len(devices)} équipements{failed}).",
+            "errors": config_errors()}
 
 
 async def save_config() -> dict:

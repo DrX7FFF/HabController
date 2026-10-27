@@ -4,13 +4,34 @@ Organisation des dépôts, déclaration des équipements et appairage : voir `RE
 
 ## Rechargement de la configuration
 
-`POST /api/reload` (bouton de la page Administration) relit toute la configuration :
-équipements, automatisations, écrans, graphiques, `habctrl.toml`. C'est un redémarrage sans
-quitter le programme : tout est arrêté puis relancé (clé Zigbee rouverte, connexions HomeKit
-refaites) ; les automatisations en cours sont annulées, et un capteur sur pile reste injoignable
-jusqu'à son prochain message, comme après un redémarrage. Le code de HabController (pilotes,
-`core/`) n'est pas rechargé. Les pages ouvertes reçoivent les nouveaux écrans ; la page des
-graphiques est à recharger pour voir un `charts.toml` modifié.
+« Recharger la configuration » (page Administration, `POST /api/sync/load`) ne recharge que
+les parties de HabConfig modifiées depuis le dernier chargement (contenu des fichiers comparé,
+pas leur date), avec ce qui en dépend :
+
+| Modifié              | Rechargé                                                              |
+|----------------------|-----------------------------------------------------------------------|
+| `habctrl.toml`       | redémarrage du programme (chemins, clé Zigbee : ne devrait pas changer) |
+| `devices/`           | tout : équipements arrêtés et reconnectés, puis tout le reste         |
+| `automations/`       | les automatisations seules                                            |
+| `datalog.toml`       | le datalog seul                                                       |
+| `dashboard/`         | écrans et graphiques                                                  |
+
+« Contrôler » indique les fichiers modifiés et ce qui sera rechargé. Le reste (`pairing/`,
+README…) n'est jamais relu.
+
+- **Automatisations seules** : les équipements restent connectés et gardent leur état ; les
+  automatisations sont désabonnées, celles en cours et les minuteurs annulés (les commandes
+  déjà parties vont à leur terme), puis `automations/` est relu. Les variables d'un script
+  repartent de leur valeur initiale, et rien ne se déclenche avant le prochain changement :
+  un script qui doit connaître l'état courant le lit à l'import (`fp2.illuminance`, `None` au
+  démarrage du programme, équipements pas encore joignables).
+- **Datalog seul** : le nouveau prend la relève, l'ancien finit ses envois en cours.
+- **Rechargement complet** (`devices/`) : comme un redémarrage sans quitter le programme (clé
+  Zigbee rouverte, connexions HomeKit refaites) ; les automatisations et commandes en cours
+  sont annulées, et un capteur sur pile reste injoignable jusqu'à son prochain message.
+
+Le code de HabController (pilotes, `core/`) n'est pas rechargé. Les pages ouvertes reçoivent
+les nouveaux écrans ; la page des graphiques est à recharger pour voir un `charts.toml` modifié.
 
 ## Erreurs de configuration
 
@@ -97,7 +118,7 @@ Un script se journalise avec `log = logging.getLogger(__name__)` : son nom
 Historique des valeurs dans Firebase (Realtime Database). Schéma :
 `<chemin>/<horodatage ms> : valeur`. Deux sources :
 
-- la table `[datalog.devices.<id>]` de `habctrl.toml` : attributs d'équipements enregistrés à
+- la table `[devices.<id>]` de `datalog.toml` : attributs d'équipements enregistrés à
   chaque changement, sous `devices/<id>/<attribut>` (le « . » devient « / » : `zone.Global` →
   `devices/fp2/zone/Global`) ;
 - `record(chemin, valeur)` depuis une automatisation, pour tout le reste :
@@ -109,19 +130,19 @@ record("deshum/dewPoint", 12.4)                  # horodaté maintenant
 record("deshum/dewPoint", 12.4, at=event.time)   # horodaté à l'événement
 ```
 
-Réglages (`habctrl.toml`) :
+Réglages (`datalog.toml` à la racine de HabConfig, rechargeable seul ; l'ancien emplacement,
+section `[datalog]` de `habctrl.toml`, est encore lu en son absence) :
 
 ```toml
-[datalog]
 url = "https://<base>.firebaseio.com"
 credentials = "../HabSecrets/firebase.json"   # clé du compte de service, relative à HabConfig
 retention = "30d"                              # par défaut ; unités h, d, y
 
-[datalog.devices.prise_salon]
+[devices.prise_salon]
 on = {}                                        # à chaque changement
 active_power = { hysteresis = 5, retention = "1y" }
 
-[datalog.purge]                                # rétention des chemins de record()
+[purge]                                        # rétention des chemins de record()
 "deshum/dewPoint" = "18d"
 ```
 

@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import time
+import tomllib
 from collections.abc import Callable
 from functools import partial
 
@@ -23,6 +24,7 @@ SCOPES = [
 ]
 UNITS = {"h": 3600, "d": 86400, "y": 365 * 86400}
 PURGE_PERIOD = 86400  # s
+CONFIG_FILE = CONFIG_DIR / "datalog.toml"  # rechargeable seul, sans toucher aux équipements
 TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 
@@ -64,8 +66,11 @@ class Datalog:
         self._purge_task: asyncio.Task | None = None
         self._failing = False
         self._listeners: list[Callable[[list], None]] = []
-        for dev_id in self.watched:
-            devices[dev_id].subscribe(partial(self.on_state, devices[dev_id]))
+        self._sends: set[asyncio.Task] = set()
+        self._bindings = [(devices[dev_id], partial(self.on_state, devices[dev_id]))
+                          for dev_id in self.watched]
+        for device, callback in self._bindings:
+            device.subscribe(callback)
 
     # --- cycle de vie -------------------------------------------------------
 
@@ -74,6 +79,10 @@ class Datalog:
         self._purge_task = asyncio.create_task(self._purge_loop())
 
     async def stop(self) -> None:
+        """Se désabonne des équipements, termine les envois en cours puis ferme la connexion."""
+        for device, callback in self._bindings:
+            device.unsubscribe(callback)
+        await asyncio.gather(*self._sends, return_exceptions=True)
         if self._purge_task:
             self._purge_task.cancel()
             await asyncio.gather(self._purge_task, return_exceptions=True)
@@ -118,7 +127,9 @@ class Datalog:
             point[1] = int(point[1])
         for callback in self._listeners:
             callback(points)
-        spawn_task(self._patch(data), "datalog")
+        task = spawn_task(self._patch(data), "datalog")
+        self._sends.add(task)
+        task.add_done_callback(self._sends.discard)
 
     # --- Firebase -----------------------------------------------------------
 
@@ -202,11 +213,21 @@ def describe(err: Exception) -> str:
 _datalog: Datalog | None = None
 
 
+def read_config() -> dict:
+    """datalog.toml ({} si absent). Ancien emplacement, [datalog] de habctrl.toml : encore lu."""
+    try:
+        return tomllib.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        if conf := settings("datalog"):
+            log.warning("datalog : réglages dans habctrl.toml, à déplacer dans datalog.toml")
+        return conf
+
+
 def setup(devices: dict[str, Device]) -> Datalog | None:
-    """Lit [datalog] de habctrl.toml et s'abonne aux équipements ; None si non configuré."""
+    """Lit datalog.toml et s'abonne aux équipements ; None si non configuré."""
     global _datalog
     _datalog = None  # réglages incorrects : pas d'historique plutôt que l'ancien
-    conf = settings("datalog")
+    conf = read_config()
     _datalog = Datalog(conf, devices) if conf.get("url") else None
     return _datalog
 

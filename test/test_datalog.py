@@ -126,6 +126,15 @@ class RecordFunctionTest(DatalogTestCase):
         self.assertEqual(value, {"avg1": 0.4, "avg5": 0.3})
         self.assertEqual(self.log.retention["system/load"], datalog.duration_ms("30d"))
 
+    async def test_stop_unsubscribes_after_pending_sends(self):
+        await self.log.start()
+        self.prise.update({"connected": True, "on": True})
+        await self.log.stop()  # l'envoi en cours part avant la fermeture
+        self.assertEqual(len(self.written()), 1)
+        self.prise.update({"on": False})  # plus abonné : rien
+        await self.idle()
+        self.assertEqual(len(self.written()), 1)
+
     def test_record_without_configuration_is_ignored(self):
         with mock.patch.object(datalog, "_datalog", None):
             datalog.record("x", 1)  # ne lève rien

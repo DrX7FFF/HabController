@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from test_fp2 import FakePairing, make_fp2, presence_key, until  # noqa: E402
 
-from core import automation  # noqa: E402
+from core import automation, base  # noqa: E402
 from core.base import Attribute, Device, DeviceError, spawn_task  # noqa: E402
 
 
@@ -62,13 +62,13 @@ class AutomationTestCase(unittest.IsolatedAsyncioTestCase):
         automation._handlers.clear()
 
     async def asyncTearDown(self):
-        await automation.stop_automations()
-        automation._handlers.clear()
+        await automation.unload_automations()
+        await base.cancel_tasks()
 
     async def idle(self):
         # Les tâches peuvent en lancer d'autres (commandes). Seulement celles en cours : voir
-        # stop_automations(), une tâche finie peut rester dans _tasks.
-        while tasks := [task for task in automation._tasks if not task.done()]:
+        # base.cancel_tasks(), une tâche finie peut rester dans tasks.
+        while tasks := [task for task in base.tasks if not task.done()]:
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
@@ -280,9 +280,33 @@ class OnChangeTest(AutomationTestCase):
 
         spawn_task(quick(), "quick")
         await asyncio.sleep(0)  # la tâche est finie, son rappel _done pas encore passé
-        self.assertTrue(all(task.done() for task in automation._tasks))
-        self.assertTrue(automation._tasks)
-        await automation.stop_automations()  # ne doit pas tourner à vide
+        self.assertTrue(all(task.done() for task in base.tasks))
+        self.assertTrue(base.tasks)
+        await base.cancel_tasks()  # ne doit pas tourner à vide
+
+    async def test_unload_unbinds_and_keeps_device_commands(self):
+        fp = FakeDevice("fp2", {"connected": True, "presence": False})
+        bulb = FakeBulb("salon")
+        bulb.delays = [0.05]
+        started = asyncio.Event()
+        events = []
+
+        @automation.on_change("fp2.presence")
+        async def slow(event):
+            events.append(event.new)
+            bulb.on = True  # commande de l'équipement : va à son terme
+            started.set()
+            await asyncio.sleep(10)  # automatisation en cours : annulée
+
+        automation.bind({"fp2": fp})
+        fp.update(presence=True)
+        await started.wait()
+        await automation.unload_automations()
+        self.assertEqual((fp._listeners, fp._event_listeners), ([], []))
+        fp.update(presence=False)  # plus abonnée : rien
+        await self.idle()
+        self.assertEqual(events, [True])
+        self.assertEqual(bulb.commands, [("on", True)])
 
     def test_invalid_declarations(self):
         with self.assertRaises(ValueError):
@@ -403,7 +427,7 @@ class TimerTest(AutomationTestCase):
             timer.start()
             await asyncio.sleep(0.002)
         last = time.monotonic()
-        self.assertEqual(len([t for t in automation._tasks if not t.done()]), 1)
+        self.assertEqual(len([t for t in base.tasks if not t.done()]), 1)
         await self.idle()
         self.assertEqual(len(fired), 1)
         self.assertGreaterEqual(fired[0] - last, 0.09)
@@ -433,7 +457,7 @@ class TimerTest(AutomationTestCase):
         fired = []
         timer = automation.Timer(0.05, lambda: fired.append(1))
         timer.start()
-        await automation.stop_automations()
+        await automation.unload_automations()
         await asyncio.sleep(0.1)
         self.assertEqual(fired, [])
 

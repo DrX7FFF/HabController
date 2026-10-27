@@ -10,7 +10,6 @@ from typing import Any, TypeVar
 
 from core import CONFIG_DIR
 from core.base import Device, DeviceError, spawn_task
-from core.base import tasks as _tasks
 
 log = logging.getLogger(__name__)
 __all__ = ["Event", "Timer", "on_change", "on_event"]
@@ -44,6 +43,8 @@ class Handler:
 
 
 _handlers: list[Handler] = []
+_bindings: list[tuple[Device, Callable]] = []  # abonnements aux équipements, retirés à unload
+_running: set[asyncio.Task] = set()  # automatisations et minuteurs en cours, annulés à unload
 Rule = TypeVar("Rule", bound=Callable[[Event], Awaitable[None]])
 
 
@@ -121,8 +122,15 @@ def _dispatch_event(
             _spawn(handler, event)
 
 
+def _spawn_task(coro, name: str) -> asyncio.Task:
+    task = spawn_task(coro, name)
+    _running.add(task)
+    task.add_done_callback(_running.discard)
+    return task
+
+
 def _spawn(handler: Handler, event: Event) -> None:
-    spawn_task(_run(handler, event), handler.name)
+    _spawn_task(_run(handler, event), handler.name)
 
 
 async def _run(handler: Handler, event: Event) -> None:
@@ -152,7 +160,7 @@ class Timer:
 
     def start(self) -> None:
         self.cancel()
-        self._task = spawn_task(self._wait(), self.name)
+        self._task = _spawn_task(self._wait(), self.name)
 
     def cancel(self) -> None:
         if self._task:
@@ -182,9 +190,13 @@ def bind(devs: dict[str, Device]) -> None:
     for dev_id, handlers in by_device.items():
         device = devs[dev_id]
         if changes := [h for h in handlers if not h.event]:
-            device.subscribe(_Watcher(device, changes).on_state)
+            callback = _Watcher(device, changes).on_state
+            device.subscribe(callback)
+            _bindings.append((device, callback))
         if events := [h for h in handlers if h.event]:
-            device.subscribe_events(partial(_dispatch_event, device, events))
+            callback = partial(_dispatch_event, device, events)
+            device.subscribe_events(callback)
+            _bindings.append((device, callback))
 
 
 def load_automations(devs: dict[str, Device]) -> None:
@@ -202,13 +214,15 @@ def load_automations(devs: dict[str, Device]) -> None:
     bind(devs)
 
 
-async def stop_automations() -> None:
-    """Annule les tâches de fond en cours et oublie les automatisations déclarées."""
+async def unload_automations() -> None:
+    """Désabonne les automatisations des équipements, annule celles en cours et les minuteurs,
+    puis les oublie. Les commandes déjà envoyées aux équipements vont à leur terme : les
+    équipements restent en marche (rechargement des seules automatisations)."""
+    for device, callback in _bindings:
+        device.unsubscribe(callback)
+    _bindings.clear()
     _handlers.clear()
-    # Une tâche annulée peut en avoir lancé d'autres. On ne suit que les tâches en cours : une
-    # tâche finie reste dans _tasks jusqu'à son rappel _done, et gather() sur des tâches toutes
-    # finies rend la main sans passer par la boucle, qui tournerait alors à vide.
-    while tasks := [task for task in _tasks if not task.done()]:
-        for task in tasks:
+    while running := [task for task in _running if not task.done()]:  # voir base.cancel_tasks
+        for task in running:
             task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*running, return_exceptions=True)

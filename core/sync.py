@@ -2,41 +2,75 @@
 quelque chose à faire ?) puis, au besoin, la synchro.
 - app : commits de HabController à tirer -> pull, puis redémarrage (main.py) ;
 - download : commits de HabConfig à tirer -> pull ;
-- load : HabConfig modifié depuis le dernier chargement -> rechargement (main.py) ;
+- load : HabConfig modifié depuis le dernier chargement -> rechargement des seules parties
+  modifiées (main.py) ;
 - save : modifications de HabConfig non commitées ou non poussées -> commit et push.
 Un contrôle renvoie {"pending": bool, "text": str} ; une erreur git lève git.GitError."""
 
+import hashlib
 import os
 import time
 from pathlib import Path
 
 from core import git
 
-# écrits par le programme (appairage, cache Python), pas relus au rechargement
-IGNORED_DIRS = {".git", "__pycache__", "pairing"}
+# Parties de la configuration, rechargées séparément (main.py) : premier élément du chemin dans
+# HabConfig -> partie. Le reste (pairing/, écrit par le programme, README…) n'est pas relu.
+PARTS = {
+    "habctrl.toml": "settings",
+    "devices": "devices",
+    "automations": "automations",
+    "datalog.toml": "datalog",
+    "dashboard": "dashboard",
+}
+# ce que fait le rechargement d'une partie
+ACTIONS = {
+    "settings": "redémarrage du programme",
+    "devices": "rechargement complet, équipements reconnectés",
+    "automations": "automatisations",
+    "datalog": "datalog",
+    "dashboard": "écrans et graphiques",
+}
 
 
 def state(pending: bool, text: str) -> dict:
     return {"pending": pending, "text": text}
 
 
-def modified_since(since: float, directory: Path) -> list[str]:
-    """Fichiers de la configuration modifiés après la date `since`, et dossiers dont le contenu
-    a changé depuis (fichier ajouté, supprimé ou renommé : la date du dossier change)."""
-    paths = []
+def snapshot(directory: Path) -> dict[str, str]:
+    """Empreinte du contenu de chaque fichier des parties rechargeables : {chemin : sha256}.
+    Le contenu, pas la date : un fichier réécrit à l'identique n'est pas une modification."""
+    files = {}
     for top, dirs, names in os.walk(directory):
-        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS]
-        entries = [(Path(top), True)] + [(Path(top, n), False) for n in names
-                                         if not n.startswith(".")]  # .gitignore…
-        for path, is_dir in entries:
+        dirs[:] = [d for d in dirs if d != "__pycache__" and not d.startswith(".")]
+        for name in names:
+            path = Path(top, name)
+            rel = path.relative_to(directory).as_posix()
+            if name.startswith(".") or rel.partition("/")[0] not in PARTS:
+                continue
             try:
-                if path.stat().st_mtime > since:
-                    name = path.relative_to(directory).as_posix()
-                    name = directory.name if name == "." else name  # dossier racine
-                    paths.append(name + ("/" if is_dir else ""))
+                files[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
             except OSError:  # supprimé entre-temps
                 pass
-    return sorted(paths)
+    return files
+
+
+def changes(loaded: dict[str, str], current: dict[str, str]) -> dict[str, list[str]]:
+    """Fichiers ajoutés, supprimés ou modifiés entre deux snapshot(), par partie."""
+    parts: dict[str, list[str]] = {}
+    for rel in sorted(loaded.keys() | current.keys()):
+        if loaded.get(rel) != current.get(rel):
+            parts.setdefault(PARTS[rel.partition("/")[0]], []).append(rel)
+    return parts
+
+
+def reload_plan(parts) -> list[str]:
+    """Parties à recharger pour les parties modifiées : habctrl.toml l'emporte (redémarrage),
+    puis devices/ (rechargement complet : tout dépend des équipements)."""
+    for whole in ("settings", "devices"):
+        if whole in parts:
+            return [whole]
+    return [part for part in ACTIONS if part in parts]
 
 
 def describe_files(paths: list[str], shown: int = 3) -> str:
@@ -62,12 +96,16 @@ async def check_download(repo: Path) -> dict:
     return state(False, "À jour.")
 
 
-def check_load(directory: Path, loaded_at: float) -> dict:
-    loaded = time.strftime("%d/%m %H:%M", time.localtime(loaded_at))
-    paths = modified_since(loaded_at, directory)
-    if paths:
-        return state(True, f"Modifié depuis le chargement du {loaded} : {describe_files(paths)}.")
-    return state(False, f"Inchangé depuis le chargement du {loaded}.")
+def check_load(directory: Path, loaded: dict[str, str], loaded_at: float) -> dict:
+    """loaded : snapshot() du dernier chargement, fait à la date loaded_at."""
+    when = time.strftime("%d/%m %H:%M", time.localtime(loaded_at))
+    parts = changes(loaded, snapshot(directory))
+    if parts:
+        paths = [rel for files in parts.values() for rel in files]
+        actions = ", ".join(ACTIONS[part] for part in reload_plan(parts))
+        return state(True, f"Modifié depuis le chargement du {when} : {describe_files(paths)} "
+                           f"(à recharger : {actions}).")
+    return state(False, f"Inchangé depuis le chargement du {when}.")
 
 
 async def check_save(repo: Path) -> dict:

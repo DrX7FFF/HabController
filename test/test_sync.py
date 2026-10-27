@@ -44,30 +44,55 @@ class RepoTest(unittest.IsolatedAsyncioTestCase):
 
 
 class LoadTest(RepoTest):
-    def age(self, *paths: Path) -> float:
-        """Dates des chemins reculées de 10 s ; renvoie une date de chargement postérieure."""
-        old = time.time() - 10
-        for path in paths:
-            os.utime(path, (old, old))
-        return old + 5
+    def write(self, name: str, text: str = "") -> None:
+        (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (self.repo / name).write_text(text, encoding="utf-8")
 
-    def test_ignored_dirs(self):
-        for name in ("pairing", ".git"):
-            (self.repo / name).mkdir(exist_ok=True)
-        loaded_at = self.age(self.repo, self.repo / "habctrl.toml")
-        for name in ("pairing", ".git"):
-            (self.repo / name / "x").write_text("", encoding="utf-8")
-        self.assertEqual(sync.modified_since(loaded_at, self.repo), [])
-        self.assertFalse(sync.check_load(self.repo, loaded_at)["pending"])
+    def test_ignored_files(self):
+        loaded = sync.snapshot(self.repo)
+        for name in ("pairing/x", ".git/x", "README.md", "devices/__pycache__/x.pyc",
+                     "devices/.x.py.swp"):
+            self.write(name)
+        self.assertEqual(sync.snapshot(self.repo), loaded)
+        self.assertFalse(sync.check_load(self.repo, loaded, time.time())["pending"])
 
-    def test_modified_or_deleted(self):
-        loaded_at = self.age(self.repo, self.repo / "habctrl.toml")
-        (self.repo / "habctrl.toml").write_text("[zigbee]\n", encoding="utf-8")
-        check = sync.check_load(self.repo, loaded_at)
+    def test_same_content_is_not_a_change(self):
+        loaded = sync.snapshot(self.repo)
+        self.write("habctrl.toml", "[paths]\n")
+        self.assertEqual(sync.changes(loaded, sync.snapshot(self.repo)), {})
+
+    def test_changes_by_part(self):
+        self.write("devices/salon.py")
+        self.write("automations/presence.py")
+        loaded = sync.snapshot(self.repo)
+        self.write("automations/presence.py", "x = 1\n")  # modifié
+        self.write("automations/nouveau.py")  # ajouté
+        self.write("datalog.toml")
+        self.write("dashboard/screens.toml")
+        (self.repo / "devices/salon.py").unlink()  # supprimé
+        self.assertEqual(sync.changes(loaded, sync.snapshot(self.repo)), {
+            "automations": ["automations/nouveau.py", "automations/presence.py"],
+            "dashboard": ["dashboard/screens.toml"],
+            "datalog": ["datalog.toml"],
+            "devices": ["devices/salon.py"],
+        })
+
+    def test_plan(self):
+        self.assertEqual(sync.reload_plan({"dashboard", "datalog", "automations"}),
+                         ["automations", "datalog", "dashboard"])
+        self.assertEqual(sync.reload_plan({"devices", "automations"}), ["devices"])
+        self.assertEqual(sync.reload_plan({"devices", "settings"}), ["settings"])
+        self.assertEqual(sync.reload_plan({}), [])
+
+    def test_check_tells_what_will_be_reloaded(self):
+        loaded = sync.snapshot(self.repo)
+        self.write("automations/presence.py")
+        check = sync.check_load(self.repo, loaded, time.time())
         self.assertTrue(check["pending"])
-        self.assertIn("habctrl.toml", check["text"])
+        self.assertIn("automations/presence.py", check["text"])
+        self.assertIn("à recharger : automatisations", check["text"])
         (self.repo / "habctrl.toml").unlink()
-        self.assertEqual(sync.modified_since(loaded_at, self.repo), ["repo/"])
+        self.assertIn("redémarrage", sync.check_load(self.repo, loaded, time.time())["text"])
 
 
 class SaveTest(RepoTest):

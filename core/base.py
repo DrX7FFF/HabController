@@ -23,6 +23,17 @@ def spawn_task(coro, name: str) -> asyncio.Task:
     return task
 
 
+async def cancel_tasks() -> None:
+    """Annule toutes les tâches de fond en cours (arrêt ou rechargement complet)."""
+    # Une tâche annulée peut en avoir lancé d'autres. On ne suit que les tâches en cours : une
+    # tâche finie reste dans tasks jusqu'à son rappel _done, et gather() sur des tâches toutes
+    # finies rend la main sans passer par la boucle, qui tournerait alors à vide.
+    while running := [task for task in tasks if not task.done()]:
+        for task in running:
+            task.cancel()
+        await asyncio.gather(*running, return_exceptions=True)
+
+
 class DeviceError(Exception):
     """Équipement injoignable ou commande refusée."""
 
@@ -87,6 +98,12 @@ class Device:
     def subscribe_events(self, callback: Callable[[str, Any], None]) -> None:
         """callback(nom, valeur) est appelé à chaque événement de l'équipement (appui…)."""
         self._event_listeners.append(callback)
+
+    def unsubscribe(self, callback: Callable) -> None:
+        """Retire un abonnement de subscribe() ou subscribe_events() (rechargement partiel)."""
+        for listeners in (self._listeners, self._event_listeners):
+            if callback in listeners:
+                listeners.remove(callback)
 
     def _emit(self, name: str, value: Any = None) -> None:
         """Événement ponctuel (bouton : single, double, hold…) : rien dans l'état, transmis tel
