@@ -130,8 +130,7 @@ record("deshum/dewPoint", 12.4)                  # horodaté maintenant
 record("deshum/dewPoint", 12.4, at=event.time)   # horodaté à l'événement
 ```
 
-Réglages (`datalog.toml` à la racine de HabConfig, rechargeable seul ; l'ancien emplacement,
-section `[datalog]` de `habctrl.toml`, est encore lu en son absence) :
+Réglages (`datalog.toml` à la racine de HabConfig, rechargeable seul) :
 
 ```toml
 url = "https://<base>.firebaseio.com"

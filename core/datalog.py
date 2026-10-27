@@ -12,7 +12,7 @@ import aiohttp
 from google.auth.transport.requests import Request
 from google.oauth2.service_account import Credentials
 
-from core import CONFIG_DIR, settings
+from core import CONFIG_DIR
 from core.base import Device, spawn_task
 
 log = logging.getLogger(__name__)
@@ -214,13 +214,11 @@ _datalog: Datalog | None = None
 
 
 def read_config() -> dict:
-    """datalog.toml ({} si absent). Ancien emplacement, [datalog] de habctrl.toml : encore lu."""
+    """datalog.toml ({} si absent)."""
     try:
         return tomllib.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        if conf := settings("datalog"):
-            log.warning("datalog : réglages dans habctrl.toml, à déplacer dans datalog.toml")
-        return conf
+        return {}
 
 
 def setup(devices: dict[str, Device]) -> Datalog | None:
