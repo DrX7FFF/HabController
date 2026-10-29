@@ -8,10 +8,10 @@
 // affiche s'il y a quelque chose à faire, le bouton principal lance la synchro
 // (POST /api/sync/<nom>) puis rafraîchit le contrôle des sections concernées.
 // HabController mis à jour : la page se recharge quand le programme répond à nouveau.
-// Erreurs de la configuration en cours (parties ignorées) : listées sous « Recharger » (GET /api/config).
-// Notifications sans section (onNotifications de web/common.js) : listées en tête de page.
+// Protocoles, erreurs de la configuration en cours (parties ignorées, listées sous « Recharger »)
+// et notifications (listées en tête de page) : état du serveur, reçu par le WebSocket /ws.
 
-import { el, onNotifications, request, show, wsUrl } from "/common.js";
+import { el, request, show, subscribe, wsUrl } from "/common.js";
 
 export function mount(page) {
   const protocols = page.querySelector("#protocols");
@@ -29,7 +29,9 @@ export function mount(page) {
   const remaining = page.querySelector("#remaining");
   let ws = null;
   let timer = null;  // mise à jour de la barre de progression
-  let active = true;  // faux une fois l'onglet quitté : les lectures en cours ne s'affichent plus
+  let boot = null;  // démarrage du programme, d'après le dernier message init
+  let restarted = null;  // attente d'un redémarrage : appelée avec le boot de chaque message init
+  let restartTimer = null;
 
   function write(text) {
     logBox.textContent += (logBox.textContent ? "\n" : "") + text;
@@ -173,35 +175,32 @@ export function mount(page) {
     configErrors.hidden = !errors.length;
   }
 
-  request("/api/config")
-    .then(result => listErrors(result.errors))
-    .catch(err => active && show(`État de la configuration illisible (${err.message}).`));
-
-  request("/api/pair")
-    .then(list => protocols.replaceChildren(...list.map(build)))
-    .catch(err => active && show(`Protocoles d'appairage illisibles (${err.message}).`));
-
   const others = page.querySelector("#notifications");
-  const unwatch = onNotifications(list => {
-    others.replaceChildren(...list.map(n => el("li", { textContent: n.text })));
-    others.hidden = !list.length;
+
+  // Les protocoles ne changent qu'au redémarrage : construits une fois (un appairage en cours
+  // n'est pas dérangé par un nouveau message init).
+  const unsubscribe = subscribe(m => {
+    if (m.type === "init") {
+      boot = m.boot;
+      if (!protocols.children.length) protocols.replaceChildren(...m.pairings.map(build));
+      listErrors(m.errors);
+      if (restarted) restarted(m.boot);
+    }
+    if (m.notifications) {
+      others.replaceChildren(...m.notifications.map(n => el("li", { textContent: n.text })));
+      others.hidden = !m.notifications.length;
+    }
   });
 
-  // Attend que le programme redémarré réponde (date de démarrage changée), puis recharge la page.
-  async function awaitRestart(boot) {
-    const end = Date.now() + 180000;
-    while (Date.now() < end) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      try {
-        if ((await request("/api/config")).boot !== boot) {
-          location.reload();
-          return new Promise(() => {});  // la page se recharge
-        }
-      } catch {
-        // pas encore redémarré
-      }
-    }
-    throw new Error("le programme ne répond plus après 3 min (voir journalctl -u habctrl).");
+  // Attend le message init du programme redémarré (date de démarrage changée), puis recharge la page.
+  function awaitRestart(before) {
+    return new Promise((resolve, reject) => {
+      restarted = now => { if (now !== before) location.reload(); };
+      restartTimer = setTimeout(() => {
+        restarted = null;
+        reject(new Error("le programme ne répond plus après 3 min (voir journalctl -u habctrl)."));
+      }, 180000);
+    });
   }
 
   const syncs = {};  // nom : { setState(contrôle) }
@@ -240,13 +239,12 @@ export function mount(page) {
     run.onclick = () => {
       if (run.dataset.confirm && !confirm(run.dataset.confirm)) return;
       busy(result, "Échec", async () => {
-        const boot = name === "app" ? (await request("/api/config")).boot : null;
+        const before = boot;
         const r = await request(`/api/sync/${name}`, "POST");
         result.className = "result ok";
         result.textContent = r.text;
         for (const [other, check] of Object.entries(r.checks || {})) syncs[other].setState(check);
-        if (r.errors) listErrors(r.errors);
-        if (r.restarting) await awaitRestart(boot);
+        if (r.restarting) await awaitRestart(before);
       });
     };
   }
@@ -254,9 +252,9 @@ export function mount(page) {
   page.querySelectorAll("section.sync").forEach(setupSync);
 
   return () => {
-    active = false;
-    unwatch();
+    unsubscribe();
     clearInterval(timer);
+    clearTimeout(restartTimer);
     if (ws) ws.close();
   };
 }

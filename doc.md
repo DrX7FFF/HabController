@@ -39,8 +39,8 @@ programme : la partie en erreur est ignorée, le reste est chargé. Un fichier d
 d'`automations/` en erreur est ignoré en entier ; un bloc de `screens.toml` ou un graphique de
 `charts.toml` incorrect est ignoré seul ; un `screens.toml`, `charts.toml` ou `habctrl.toml`
 illisible compte pour vide ; un équipement qui ne démarre pas reste injoignable. Chaque erreur
-est journalisée (`temp/system.log`, avec la pile d'appels) et listée par `GET /api/config`
-(page Administration) ; la page Commandes signale leur nombre dans son bandeau.
+est journalisée (`temp/system.log`, avec la pile d'appels) et listée sur la page Administration ;
+la page Commandes signale leur nombre dans son bandeau.
 
 ## Automatisations
 

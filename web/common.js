@@ -1,4 +1,4 @@
-// Commun à tous les onglets : bandeau, lecture de l'API, WebSocket /ws partagé, notifications.
+// Commun à tous les onglets : bandeau, API (actions), WebSocket /ws partagé (état du serveur).
 
 // --- Éléments ----------------------------------------------------------------
 
@@ -41,9 +41,11 @@ export const wsUrl = path =>
   (location.protocol === "https:" ? "wss://" : "ws://") + location.host + path;
 
 // --- WebSocket /ws -----------------------------------------------------------
-// Une connexion pour tous les onglets, reconnectée 2 s après sa perte. Le dernier message init,
-// tenu à jour des messages state, est rejoué à chaque nouvel abonné ; la perte de connexion lui
-// est signalée par un message { type: "closed" }.
+// Tout l'état du serveur affiché par les onglets (voir main.py). Une connexion pour tous les
+// onglets, reconnectée 2 s après sa perte. Le dernier message init, tenu à jour des messages
+// state et notifications, est rejoué à chaque nouvel abonné ; la perte de connexion lui est
+// signalée par un message { type: "closed" }.
+// Notifications en attente : pastille rouge sur l'onglet Administration (textes en info-bulle).
 
 const listeners = new Set();
 let socket = null;
@@ -51,6 +53,17 @@ let init = null;
 
 function dispatch(m) {
   listeners.forEach(fn => fn(m));
+}
+
+function badge(notifications) {
+  const link = document.querySelector('nav a[href="/administration"]');
+  let dot = link.querySelector(".badge");
+  if (!dot) {
+    dot = el("span", { className: "badge" });
+    link.append(dot);
+  }
+  dot.hidden = !notifications.length;
+  link.title = notifications.map(n => n.text).join("\n");
 }
 
 function connect() {
@@ -63,7 +76,10 @@ function connect() {
       show("");
     } else if (m.type === "state" && init) {
       init.blocks.filter(b => b.device === m.device).forEach(b => { b.state = m.state; });
+    } else if (m.type === "notifications" && init) {
+      init.notifications = m.notifications;
     }
+    if (m.notifications) badge(m.notifications);
     dispatch(m);
   };
   socket.onclose = () => {
@@ -93,39 +109,3 @@ export function send(message) {
 }
 
 connect();
-
-// --- Notifications -----------------------------------------------------------
-// Notifications du système (GET /api/notifications, voir core/notifications.py), relues toutes
-// les 30 s. S'il y en a une en attente : pastille rouge sur l'onglet Administration (textes en
-// info-bulle). onNotifications(fn) : fn(liste) à chaque lecture (et tout de suite avec la
-// dernière), renvoie la fonction qui désabonne ; refreshNotifications() relit tout de suite
-// (après une action qui en pose ou en retire).
-
-const watchers = new Set();
-let notifications = null;
-
-export async function refreshNotifications() {
-  try {
-    notifications = await request("/api/notifications");
-  } catch {
-    return;  // serveur injoignable : la pastille reste telle quelle
-  }
-  const link = document.querySelector('nav a[href="/administration"]');
-  let badge = link.querySelector(".badge");
-  if (!badge) {
-    badge = el("span", { className: "badge" });
-    link.append(badge);
-  }
-  badge.hidden = !notifications.length;
-  link.title = notifications.map(n => n.text).join("\n");
-  watchers.forEach(fn => fn(notifications));
-}
-
-export function onNotifications(fn) {
-  watchers.add(fn);
-  if (notifications) fn(notifications);
-  return () => watchers.delete(fn);
-}
-
-refreshNotifications();
-setInterval(refreshNotifications, 30000);

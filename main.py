@@ -30,7 +30,8 @@ log = logging.getLogger("habctrl")
 CONFIG_PACKAGES = ("devices", "automations")  # paquets Python de la configuration
 BOOT = int(time.time() * 1000)  # démarrage du programme : la page voit qu'il a redémarré
 BUSY = "une autre opération d'administration est en cours (appairage, rechargement…)"
-notifications = Notifications()  # en attente : pastille sur l'onglet Administration
+# en attente : pastille sur l'onglet Administration, envoyées aux pages à chaque changement
+notifications = Notifications(lambda: broadcast(notifications_message()))
 
 
 # Erreurs de configuration (ce qui est en erreur est ignoré), par partie rechargeable (voir
@@ -80,8 +81,27 @@ def snapshot() -> list[dict]:
     return [{**b, "state": devices[b["device"]].state()} for b in blocks]
 
 
+def pairing_list() -> list[dict]:
+    return [
+        {
+            "protocol": name,
+            "label": cls.LABEL or name,
+            "duration": cls.DURATION,
+            "max_duration": cls.MAX_DURATION,
+            "cleanup": cls.CLEANUP,
+        }
+        for name, cls in sorted(pairings.items())
+    ]
+
+
 def init_message() -> dict:
-    return {"type": "init", "blocks": snapshot(), "charts": charts, "errors": config_errors()}
+    return {"type": "init", "boot": BOOT, "blocks": snapshot(), "charts": charts,
+            "errors": config_errors(), "pairings": pairing_list(),
+            "notifications": notifications.list()}
+
+
+def notifications_message() -> dict:
+    return {"type": "notifications", "notifications": notifications.list()}
 
 
 def on_device_change(dev_id: str, state: dict) -> None:
@@ -231,63 +251,24 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-class SetCommand(BaseModel):
+class SetMessage(BaseModel):
+    device: str
     name: str
     value: bool | str | int  # sans bool, un true JSON arriverait en "1"
     transition: int | None = None  # ms, sinon valeur par défaut de l'équipement
 
 
-class SetMessage(SetCommand):
-    device: str
-
-
-async def apply_command(dev_id: str, cmd: SetCommand) -> None:
-    dev = devices.get(dev_id)
+async def apply_command(cmd: SetMessage) -> None:
+    dev = devices.get(cmd.device)
     if dev is None:
         raise LookupError("équipement inconnu")
     await dev.set(cmd.name, cmd.value, cmd.transition)
 
 
-# --- REST (utile pour les tests : curl, /docs) -------------------------------
-
-
-@app.get("/api/blocks")
-async def list_blocks():
-    return snapshot()
-
-
-@app.post("/api/devices/{dev_id}/set")
-async def set_device(dev_id: str, cmd: SetCommand):
-    try:
-        await apply_command(dev_id, cmd)
-    except LookupError as err:
-        raise HTTPException(status_code=404, detail=str(err)) from err
-    except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
-    except DeviceError as err:
-        raise HTTPException(status_code=502, detail=str(err)) from err
-    return devices[dev_id].state()
-
-
-@app.get("/api/config")
-async def config_status():
-    """Nombre d'équipements chargés, erreurs de la configuration (parties ignorées) et date du
-    démarrage du programme (ms)."""
-    return {"devices": len(devices), "errors": config_errors(), "boot": BOOT}
-
-
-# --- Notifications (core/notifications.py) ----------------------------------
-
-
-@app.get("/api/notifications")
-async def list_notifications():
-    """Notifications en attente : [{id, text, level, since (ms)}], les plus anciennes d'abord."""
-    return notifications.list()
-
-
 # --- Synchronisations (core/sync.py) : contrôle (GET) puis synchro (POST) ----
 # Contrôle : {"pending", "text"}. Synchro : {"text"} (résultat), "checks" ({nom : contrôle}
-# des zones à rafraîchir), "restarting" (app), "errors" (load : erreurs de la configuration).
+# des zones à rafraîchir), "restarting" (app). Les erreurs de la configuration rechargée arrivent
+# aux pages par le message init du WebSocket.
 
 
 async def check(name: str) -> dict:
@@ -361,11 +342,10 @@ async def reload_config() -> dict:
         log.exception("Rechargement de la configuration impossible")
         raise RuntimeError(f"configuration illisible : {type(err).__name__} : {err}") from err
     if not plan:
-        return {"text": "Rien à recharger.", "errors": config_errors()}
+        return {"text": "Rien à recharger."}
     failed = f", {len(config_errors())} erreur(s)" if config_errors() else ""
     actions = ", ".join(sync.ACTIONS[part] for part in plan)
-    return {"text": f"Rechargé : {actions} ({len(devices)} équipements{failed}).",
-            "errors": config_errors()}
+    return {"text": f"Rechargé : {actions} ({len(devices)} équipements{failed})."}
 
 
 async def save_config() -> dict:
@@ -416,9 +396,17 @@ async def read_history(path: str, start: int, end: int):
 
 
 # --- WebSocket : événements dans les deux sens -------------------------------
-# serveur -> page : {"type": "init", "blocks": [...], "charts": [...], "errors": [...]} puis {"type": "state", "device", "state"},
-#                   et {"type": "datalog", "points": [[chemin, ms, valeur], ...]} à chaque
-#                   enregistrement du datalog (graphiques en direct)
+# Tout ce que les pages affichent de l'état du serveur passe par ici (REST : actions et lectures
+# à la demande seulement).
+# serveur -> page : à la connexion, puis à chaque rechargement de la configuration,
+#                   {"type": "init", "boot" (démarrage du programme, ms), "blocks": [...],
+#                    "charts": [...], "errors": [...] (configuration : parties ignorées),
+#                    "pairings": [{protocol, label, duration, max_duration, cleanup}],
+#                    "notifications": [{id, text, level, since (ms)}]} ;
+#                   puis {"type": "state", "device", "state"} à chaque changement d'un équipement,
+#                   {"type": "datalog", "points": [[chemin, ms, valeur], ...]} à chaque
+#                   enregistrement du datalog (graphiques en direct),
+#                   {"type": "notifications", "notifications": [...]} à chaque changement,
 #                   et {"type": "error", "device", "detail"} pour une commande refusée
 # page -> serveur : {"type": "set", "device", "name", "value", "transition"?}
 
@@ -428,7 +416,7 @@ async def handle_message(message: dict) -> str | None:
     try:
         if message.get("type") != "set":
             return "type de message inconnu"
-        await apply_command(message.get("device", ""), SetMessage.model_validate(message))
+        await apply_command(SetMessage.model_validate(message))
     except ValidationError:
         return "commande invalide"
     except (LookupError, ValueError, DeviceError) as err:
@@ -481,20 +469,6 @@ async def websocket(ws: WebSocket):
 #                   {"type": "wait", "seconds"} (barre de progression ; 0 : masquée),
 #                   puis {"type": "end", "ok"}
 # page -> serveur : {"type": "answer", "value"}
-
-
-@app.get("/api/pair")
-async def list_pairings():
-    return [
-        {
-            "protocol": name,
-            "label": cls.LABEL or name,
-            "duration": cls.DURATION,
-            "max_duration": cls.MAX_DURATION,
-            "cleanup": cls.CLEANUP,
-        }
-        for name, cls in sorted(pairings.items())
-    ]
 
 
 # Appareils appairés qu'aucun équipement n'utilise : liste (GET), retrait (DELETE).
