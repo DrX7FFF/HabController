@@ -602,10 +602,9 @@ async def pair_socket(ws: WebSocket, protocol: str = "", duration: int = 0):
 
 
 # --- Pages web (web/) --------------------------------------------------------
-# Une page par onglet, servie à son adresse ; styles, scripts et bibliothèques sous /web/.
+# Une page par onglet, servie à son adresse ; styles, scripts et bibliothèques à la racine.
 
 WEB_DIR = ROOT / "web"
-app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
 
 
 @app.get("/", include_in_schema=False)
@@ -621,6 +620,10 @@ def charts_page():
 @app.get("/administration", include_in_schema=False)
 def admin_page():
     return FileResponse(WEB_DIR / "admin.html")
+
+
+# Contenu de web/ servi à la racine : en dernier, pour que les routes ci-dessus restent prioritaires.
+app.mount("/", StaticFiles(directory=WEB_DIR), name="web")
 
 
 if __name__ == "__main__":
