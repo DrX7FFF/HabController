@@ -148,7 +148,7 @@ def orphan(
     """Bloc d'un appareil sans équipement : « -> titre », sa déclaration si le pilote est connu
     (table `models`), puis une ligne vide."""
     try:
-        statement, call = constructor(driver_for_model(keys, models) if keys else "", args)
+        statement, call = constructor(driver_for_model(keys, models), args)
     except ValueError:
         return [f"-> {title}  pilote inconnu, à déclarer à la main", ""]
     line = f"{dev_id} = {call}"
@@ -179,16 +179,16 @@ def check_id(dev_id: str) -> None:
         )
 
 
-def driver_for_model(models: str | list[str], path: Path) -> str:
+def driver_for_model(models: list[str], path: Path) -> str:
     """Pilote de la table `path` ([models]) pour la première clé connue, ou "" si aucune.
 
-    `models` : le modèle, ou plusieurs clés de la plus précise à la plus générale.
+    `models` : clés de la plus précise à la plus générale.
     """
     try:
         table = tomllib.loads(path.read_text(encoding="utf-8")).get("models", {})
     except FileNotFoundError:
         return ""
-    for model in [models] if isinstance(models, str) else models:
+    for model in models:
         driver = table.get(model, "")
         if not driver:
             continue
@@ -204,8 +204,6 @@ def driver_for_model(models: str | list[str], path: Path) -> str:
 def constructor(driver: str, args: tuple[str, ...] = ()) -> tuple[str, str]:
     """(import du pilote, `<Pilote>(...)`), avec les arguments `args` (ex. 'ieee="…"') puis les
     réglages par défaut du pilote."""
-    if not driver:
-        raise ValueError("pilote requis")
     cls = load_driver(driver)
     config_args = getattr(cls, "config_args", None)
     args += tuple(config_args()) if config_args else ()

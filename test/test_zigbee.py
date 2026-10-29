@@ -31,6 +31,7 @@ from drivers.zigbee.climate import Climate  # noqa: E402
 from drivers.zigbee.contact import Contact  # noqa: E402
 from drivers.zigbee.motion import Motion  # noqa: E402
 from zigpy.types import EUI64  # noqa: E402
+from test_fp2 import ScriptedDialog  # noqa: E402
 
 IEEE = "a4:c1:38:d6:d7:c6:db:f6"
 OTHER = "00:17:88:01:08:9d:f1:10"
@@ -601,22 +602,6 @@ class CloseSessionTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await task
         self.assertTrue(app._dblistener.closed)
-
-
-class ScriptedDialog:
-    """Dialogue de l'appairage sans page : réponses données d'avance."""
-
-    def __init__(self, *answers: str):
-        self.answers = list(answers)
-
-    def say(self, text: str) -> None:
-        pass
-
-    def wait(self, seconds: int) -> None:
-        pass
-
-    async def ask(self, prompt: str, choices=None, secret: bool = False) -> str:
-        return self.answers.pop(0)
 
 
 class PairProtocolsTest(unittest.TestCase):

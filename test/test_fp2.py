@@ -622,19 +622,19 @@ class DriverForModelTest(unittest.TestCase):
 
     def test_lookup(self):
         self.path.write_text('[models]\n"PS-S02D" = "homekit.fp2"\n"X1" = "nexistepas"\n')
-        self.assertEqual(core_devices.driver_for_model("PS-S02D", self.path), "homekit.fp2")
-        self.assertEqual(core_devices.driver_for_model("inconnu", self.path), "")
+        self.assertEqual(core_devices.driver_for_model(["PS-S02D"], self.path), "homekit.fp2")
+        self.assertEqual(core_devices.driver_for_model(["inconnu"], self.path), "")
         with self.assertLogs("core.devices", "WARNING") as logs:
-            self.assertEqual(core_devices.driver_for_model("X1", self.path), "")  # pilote absent
+            self.assertEqual(core_devices.driver_for_model(["X1"], self.path), "")  # pilote absent
         self.assertIn("inutilisable", logs.output[0])
 
     def test_missing_file(self):
-        self.assertEqual(core_devices.driver_for_model("PS-S02D", self.path), "")
+        self.assertEqual(core_devices.driver_for_model(["PS-S02D"], self.path), "")
 
     def test_repo_mapping_points_to_existing_driver(self):
         models = tomllib.loads((ROOT / "drivers" / "homekit" / "models.toml").read_text())
         table = homekit_pair.Pairing(ScriptedDialog()).models
-        self.assertEqual(core_devices.driver_for_model("PS-S02D", table), "homekit.fp2")
+        self.assertEqual(core_devices.driver_for_model(["PS-S02D"], table), "homekit.fp2")
         for driver in models["models"].values():
             core_devices.load_driver(driver)
 

@@ -12,7 +12,6 @@ log = logging.getLogger(__name__)
 
 APP = "HabController"  # nom sous lequel la TV autorise la télécommande
 ACCESS_DENIED = b"\x64\x00\x00\x00"
-WAITING = b"\x0a"  # la TV attend qu'on accepte sur l'écran
 
 
 def _string(data: bytes, encode: bool = True) -> bytes:
@@ -104,9 +103,7 @@ class SamsungTV(NetworkDevice):
         self._set_connected(True)
         while True:  # réponses de la TV, jusqu'à la fermeture de la connexion
             response = await read_response(reader)
-            if response.startswith(WAITING):
-                log.warning("%s : accepter « %s » sur l'écran de la TV", self.id, APP)
-            elif response == ACCESS_DENIED:
+            if response == ACCESS_DENIED:
                 log.error("%s : « %s » refusé par la TV (réglages de la TV)", self.id, APP)
 
     def _set_connected(self, connected: bool) -> None:

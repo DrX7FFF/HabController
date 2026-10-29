@@ -37,11 +37,6 @@ class FakeDevice(Device):
         self._state.update(values)
         self._notify()
 
-    def drop(self, *names):
-        for name in names:
-            self._state.pop(name, None)
-        self._notify()
-
     async def set(self, name, value, transition=None):
         if self.delays:
             await asyncio.sleep(self.delays.pop(0))
