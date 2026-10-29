@@ -6,34 +6,21 @@
 <title>Domotique</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/common.css">
-<style>
-  #blocks { display: flex; flex-wrap: wrap; gap: 1rem; }
-  .block { border: 2px solid #aaa; border-radius: 1rem; padding: 1rem 1.5rem;
-           display: grid; gap: .8rem; min-width: 14rem; }
-  .block.down { border-color: #b00; opacity: .6; }
-  button { font-size: 1.2rem; padding: .8rem 1.5rem; border-radius: .8rem;
-           border: 2px solid #888; cursor: pointer; }
-  button.on { background: #ffd54a; border-color: #c9a100; }
-  button.off { background: #ddd; }
-  button.unreachable { background: #f5b5b5; border-color: #b00; }
-  label { display: grid; gap: .3rem; }
-  .measures { display: grid; grid-template-columns: auto auto; gap: .3rem 1.2rem; margin: 0;
-              font-size: 1.1rem; }
-  .measures dt { color: #555; }
-  .measures dd { margin: 0; font-weight: 600; text-align: right; }
-  .measures dd:only-child { grid-column: 1 / -1; text-align: left; font-weight: normal;
-                           color: #555; }
-</style>
+<link rel="stylesheet" href="/pages/dashboard.css">
+<link rel="stylesheet" href="/pages/charts.css">
+<link rel="stylesheet" href="/pages/admin.css">
+<link rel="stylesheet" href="/vendor/uPlot.min.css">
+<script src="/vendor/uPlot.iife.min.js" defer></script>
+<script type="module" src="/app.js"></script>
 </head>
 <body>
+<!-- Les onglets : adresse, page affichée (web/pages/<page>.html, .js et .css), titre. -->
 <nav>
-  <a href="/" aria-current="page">Commandes</a>
-  <a href="/graphiques">Graphiques</a>
-  <a href="/administration">Administration</a>
+  <a href="/" data-page="dashboard" data-title="Domotique">Commandes</a>
+  <a href="/graphiques" data-page="charts" data-title="Domotique — graphiques">Graphiques</a>
+  <a href="/administration" data-page="admin" data-title="Domotique — administration">Administration</a>
 </nav>
 <div id="banner" hidden></div>
-<div id="blocks"></div>
-<script src="/notifications.js"></script>
-<script src="/dashboard.js"></script>
+<main id="page"></main>
 </body>
 </html>

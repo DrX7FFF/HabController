@@ -1,4 +1,5 @@
-// Tracé des graphiques : seul fichier qui connaît la bibliothèque (uPlot, dans web/vendor/).
+// Tracé des graphiques : seul fichier qui connaît la bibliothèque (uPlot, dans web/vendor/,
+// chargée par index.html).
 // Pour en changer, réécrire ce fichier en gardant createPlot().
 //
 // createPlot(container, series, group, onZoom) -> { setData(points, start, end), destroy() }
@@ -51,7 +52,7 @@ function align(points, hold, end) {
   return [times.map(t => t / 1000), ...columns];
 }
 
-function createPlot(container, series, group, onZoom) {
+export function createPlot(container, series, group, onZoom) {
   const units = [...new Set(series.filter(s => s.type === "number").map(s => s.unit))];
   const bools = series.filter(s => s.type === "bool");
   const realMin = {};  // échelle -> plus petite valeur réelle (graduations en dessous masquées)

@@ -1,0 +1,9 @@
+/* Onglet Graphiques : barre de réglages, puis un graphique par entrée de dashboard/charts.toml. */
+.page-charts #toolbar { display: flex; margin-bottom: 1rem; min-height: 2.6rem; }
+.page-charts #controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.page-charts .live { display: flex; align-items: center; gap: .4rem; padding: 0 .5rem; cursor: pointer; }
+.page-charts .live input { width: 1.2rem; height: 1.2rem; }
+.page-charts #charts { display: grid; gap: 1.5rem; }
+.page-charts .chart { min-width: 0; }
+.page-charts .chart h2 { margin-bottom: .5rem; }
+@media (max-width: 600px) { .page-charts .chart { padding: .8rem; } }

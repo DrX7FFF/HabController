@@ -602,24 +602,17 @@ async def pair_socket(ws: WebSocket, protocol: str = "", duration: int = 0):
 
 
 # --- Pages web (web/) --------------------------------------------------------
-# Une page par onglet, servie à son adresse ; styles, scripts et bibliothèques à la racine.
+# Page unique (web/index.html), qui affiche l'onglet de son adresse (voir web/app.js) ;
+# styles, scripts et morceaux de page à la racine.
 
 WEB_DIR = ROOT / "web"
 
 
 @app.get("/", include_in_schema=False)
+@app.get("/graphiques", include_in_schema=False)
+@app.get("/administration", include_in_schema=False)
 def index():
     return FileResponse(WEB_DIR / "index.html")
-
-
-@app.get("/graphiques", include_in_schema=False)
-def charts_page():
-    return FileResponse(WEB_DIR / "charts.html")
-
-
-@app.get("/administration", include_in_schema=False)
-def admin_page():
-    return FileResponse(WEB_DIR / "admin.html")
 
 
 # Contenu de web/ servi à la racine : en dernier, pour que les routes ci-dessus restent prioritaires.

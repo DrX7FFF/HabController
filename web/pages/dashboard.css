@@ -1,0 +1,15 @@
+/* Onglet Commandes : un bloc par équipement de dashboard/screens.toml. */
+.page-dashboard #blocks { display: flex; flex-wrap: wrap; gap: 1rem; }
+.page-dashboard .block { display: grid; gap: .8rem; min-width: 14rem; }
+.page-dashboard .block.down { border-color: var(--error); opacity: .6; }
+.page-dashboard button { font-size: 1.2rem; padding: .8rem 1.5rem; border-radius: .8rem; }
+.page-dashboard button.on { background: var(--accent); border-color: var(--accent-border); }
+.page-dashboard button.off { background: #ddd; }
+.page-dashboard button.unreachable { background: #f5b5b5; border-color: var(--error); }
+.page-dashboard label { display: grid; gap: .3rem; }
+.page-dashboard .measures { display: grid; grid-template-columns: auto auto; gap: .3rem 1.2rem;
+                            margin: 0; font-size: 1.1rem; }
+.page-dashboard .measures dt { color: var(--muted); }
+.page-dashboard .measures dd { margin: 0; font-weight: 600; text-align: right; }
+.page-dashboard .measures dd:only-child { grid-column: 1 / -1; text-align: left;
+                                          font-weight: normal; color: var(--muted); }

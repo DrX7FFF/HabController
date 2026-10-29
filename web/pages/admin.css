@@ -1,0 +1,20 @@
+/* Onglet Administration : synchronisations, appairage, notifications. */
+.page-admin section { max-width: 50rem; margin-bottom: 1rem; }
+.page-admin section h2 { margin-bottom: .8rem; }
+.page-admin #protocols { display: grid; gap: .8rem; }
+.page-admin .protocol { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
+.page-admin input.duration { width: 5rem; }
+.page-admin #running { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; min-height: 2.6rem; }
+.page-admin #wait { display: flex; align-items: center; gap: .5rem; }
+.page-admin #bar { width: 16rem; height: 1.2rem; accent-color: var(--accent-border); }
+.page-admin #session { margin-top: 1.2rem; display: grid; gap: .8rem; }
+.page-admin #log { background: #f4f4f4; border-radius: .5rem; padding: .8rem 1rem; margin: 0;
+                   white-space: pre-wrap; max-height: 24rem; overflow-y: auto; }
+.page-admin #question { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.page-admin #question form { display: contents; }
+.page-admin #prompt { font-weight: 600; flex-basis: 100%; }
+.page-admin #config-errors { color: var(--error); margin: .8rem 0 0; padding-left: 1.2rem; }
+.page-admin .sync .state { margin: 0 0 .8rem; color: var(--muted); }
+.page-admin .sync .state.pending { color: var(--error); font-weight: 600; }
+.page-admin .sync .state.failed { font-weight: normal; }
+.page-admin #notifications { margin: 0 0 1rem; padding-left: 1.2rem; color: var(--error); font-weight: 600; }
