@@ -21,11 +21,21 @@ from zigpy.config import (
     CONF_DEVICE,
     CONF_DEVICE_BAUDRATE,
     CONF_DEVICE_PATH,
+    CONF_OTA,
+    CONF_OTA_EXTRA_PROVIDERS,
+    CONF_OTA_PROVIDER_TYPE,
 )
 from zigpy.device import Device as ZigpyDevice
 from zigpy.exceptions import RadioException, ZigbeeException
 from zigpy.types import EUI64
-from zigpy.zcl import AttributeReportedEvent, AttributeUpdatedEvent, ReportingConfig
+from zigpy.zcl import (
+    AttributeReportedEvent,
+    AttributeUpdatedEvent,
+    ClusterType,
+    OtaImageAvailableEvent,
+    ReportingConfig,
+)
+from zigpy.zcl.clusters.general import Ota
 from zigpy.zcl.foundation import Status
 
 from core import PAIRING_DIR, TEMP_DIR, settings
@@ -76,6 +86,8 @@ def load_config() -> dict:
             CONF_DEVICE_BAUDRATE: int(conf.get("baudrate", 115200)),
         },
         CONF_DATABASE: str(DB_FILE),
+        # index Zigbee2MQTT (Koenkk) : firmwares absents des sources par défaut (ex. Philips)
+        CONF_OTA: {CONF_OTA_EXTRA_PROVIDERS: [{CONF_OTA_PROVIDER_TYPE: "z2m"}]},
     }
 
 
@@ -463,6 +475,7 @@ class ZigbeeDevice(NetworkDevice):
         self.zdev = None  # objet zigpy de l'équipement, tant que la clé est ouverte
         self._unsubscribe: list = []
         self._tasks: set[asyncio.Task] = set()
+        self._ota_version: int | None = None  # dernier firmware disponible journalisé
 
     # --- cycle de vie -------------------------------------------------------
 
@@ -470,7 +483,13 @@ class ZigbeeDevice(NetworkDevice):
         coordinator.register(self)
 
     def physical(self) -> str:
-        return f"Zigbee {self.ieee}"
+        """Adresse IEEE, et version du firmware si zigpy la connaît (équipement à mise à jour OTA)."""
+        try:
+            ota = self.zdev.find_cluster(Ota.cluster_id, ClusterType.Client)
+            version = ota.get("current_file_version")
+        except (AttributeError, ValueError):  # clé fermée, ou pas de mise à jour OTA
+            version = None
+        return f"Zigbee {self.ieee}" + (f" (firmware 0x{version:08x})" if version else "")
 
     async def stop(self) -> None:
         await coordinator.unregister(self)
@@ -511,6 +530,9 @@ class ZigbeeDevice(NetworkDevice):
                     self._unsubscribe.append(
                         cluster.on_event(event.event_type, self._on_event)
                     )
+                self._unsubscribe.append(
+                    cluster.on_event(OtaImageAvailableEvent.event_type, self._on_ota)
+                )
         if self.poll:
             self._spawn(self._poll_loop(zdev))
 
@@ -570,6 +592,20 @@ class ZigbeeDevice(NetworkDevice):
         self._received()
         self._on_attribute(event.cluster_id, event.attribute_name, event.value)
         self._notify()
+
+    def _on_ota(self, event: OtaImageAvailableEvent) -> None:
+        """Firmware plus récent trouvé par zigpy (rien n'est installé) : journalisé une fois."""
+        if not event.images_result.upgrades:
+            return
+        version = max(image.version for image in event.images_result.upgrades)
+        if version != self._ota_version:
+            self._ota_version = version
+            log.info(
+                "%s : firmware 0x%08x disponible (actuel 0x%08x)",
+                self.id,
+                version,
+                event.query_cmd.current_file_version,
+            )
 
     def _received(self) -> None:
         """Message reçu : un équipement sur pile devient joignable (et se configure)."""

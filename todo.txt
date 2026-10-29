@@ -16,6 +16,8 @@ Zigbee, à faire devant les appareils (réinitialiser chacun puis Administration
 - Appareils supprimés de deCONZ, s'ils ressortent : ampoule Aqara (lumi.light.aqcn02) couverte par
   zigbee.light ; double interrupteur (lumi.switch.b2nacn02) : 2 relais = 2 attributs on_1 / on_2.
 - Migration finie : supprimer HabConfig/listetemp.txt.
+- Mise à jour de firmware (zdev.update_firmware) : une fois réussie et la nouvelle version écrite
+  en base par zigpy (léger différé), appeler save_snapshot() pour la copier dans la configuration.
 
 TV Samsung (samsung.tv, à vérifier TV allumée) :
 - Accepter « HabController » sur l'écran à la première connexion.
