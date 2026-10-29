@@ -1,12 +1,5 @@
-ajouter log à chaque connexion d'un équipement
-
-Etudier ce qui peut être rechargé à la volée
-
-
 A revoir :
 Sur le capteur FP2 : Un capteur sans index serait nommé zone_<aid>_<iid>.
-
-Firebase : supprimer les anciennes données Node-RED (Dehumidifier, Home, Measure, System, Tracking)
 
 Démarrage : temporiser de quelques secondes le déclenchement des automatisations (happy flow : équipements pas encore connectés).
 
@@ -48,3 +41,7 @@ désactiver l’état None des équipements (par exemple sur on) ;
 étudier l’intérêt des 30 s d’attente du Zigbee.
 Surveiller l'utilisation mémoire/CPU, cas de plantage
 Vérifier les horodate utilisé dans l'application
+Démarrage : démarrer le datalog avant les automatisations ? (un record() appelé au chargement d'une
+automatisation est aujourd'hui ignoré au démarrage, le datalog n'étant pas encore configuré)
+Datalog : n'enregistrer qu'après une synchronisation NTP ; sans synchro, ignorer les valeurs
+(horodatages faux).
