@@ -1,7 +1,7 @@
 // Onglet Administration : appairage d'un équipement (un bouton par protocole).
 // Le dialogue passe par le WebSocket /ws/pair (voir main.py) : messages du serveur affichés
 // dans le journal, questions posées sous le journal, barre de progression pendant la recherche ;
-// « Arrêter », quitter l'onglet ou fermer la page interrompt l'appairage.
+// « Arrêter » ou fermer la page interrompt l'appairage (il continue sur les autres onglets).
 // Protocole qui le permet : bouton de nettoyage, qui retire (après confirmation) les appareils
 // appairés qu'aucun équipement n'utilise (GET puis DELETE /api/pair/<protocole>/unused).
 // Synchronisations (une section chacune, voir core/sync.py) : « Contrôler » (GET /api/sync/<nom>)
@@ -11,9 +11,10 @@
 // Protocoles, erreurs de la configuration en cours (parties ignorées, listées sous « Recharger »)
 // et notifications (listées en tête de page) : état du serveur, reçu par le WebSocket /ws.
 
-import { el, request, show, subscribe, wsUrl } from "/common.js";
+import { banner, el, request, subscribe, wsUrl } from "/common.js";
 
 export function mount(page) {
+  const show = banner(page);
   const protocols = page.querySelector("#protocols");
   const session = page.querySelector("#session");
   const logBox = page.querySelector("#log");
@@ -31,7 +32,6 @@ export function mount(page) {
   let timer = null;  // mise à jour de la barre de progression
   let boot = null;  // démarrage du programme, d'après le dernier message init
   let restarted = null;  // attente d'un redémarrage : appelée avec le boot de chaque message init
-  let restartTimer = null;
 
   function write(text) {
     logBox.textContent += (logBox.textContent ? "\n" : "") + text;
@@ -179,7 +179,7 @@ export function mount(page) {
 
   // Les protocoles ne changent qu'au redémarrage : construits une fois (un appairage en cours
   // n'est pas dérangé par un nouveau message init).
-  const unsubscribe = subscribe(m => {
+  subscribe(m => {
     if (m.type === "init") {
       boot = m.boot;
       if (!protocols.children.length) protocols.replaceChildren(...m.pairings.map(build));
@@ -196,7 +196,7 @@ export function mount(page) {
   function awaitRestart(before) {
     return new Promise((resolve, reject) => {
       restarted = now => { if (now !== before) location.reload(); };
-      restartTimer = setTimeout(() => {
+      setTimeout(() => {
         restarted = null;
         reject(new Error("le programme ne répond plus après 3 min (voir journalctl -u habctrl)."));
       }, 180000);
@@ -250,11 +250,4 @@ export function mount(page) {
   }
 
   page.querySelectorAll("section.sync").forEach(setupSync);
-
-  return () => {
-    unsubscribe();
-    clearInterval(timer);
-    clearTimeout(restartTimer);
-    if (ws) ws.close();
-  };
 }

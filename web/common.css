@@ -1,4 +1,4 @@
-/* Commun à tous les onglets : couleurs, fond, onglets (pastille des notifications), bandeau,
+/* Commun à tous les onglets : couleurs, fond, onglets (pastille des notifications), bandeaux,
    encadrés (.card) et boutons ; le propre de chaque onglet est dans pages/<page>.css. */
 :root {
   --accent: #ffd54a;          /* bouton principal, allumé */
@@ -15,7 +15,7 @@ nav a { padding: .8rem 1.2rem; color: #444; text-decoration: none;
 nav a[aria-current="page"] { color: #000; font-weight: 600; border-bottom-color: var(--accent-border); }
 nav .badge { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%;
              background: #d00; margin-left: .4rem; vertical-align: top; }
-#banner { background: #fde8e8; border: 1px solid var(--error); border-radius: .5rem;
+.banner { background: #fde8e8; border: 1px solid var(--error); border-radius: .5rem;
           padding: .6rem 1rem; margin-bottom: 1rem; }
 h2 { margin: 0; font-size: 1.1rem; }
 @media (max-width: 600px) { body { margin: 0 1rem 1rem; } }

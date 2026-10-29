@@ -1,6 +1,6 @@
 // Onglet Commandes : un bloc par équipement de dashboard/screens.toml, tenu à jour par /ws.
 
-import { el, send, setNotice, show, subscribe } from "/common.js";
+import { banner, el, send, subscribe } from "/common.js";
 
 const labels = { on: "allumé", off: "éteint", unreachable: "injoignable" };
 // connected false, ou on pas encore lu : affiché injoignable
@@ -86,15 +86,19 @@ function build(b) {
 
 export function mount(page) {
   const box = page.querySelector("#blocks");
+  const say = banner(page);
+  const show = text => say(text || notice);  // à défaut de message : erreurs de configuration
+  let notice = "";
   let views = [];
   let hide = null;  // effacement prévu du dernier message d'erreur
 
-  const unsubscribe = subscribe(m => {
+  subscribe(m => {
     if (m.type === "init") {
       views = m.blocks.map(b => { const v = build(b); v.update(b.state); return v; });
       box.replaceChildren(...views.map(v => v.el));
-      setNotice(m.errors.length
-        ? `Configuration : ${m.errors.length} erreur(s), voir Administration.` : "");
+      notice = m.errors.length
+        ? `Configuration : ${m.errors.length} erreur(s), voir Administration.` : "";
+      show("");
     } else if (m.type === "state") {
       views.filter(v => v.device === m.device).forEach(v => v.update(m.state));
     } else if (m.type === "error") {
@@ -105,9 +109,4 @@ export function mount(page) {
       views.forEach(v => v.update({ connected: false }));
     }
   });
-
-  return () => {
-    unsubscribe();
-    clearTimeout(hide);
-  };
 }

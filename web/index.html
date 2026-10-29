@@ -14,20 +14,22 @@
 <script type="module" src="/app.js"></script>
 </head>
 <body>
-<!-- Les onglets : adresse, page affichée (gabarit ci-dessous, web/pages/<page>.js et .css), titre. -->
+<!-- Les onglets : adresse, page affichée (conteneur ci-dessous, web/pages/<page>.js et .css), titre. -->
 <nav>
   <a href="/" data-page="dashboard" data-title="Domotique">Commandes</a>
   <a href="/graphiques" data-page="charts" data-title="Domotique — graphiques">Graphiques</a>
   <a href="/administration" data-page="admin" data-title="Domotique — administration">Administration</a>
 </nav>
-<div id="banner" hidden></div>
-<main id="page"></main>
-
-<!-- Contenu de chaque onglet, copié dans <main> à son affichage (voir app.js). -->
-<template data-page="dashboard">
+<div id="lost" class="banner" hidden>Connexion au serveur perdue…</div>
+<!-- Un conteneur par onglet : construit à sa première visite (voir app.js), puis masqué ou
+     affiché, sans être réinitialisé. Chacun a son bandeau de messages. -->
+<main>
+<div data-page="dashboard" class="page-dashboard" hidden>
+  <div class="banner" hidden></div>
   <div id="blocks"></div>
-</template>
-<template data-page="charts">
+</div>
+<div data-page="charts" class="page-charts" hidden>
+  <div class="banner" hidden></div>
   <div id="toolbar">
     <span id="controls">
       <button id="reload">Actualiser</button>
@@ -38,8 +40,9 @@
     <button id="unzoom" class="main" hidden>Annuler zoom</button>
   </div>
   <div id="charts"></div>
-</template>
-<template data-page="admin">
+</div>
+<div data-page="admin" class="page-admin" hidden>
+  <div class="banner" hidden></div>
   <ul id="notifications" hidden></ul>
   <section class="sync card" data-sync="app">
     <h2>Application HabController</h2>
@@ -90,6 +93,7 @@
       </div>
     </div>
   </section>
-</template>
+</div>
+</main>
 </body>
 </html>

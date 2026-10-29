@@ -8,7 +8,7 @@
 // La liste des graphiques arrive aussi par le WebSocket (message init, renvoyé après chaque
 // rechargement de la configuration) : un charts.toml modifié s'affiche sans recharger la page.
 
-import { el, request, show, subscribe } from "/common.js";
+import { banner, el, request, subscribe } from "/common.js";
 import { createPlot } from "/plot.js";
 
 const MINUTE = 60_000;
@@ -24,6 +24,7 @@ export function mount(page) {
   const fromInput = page.querySelector("#from");
   const controls = page.querySelector("#controls");
   const unzoom = page.querySelector("#unzoom");
+  const show = banner(page);
   let period = DAY;
   let zoomed = false;
   let pending = false;  // valeurs reçues en Direct pendant le zoom, pas encore dessinées
@@ -32,7 +33,6 @@ export function mount(page) {
   let views = [];  // { chart, plot, points: [[ms, valeur], ...] par série }
   let charts = null;  // liste affichée, telle que reçue
   let redraw = null;  // tracé en attente (au plus un par image)
-  let active = true;  // faux une fois l'onglet quitté : les lectures en cours sont ignorées
 
   function toolbar() {
     const select = page.querySelector("#period");
@@ -84,12 +84,11 @@ export function mount(page) {
     try {
       const results = await Promise.all(views.map(({ chart }) => Promise.all(chart.series.map(s =>
         request(`/api/history?path=${encodeURIComponent(s.path)}&start=${start}&end=${end}`)))));
-      if (!active) return;
       results.forEach((answers, i) => { views[i].points = answers.map(a => a.points); });
       draw();
       show("");
     } catch (err) {
-      if (active) show(`Lecture de l'historique impossible (${err.message})`);
+      show(`Lecture de l'historique impossible (${err.message})`);
     }
   }
 
@@ -154,12 +153,5 @@ export function mount(page) {
   }
 
   toolbar();
-  const unsubscribe = subscribe(receive);
-
-  return () => {
-    active = false;
-    unsubscribe();
-    cancelAnimationFrame(redraw);
-    views.forEach(v => v.plot.destroy());
-  };
+  subscribe(receive);
 }

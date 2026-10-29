@@ -1,4 +1,4 @@
-// Commun à tous les onglets : bandeau, API (actions), WebSocket /ws partagé (état du serveur).
+// Commun à tous les onglets : bandeaux, API (actions), WebSocket /ws partagé (état du serveur).
 
 // --- Éléments ----------------------------------------------------------------
 
@@ -11,20 +11,13 @@ export function el(tag, props = {}, ...children) {
 
 // --- Bandeau -----------------------------------------------------------------
 
-const banner = document.getElementById("banner");
-const LOST = "Connexion au serveur perdue…";
-let lost = false;  // connexion /ws perdue, pas encore rétablie
-let notice = "";  // message par défaut de l'onglet
-
-// Bandeau : `text`, à défaut la perte de connexion, à défaut le message par défaut.
-export function show(text) {
-  banner.textContent = text || (lost ? LOST : notice);
-  banner.hidden = !banner.textContent;
-}
-
-export function setNotice(text) {
-  notice = text;
-  show("");
+// Bandeau de l'onglet `page` (son .banner) : renvoie show(texte), "" le masque.
+export function banner(page) {
+  const box = page.querySelector(".banner");
+  return text => {
+    box.textContent = text;
+    box.hidden = !text;
+  };
 }
 
 // --- API ---------------------------------------------------------------------
@@ -44,12 +37,14 @@ export const wsUrl = path =>
 // Tout l'état du serveur affiché par les onglets (voir main.py). Une connexion pour tous les
 // onglets, reconnectée 2 s après sa perte. Le dernier message init, tenu à jour des messages
 // state et notifications, est rejoué à chaque nouvel abonné ; la perte de connexion lui est
-// signalée par un message { type: "closed" }.
+// signalée par un message { type: "closed" } et par le bandeau commun #lost.
 // Notifications en attente : pastille rouge sur l'onglet Administration (textes en info-bulle).
 
 const listeners = new Set();
+const lostBanner = document.getElementById("lost");
 let socket = null;
 let init = null;
+let lost = false;  // connexion perdue, pas encore rétablie
 
 function dispatch(m) {
   listeners.forEach(fn => fn(m));
@@ -73,7 +68,7 @@ function connect() {
     if (m.type === "init") {
       init = m;
       lost = false;
-      show("");
+      lostBanner.hidden = true;
     } else if (m.type === "state" && init) {
       init.blocks.filter(b => b.device === m.device).forEach(b => { b.state = m.state; });
     } else if (m.type === "notifications" && init) {
@@ -84,24 +79,17 @@ function connect() {
   };
   socket.onclose = () => {
     lost = true;
-    show("");
+    lostBanner.hidden = false;
     dispatch({ type: "closed" });
     setTimeout(connect, 2000);
   };
 }
 
-// fn(message) à chaque message de /ws ; renvoie la fonction qui désabonne.
+// fn(message) à chaque message de /ws.
 export function subscribe(fn) {
   listeners.add(fn);
   if (init) fn(init);
   if (lost) fn({ type: "closed" });
-  return () => listeners.delete(fn);
-}
-
-// En changeant d'onglet : bandeau vidé, sans message par défaut.
-export function resetBanner() {
-  notice = "";
-  show("");
 }
 
 export function send(message) {
