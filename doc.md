@@ -206,6 +206,24 @@ Les équipements Zigbee se déclarent avec l'adresse IEEE de leur appareil (`iee
 argument) ; les équipements HomeKit sans adresse : le lien avec l'appareil physique est enregistré
 dans `pairing/`. Dans les deux cas, l'appairage écrit la déclaration.
 
+Zigbee, valeurs suivies (`reports=`) : à chaque connexion, le pilote demande à l'appareil
+d'envoyer de lui-même chaque valeur suivie, dès qu'elle varie d'au moins son écart (et au moins
+toutes les 5 min à 12 h selon la valeur, intervalles fixés par le pilote). Chaque pilote a ses
+valeurs par défaut (tableaux ci-dessous) ; la déclaration ne donne que ce qui change :
+
+```python
+prise_salon = Plug(ieee="…", reports={"active_power": 5, "energy": 0.1})
+filament = Climate(ieee="…", reports={"humidity": 0.2})
+```
+
+- un nombre : valeur suivie, avec cet écart en unité réelle (converti par le pilote) ;
+- `True` : valeur suivie, sans écart réglable (tout-ou-rien, couleur) ;
+- `None` : valeur non suivie, absente de l'état ; l'appareil reçoit l'ordre de ne plus
+  l'envoyer (certains firmwares l'ignorent : le pilote l'écarte de toute façon).
+
+Une clé inconnue du pilote est refusée (signalée par l'éditeur, et au chargement). Un
+attribut que l'appareil refuse d'envoyer est signalé dans le journal à sa configuration.
+
 ### Ampoules — `yeelight.bulb`, `zigbee.light`
 
 ```python
@@ -246,6 +264,15 @@ l'appairage (`color_capabilities` ; non lu : tout est supposé présent) ; le `r
 approché, à pleine intensité (l'ampoule donne sa couleur en coordonnées xy) ; transition au
 dixième de seconde près.
 
+Valeurs suivies (`reports=`, Zigbee seulement) :
+
+| Code         | Par défaut | Écart par défaut | Unité |
+|--------------|------------|------------------|-------|
+| `on`         | ✓          | —                | —     |
+| `brightness` | ✓          | 1                | %     |
+| `color_temp` | ✓          | — (fixe)         | —     |
+| `rgb`        | ✓          | — (fixe)         | —     |
+
 ### Prise Zigbee — `zigbee.plug`
 
 ```python
@@ -260,9 +287,19 @@ prise_salon = Plug(ieee="a4:c1:38:d6:d7:c6:db:f6")
 | `current`      | float, A         | ✓       | —                           |
 | `energy`       | float, kWh cumul | ✓       | —                           |
 
-Les mesures sont envoyées spontanément par la prise, et n'apparaissent que si le modèle les
-fournit (clusters 0x0b04, 0x0702). Une lecture toutes les 5 min vérifie seulement que la prise
-répond encore.
+Les mesures sont envoyées spontanément par la prise, et n'apparaissent que si elles sont
+suivies et que le modèle les fournit (clusters 0x0b04, 0x0702). Une lecture toutes les 5 min
+vérifie seulement que la prise répond encore.
+
+Valeurs suivies (`reports=`) :
+
+| Code           | Par défaut | Écart par défaut | Unité |
+|----------------|------------|------------------|-------|
+| `on`           | ✓          | —                | —     |
+| `active_power` | ✓          | 1                | W     |
+| `voltage`      | —          | —                | V     |
+| `current`      | —          | —                | A     |
+| `energy`       | —          | —                | kWh   |
 
 ### Capteurs Zigbee sur pile — `zigbee.climate`, `zigbee.motion`, `zigbee.contact`
 
@@ -281,6 +318,19 @@ porte_entree = Contact(ieee="00:15:8d:00:05:65:43:21")
 |           | `illuminance` | int, lux                |
 | `contact` | `open`        | bool                    |
 | tous      | `battery`     | int, %                  |
+
+Valeurs suivies (`reports=`) : chaque pilote ne demande que ses propres attributs, et
+`battery`.
+
+| Pilote    | Code          | Par défaut | Écart par défaut | Unité                  |
+|-----------|---------------|------------|------------------|------------------------|
+| `climate` | `temperature` | ✓          | 0,1              | °C                     |
+|           | `humidity`    | ✓          | 1                | %                      |
+|           | `pressure`    | —          | —                | hPa                    |
+| `motion`  | `presence`    | ✓          | —                | —                      |
+|           | `illuminance` | ✓          | 2                | % (écart relatif)      |
+| `contact` | `open`        | ✓          | —                | — (envoyé de lui-même) |
+| tous      | `battery`     | ✓          | 1                | %                      |
 
 Lecture seule, n'apparaissent que si l'appareil les envoie. L'appareil n'est jamais
 interrogé (il dort) : joignable dès son premier message ; après un redémarrage, une valeur

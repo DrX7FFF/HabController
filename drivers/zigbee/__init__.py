@@ -8,7 +8,7 @@ import asyncio
 import logging
 import shutil
 import sqlite3
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 
 import zhaquirks
@@ -48,6 +48,7 @@ RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à cha
 RETRY_MAX = 60
 READY_WAIT = 30  # s, laissées à la clé pour s'ouvrir quand l'appairage l'emprunte
 CLOSE_WAIT = 10  # s, au plus, pour arrêter le coordinateur (clé retirée : il peut bloquer)
+STOP = 0xFFFF  # intervalle maximal d'envoi spontané : ne plus envoyer
 
 
 def device_types(zdev) -> list[str]:
@@ -213,18 +214,33 @@ async def read(cluster, names: list[str]) -> dict:
     }
 
 
+def tracked(defaults: Mapping, reports: Mapping | None) -> dict:
+    """Valeurs suivies {état: écart} : défauts du pilote, remplacés par la déclaration
+    (`reports`) ; None : non suivie (absente du résultat)."""
+    if unknown := set(reports or {}) - set(defaults):
+        raise ValueError(f"reports : {', '.join(sorted(unknown))} inconnu de ce pilote")
+    merged = {**defaults, **(reports or {})}
+    return {key: change for key, change in merged.items() if change is not None}
+
+
+def raw_change(change: float) -> int:
+    """Écart converti en valeur brute : arrondi, au moins 1."""
+    return max(1, round(change))
+
+
 async def setup_reporting(
-    name: str, cluster, reports: dict[str, tuple[int, int, int]]
+    name: str, cluster, reports: dict[str, tuple[int, int, int] | None]
 ) -> None:
     """Binding vers le coordinateur et envoi spontané des attributs {nom: (min s, max s, écart)}.
 
+    None : ne plus envoyer cet attribut (l'appareil garde sa configuration précédente).
     Facultatif : si l'équipement refuse, l'état reste à jour par la lecture périodique.
     """
     try:
         await cluster.bind()
-        await cluster.configure_reporting_multiple(
+        result = await cluster.configure_reporting_multiple(
             {
-                cluster.find_attribute(attr): ReportingConfig(*cfg)
+                cluster.find_attribute(attr): ReportingConfig(*(cfg or (0, STOP, 0)))
                 for attr, cfg in reports.items()
             }
         )
@@ -235,6 +251,10 @@ async def setup_reporting(
             cluster.cluster_id,
             err,
         )
+        return
+    for attr, status in result.items():
+        if status != Status.SUCCESS:
+            log.warning("%s : reporting de %s refusé (%s)", name, attr.name, status.name)
 
 
 class Coordinator:

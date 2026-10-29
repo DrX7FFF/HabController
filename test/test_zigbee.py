@@ -27,6 +27,9 @@ from drivers.zigbee.light import Light, rgb_to_xy, xy_to_rgb  # noqa: E402
 from drivers.zigbee.plug import ELECTRICAL, METERING, ON_OFF, Plug  # noqa: E402
 from drivers.zigbee.button import Button  # noqa: E402
 from drivers.zigbee.sensor import Sensor  # noqa: E402
+from drivers.zigbee.climate import Climate  # noqa: E402
+from drivers.zigbee.contact import Contact  # noqa: E402
+from drivers.zigbee.motion import Motion  # noqa: E402
 from zigpy.types import EUI64  # noqa: E402
 
 IEEE = "a4:c1:38:d6:d7:c6:db:f6"
@@ -70,9 +73,107 @@ class SnapshotTest(unittest.TestCase):
         self.assertFalse(self.live.exists())
 
 
+class ReportsTest(unittest.IsolatedAsyncioTestCase):
+    def test_declaration_overrides_defaults(self):
+        plug = Plug(IEEE, reports={"active_power": 5, "energy": 0.1, "on": None})
+        self.assertEqual(plug.reports, {"active_power": 5, "energy": 0.1})
+        self.assertEqual(Plug(IEEE).reports, {"on": True, "active_power": 1})
+
+    def test_unknown_value_refused(self):
+        with self.assertRaises(ValueError):
+            Contact(IEEE, reports={"temperature": 1})  # type: ignore[typeddict-unknown-key]
+
+    async def test_refused_attribute_logged(self):
+        cluster = mock.Mock(cluster_id=0x0B04, bind=mock.AsyncMock())
+        power, current = mock.Mock(), mock.Mock()
+        power.name, current.name = "active_power", "rms_current"
+        cluster.configure_reporting_multiple = mock.AsyncMock(
+            return_value={
+                power: zigbee.Status.SUCCESS,
+                current: zigbee.Status.UNSUPPORTED_ATTRIBUTE,
+            }
+        )
+        with self.assertLogs("drivers.zigbee", "WARNING") as logs:
+            await zigbee.setup_reporting("prise", cluster, {"active_power": (5, 300, 1)})
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("rms_current", logs.output[0])
+
+    async def configure(self, device, cluster_ids, scales=None):
+        """Envois spontanés demandés par _configure : {(cluster, attribut): réglage}."""
+        sent = {}
+
+        async def setup(_name, cluster, reports):
+            for attr, cfg in reports.items():
+                sent[cluster, attr] = cfg
+
+        async def read(cluster, names):
+            return (scales or {}).get(cluster, {})
+
+        module = sys.modules[type(device).__module__]
+        if not hasattr(module, "setup_reporting"):
+            module = sys.modules["drivers.zigbee.sensor"]
+        patches = [
+            mock.patch.object(module, "setup_reporting", setup),
+            mock.patch.object(
+                module, "find_cluster", lambda _z, c: c if c in cluster_ids else None
+            ),
+        ]
+        if hasattr(module, "read"):
+            patches.append(mock.patch.object(module, "read", read))
+        for patcher in patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        await device._configure(SimpleNamespace())
+        return sent
+
+    async def test_plug_changes_scaled_and_untracked_stopped(self):
+        plug = Plug(IEEE, reports={"current": 0.05})
+        scales = {ELECTRICAL: {"ac_current_multiplier": 1, "ac_current_divisor": 1000}}
+        sent = await self.configure(plug, {ON_OFF, ELECTRICAL}, scales)
+        self.assertEqual(
+            sent,
+            {
+                (ON_OFF, "on_off"): (0, 600, 1),
+                (ELECTRICAL, "active_power"): (5, 300, 1),
+                (ELECTRICAL, "rms_voltage"): None,
+                (ELECTRICAL, "rms_current"): (5, 300, 50),
+            },
+        )
+
+    async def test_sensor_asks_its_own_values_only(self):
+        sent = await self.configure(Contact(IEEE), {0x0001, 0x0006, 0x0402})
+        self.assertEqual(
+            sent,
+            {
+                (0x0001, "battery_percentage_remaining"): (3600, 43200, 2),
+                (0x0402, "measured_value"): None,
+            },
+        )
+        sent = await self.configure(Motion(IEEE), {0x0400})
+        self.assertEqual(sent, {(0x0400, "measured_value"): (30, 3600, 86)})
+        sent = await self.configure(Climate(IEEE, reports={"humidity": 0.2}), {0x0405})
+        self.assertEqual(sent, {(0x0405, "measured_value"): (30, 3600, 20)})
+
+    async def test_light_brightness_in_percent_and_rgb_stopped(self):
+        light = Light(IEEE, reports={"brightness": 2, "rgb": None})
+        clusters = {cluster_id: mock.Mock(cluster_id=cluster_id) for cluster_id in (6, 8, 0x0300)}
+        clusters[0x0300].get.return_value = None  # color_capabilities non lu : tout présent
+        with mock.patch(
+            "drivers.zigbee.light.find_cluster", lambda _z, cluster_id: clusters[cluster_id]
+        ):
+            reports = {
+                cluster.cluster_id: cfgs for cluster, cfgs in light._reports(SimpleNamespace())
+            }
+        self.assertEqual(reports[0x0008], {"current_level": (1, 600, 5)})
+        self.assertEqual(
+            reports[0x0300],
+            {"color_temperature": (1, 600, 1), "current_x": None, "current_y": None},
+        )
+
+
 class PlugStateTest(unittest.TestCase):
     def make(self):
-        plug = Plug(IEEE)
+        plug = Plug(IEEE, reports={"voltage": 1, "current": 0.01, "energy": 0.01})
         plug._scales = {"active_power": 1, "voltage": 1, "current": 1 / 1000, "energy": 1 / 100}
         return plug
 
@@ -87,6 +188,14 @@ class PlugStateTest(unittest.TestCase):
             plug.state(),
             {"connected": True, "on": True, "current": 0.045, "energy": 107.02},
         )
+
+    def test_untracked_value_ignored(self):
+        plug = Plug(IEEE)
+        plug._scales = {"active_power": 1}
+        plug._on_attribute(ELECTRICAL, "rms_voltage", 234)
+        plug._on_attribute(ELECTRICAL, "active_power", 12)
+        plug._connected = plug._synced = True
+        self.assertEqual(plug.state(), {"connected": True, "active_power": 12})
 
     def test_on_follows_zcl_on_off(self):
         plug = self.make()
@@ -126,15 +235,18 @@ class SensorTest(unittest.IsolatedAsyncioTestCase):
         sensor._on_event(SimpleNamespace(cluster_id=cluster_id, attribute_name=name, value=value))
 
     async def test_connected_by_first_message_and_converted(self):
-        sensor = Sensor(IEEE)
+        sensor = Climate(IEEE)
         sensor.zdev = SimpleNamespace(skip_configuration=True)
         self.assertEqual(sensor.state(), {"connected": False})
         self.report(sensor, 0x0402, "measured_value", 2150)
         self.report(sensor, 0x0001, "battery_percentage_remaining", 170)
-        self.report(sensor, 0x0400, "measured_value", 10001)
+        self.report(sensor, 0x0400, "measured_value", 10001)  # d'une autre variante : ignorée
         self.report(sensor, 0x0006, "on_off", 1)
-        expected = {"temperature": 21.5, "battery": 85, "illuminance": 10, "open": True}
-        self.assertEqual(sensor.state(), {"connected": True, **expected})
+        self.assertEqual(sensor.state(), {"connected": True, "temperature": 21.5, "battery": 85})
+        motion = Motion(IEEE)
+        motion.zdev = SimpleNamespace(skip_configuration=True)
+        self.report(motion, 0x0400, "measured_value", 10001)
+        self.assertEqual(motion.illuminance, 10)
 
     async def test_button_relays_quirk_events(self):
         button = Button(IEEE)

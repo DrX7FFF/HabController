@@ -1,15 +1,24 @@
 """Pilote ampoule Zigbee."""
 
+from typing import TypedDict
+
 from core.base import DeviceError, on_value
 import core.light
-from drivers.zigbee import ZigbeeDevice, find_cluster, read, setup_reporting
+from drivers.zigbee import (
+    ZigbeeDevice,
+    find_cluster,
+    raw_change,
+    read,
+    setup_reporting,
+    tracked,
+)
 
 ON_OFF = 0x0006
 LEVEL = 0x0008
 COLOR = 0x0300
 
 # Réglage -> (cluster, envoi spontané : attribut -> (intervalle min s, max s, écart minimal en
-# valeur brute))
+# valeur brute)) ; écart de brightness : celui de reports, converti
 SETTINGS = {
     "on": (ON_OFF, {"on_off": (0, 600, 1)}),
     "brightness": (LEVEL, {"current_level": (1, 600, 1)}),
@@ -19,6 +28,18 @@ SETTINGS = {
 SETTING_OF = {attr: name for name, (_, reports) in SETTINGS.items() for attr in reports}
 CAPABILITIES = "color_capabilities"  # attribut du cluster couleur, lu à l'appairage
 CAPABILITY = {"color_temp": 0x10, "rgb": 0x08}  # bits de color_capabilities : température, xy
+
+
+class LightReports(TypedDict, total=False):
+    """Réglages suivis : True, ou écart minimal entre deux envois ; None : non suivi."""
+
+    on: bool | None
+    brightness: float | None  # %
+    color_temp: bool | None
+    rgb: bool | None
+
+
+DEFAULTS: LightReports = {"on": True, "brightness": 1, "color_temp": True, "rgb": True}
 
 
 def _linear(c: float) -> float:
@@ -60,8 +81,15 @@ def xy_to_rgb(x: float, y: float) -> str:
 class Light(core.light.Light, ZigbeeDevice):
     """Ampoule Zigbee : l'état vient de ce qu'elle envoie, relu toutes les `poll` secondes."""
 
-    def __init__(self, ieee: str, transition: int = 300, poll: float | None = None):
+    def __init__(
+        self,
+        ieee: str,
+        transition: int = 300,
+        poll: float | None = None,
+        reports: LightReports | None = None,
+    ):
         super().__init__(ieee, poll)
+        self.reports = tracked(DEFAULTS, reports)
         self.transition = transition  # durée par défaut des transitions (ms)
         self._raw: dict[str, int] = {}  # dernières valeurs ZCL reçues
 
@@ -75,12 +103,21 @@ class Light(core.light.Light, ZigbeeDevice):
         return None if caps is not None and not caps & CAPABILITY[name] else cluster
 
     def _reports(self, zdev) -> list:
-        """[(cluster, attributs suivis)] pour les réglages que l'ampoule a."""
-        tracked = {}
+        """[(cluster, envoi spontané par attribut)] pour les réglages que l'ampoule a ; None :
+        réglage non suivi, l'ampoule doit cesser de l'envoyer (elle garde sa configuration)."""
+        clusters = {}
         for name, (cluster_id, reports) in SETTINGS.items():
-            if (cluster := self._cluster(zdev, name)) is not None:
-                tracked.setdefault(cluster_id, (cluster, {}))[1].update(reports)
-        return list(tracked.values())
+            if (cluster := self._cluster(zdev, name)) is None:
+                continue
+            cfgs = clusters.setdefault(cluster_id, (cluster, {}))[1]
+            for attr, (low, high, change) in reports.items():
+                if name not in self.reports:
+                    cfgs[attr] = None
+                elif name == "brightness":
+                    cfgs[attr] = (low, high, raw_change(self.reports[name] * 254 / 100))
+                else:
+                    cfgs[attr] = (low, high, change)
+        return list(clusters.values())
 
     async def _configure(self, zdev) -> None:
         for cluster, reports in self._reports(zdev):
@@ -88,7 +125,10 @@ class Light(core.light.Light, ZigbeeDevice):
 
     async def _read(self, zdev) -> None:
         for cluster, reports in self._reports(zdev):
-            for name, value in (await read(cluster, list(reports))).items():
+            names = [attr for attr, cfg in reports.items() if cfg is not None]
+            if not names:
+                continue
+            for name, value in (await read(cluster, names)).items():
                 self._on_attribute(cluster.cluster_id, name, value)
 
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
@@ -108,7 +148,7 @@ class Light(core.light.Light, ZigbeeDevice):
             state["color_temp"] = round(1_000_000 / raw["color_temperature"])
         if "current_x" in raw and "current_y" in raw:
             state["rgb"] = xy_to_rgb(raw["current_x"] / 65535, raw["current_y"] / 65535)
-        return state
+        return {name: value for name, value in state.items() if name in self.reports}
 
     # --- commandes ----------------------------------------------------------
 
