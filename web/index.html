@@ -14,7 +14,7 @@
 <script type="module" src="/app.js"></script>
 </head>
 <body>
-<!-- Les onglets : adresse, page affichée (web/pages/<page>.html, .js et .css), titre. -->
+<!-- Les onglets : adresse, page affichée (gabarit ci-dessous, web/pages/<page>.js et .css), titre. -->
 <nav>
   <a href="/" data-page="dashboard" data-title="Domotique">Commandes</a>
   <a href="/graphiques" data-page="charts" data-title="Domotique — graphiques">Graphiques</a>
@@ -22,5 +22,74 @@
 </nav>
 <div id="banner" hidden></div>
 <main id="page"></main>
+
+<!-- Contenu de chaque onglet, copié dans <main> à son affichage (voir app.js). -->
+<template data-page="dashboard">
+  <div id="blocks"></div>
+</template>
+<template data-page="charts">
+  <div id="toolbar">
+    <span id="controls">
+      <button id="reload">Actualiser</button>
+      <label class="live"><input type="checkbox" id="live"> Direct</label>
+      <select id="period" aria-label="Durée"></select>
+      <input type="datetime-local" id="from" aria-label="Début">
+    </span>
+    <button id="unzoom" class="main" hidden>Annuler zoom</button>
+  </div>
+  <div id="charts"></div>
+</template>
+<template data-page="admin">
+  <ul id="notifications" hidden></ul>
+  <section class="sync card" data-sync="app">
+    <h2>Application HabController</h2>
+    <p class="state">Non contrôlé.</p>
+    <button class="check">Contrôler</button>
+    <button class="run main" data-confirm="Mettre à jour HabController puis le redémarrer ?">Mettre à jour et redémarrer</button>
+    <span class="result"></span>
+  </section>
+  <section class="sync card" data-sync="download">
+    <h2>Paramétrage à télécharger</h2>
+    <p class="state">Non contrôlé.</p>
+    <button class="check">Contrôler</button>
+    <button class="run main">Télécharger (pull de HabConfig)</button>
+    <span class="result"></span>
+  </section>
+  <section class="sync card" data-sync="load">
+    <h2>Paramétrage à charger</h2>
+    <p class="state">Non contrôlé.</p>
+    <button class="check">Contrôler</button>
+    <button class="run main">Recharger la configuration</button>
+    <span class="result"></span>
+    <ul id="config-errors" hidden></ul>
+  </section>
+  <section class="sync card" data-sync="save">
+    <h2>Paramétrage à sauvegarder</h2>
+    <p class="state">Non contrôlé.</p>
+    <button class="check">Contrôler</button>
+    <button class="run main">Sauvegarder (commit et push de HabConfig)</button>
+    <span class="result"></span>
+  </section>
+  <section class="card">
+    <h2>Appairage</h2>
+    <div id="protocols"></div>
+    <div id="session" hidden>
+      <div id="running">
+        <button id="cancel">Arrêter</button>
+        <span id="wait" hidden><progress id="bar"></progress> <span id="remaining"></span></span>
+        <span id="status"></span>
+      </div>
+      <pre id="log"></pre>
+      <div id="question" hidden>
+        <span id="prompt"></span>
+        <form id="answer-form">
+          <input id="answer" autocomplete="off">
+          <button class="main">Valider</button>
+        </form>
+        <span id="choices"></span>
+      </div>
+    </div>
+  </section>
+</template>
 </body>
 </html>
