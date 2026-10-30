@@ -45,3 +45,4 @@ Démarrage : démarrer le datalog avant les automatisations ? (un record() appel
 automatisation est aujourd'hui ignoré au démarrage, le datalog n'étant pas encore configuré)
 Datalog : n'enregistrer qu'après une synchronisation NTP ; sans synchro, ignorer les valeurs
 (horodatages faux).
+Déconnection automatique du live
