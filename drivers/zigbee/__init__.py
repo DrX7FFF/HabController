@@ -57,9 +57,9 @@ SNAPSHOT = (
     PAIRING_DIR / "zigbee.db"
 )  # copie de sauvegarde de la base, dans la configuration
 HOME_AUTOMATION = 0x0104  # profil Zigbee des types d'appareil standard
-PROFILES = {  # profils standard : libellé, types d'appareil de la norme
-    HOME_AUTOMATION: ("Home Automation", zha.DeviceType),
-    zll.PROFILE_ID: ("Light Link", zll.DeviceType),
+PROFILES = {  # profils standard : abréviation, types d'appareil de la norme
+    HOME_AUTOMATION: ("HA", zha.DeviceType),
+    zll.PROFILE_ID: ("ZLL", zll.DeviceType),
 }
 # pile, marche/arrêt, intensité, couleur, alarme (IAS), compteur, mesures électriques
 # (mesures physiques : 0x0400 à 0x04ff)
@@ -91,18 +91,15 @@ def parts(zdev) -> dict:
     }
 
 
-def endpoint_details(endpoint) -> dict:
-    """Profil et type d'appareil d'un endpoint, avec son libellé selon la norme."""
+def device_type(endpoint) -> str:
+    """Type d'appareil d'un endpoint, son profil et son libellé selon la norme :
+    « 0x010a (HA) On off plug in unit »."""
     profile, types = PROFILES[endpoint.profile_id]
     try:
         label = types(endpoint.device_type).name.replace("_", " ").capitalize()
     except ValueError:
         label = "unknown"
-    return {
-        "profile": profile,
-        "type": f"0x{endpoint.device_type:04x}",
-        "type label": label,
-    }
+    return f"0x{endpoint.device_type:04x} ({profile}) {label}"
 
 
 def is_measure(cluster_id: int) -> bool:
@@ -544,20 +541,31 @@ class ZigbeeDevice(NetworkDevice):
         firmware = self._firmware()
         return f"Zigbee {self.ieee}" + (f" (firmware {firmware})" if firmware else "")
 
+    def _measure_state(self, key: str) -> str:
+        """« tracked <écart> » (rien pour un tout-ou-rien) ou « disabled », suivi de « (forced) »
+        si la déclaration (reports) change le réglage du pilote."""
+        value = self.reports.get(key)
+        state = "disabled" if value is None else "tracked" if value is True else f"tracked {value}"
+        return state + (" (forced)" if value != self.DEFAULTS[key] else "")
+
     def details(self) -> dict:
         """Identité et parties annoncées à l'appairage, firmware, et état de chaque mesure :
-        tracked, disabled (reports), absent (l'appareil ne l'a pas), unmanaged (mesure standard
-        de l'appareil inconnue du pilote) ; puis les clusters propres au fabricant."""
+        tracked ou disabled (voir _measure_state), absent (l'appareil ne l'a pas), unmanaged
+        (mesure standard de l'appareil inconnue du pilote) ; puis les clusters propres au
+        fabricant."""
         info = {"ieee": str(self.ieee)}
         zdev = self.zdev
         if zdev is None:  # clé fermée : rien de plus connu
             return info
         ota = self._ota()
+        endpoints = parts(zdev)
         info |= {
             "manufacturer": zdev.manufacturer or "unknown",
             "model": zdev.model or "unknown",
-            "endpoints": {
-                ep_id: endpoint_details(endpoint) for ep_id, endpoint in parts(zdev).items()
+            # une ligne par endpoint standard, numérotée s'il y en a plusieurs
+            **{
+                "type" if len(endpoints) == 1 else f"type {ep_id}": device_type(endpoint)
+                for ep_id, endpoint in endpoints.items()
             },
             "firmware": self._firmware() or "unknown",
             "update": "No" if ota is None
@@ -569,10 +577,8 @@ class ZigbeeDevice(NetworkDevice):
             cluster = self._cluster(zdev, key)
             if cluster is not None:
                 used.add(cluster.cluster_id)
-            measures[key] = (
-                "absent" if cluster is None else "tracked" if key in self.reports else "disabled"
-            )
-        clusters = {cid: c for ep in parts(zdev).values() for cid, c in ep.in_clusters.items()}
+            measures[key] = "absent" if cluster is None else self._measure_state(key)
+        clusters = {cid: c for ep in endpoints.values() for cid, c in ep.in_clusters.items()}
         for cid, cluster in sorted(clusters.items()):
             if cid not in used and is_measure(cid):
                 measures[cluster.ep_attribute or f"0x{cid:04x}"] = "unmanaged"

@@ -20,8 +20,9 @@ Habitation domotique home mad
   copier dans devices/, puis une fiche par équipement, d'après ce que l'appairage en a retenu
   (l'appareil n'est pas interrogé) : pilote, appareil physique (ou « not paired »). Pour Zigbee :
   fabricant, modèle, parties standard (profil, type), firmware, mise à jour (`No`, `Yes`,
-  `New version …`), et chaque mesure sous son nom de `reports` : `tracked`, `disabled` (désactivée
-  dans la déclaration), `absent` (l'appareil ne l'a pas), ou `unmanaged` (mesure standard de
+  `New version …`), et chaque mesure sous son nom de `reports` : `tracked` (avec l'écart
+  d'envoi, sauf tout-ou-rien), `disabled`, suivis de `(forced)` si la déclaration change le
+  réglage du pilote, `absent` (l'appareil ne l'a pas), ou `unmanaged` (mesure standard de
   l'appareil que le pilote ne gère pas, sous son nom Zigbee) ; enfin les clusters propres au
   fabricant (`proprietary`). S'il y a une anomalie d'appairage, un avertissement dans le journal
   renvoie à ce fichier.

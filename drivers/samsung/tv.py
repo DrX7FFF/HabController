@@ -58,6 +58,9 @@ class SamsungTV(NetworkDevice):
     def physical(self) -> str:
         return f"Samsung {self._host}"
 
+    def details(self) -> dict:
+        return {"host": self._host}
+
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run())
 

@@ -544,8 +544,8 @@ class SummaryTest(unittest.IsolatedAsyncioTestCase):
     DEVICES = [
         "",
         "lampe:",
-        "  driver   : yeelight.bulb",
-        "  physical : Yeelight 192.0.2.1",
+        "  driver : yeelight.bulb",
+        "  host   : 192.0.2.1",
         "",
         "prise:",
         "  driver : zigbee.plug",
@@ -596,7 +596,7 @@ class DetailsTest(unittest.TestCase):
     def test_climate(self):
         clusters = {
             cid: SimpleNamespace(cluster_id=cid, ep_attribute=name)
-            for cid, name in ((0x0001, "power"), (0x0402, "temperature"),
+            for cid, name in ((0x0001, "power"), (0x0402, "temperature"), (0x0405, "humidity"),
                               (0x040D, "carbon_dioxide_concentration"), (0xFC11, None))
         }
         ota = {"current_file_version": 0x2300}
@@ -606,7 +606,7 @@ class DetailsTest(unittest.TestCase):
         green_power = SimpleNamespace(
             in_clusters={}, out_clusters={}, profile_id=0xA1E0, device_type=0x0061
         )
-        sensor = Climate(IEEE, reports={"battery": None})
+        sensor = Climate(IEEE, reports={"humidity": 0.2, "battery": None})
         sensor.zdev = SimpleNamespace(
             manufacturer="SONOFF", model="SNZB-02D",
             endpoints={0: SimpleNamespace(), 1: endpoint, 242: green_power},
@@ -617,17 +617,14 @@ class DetailsTest(unittest.TestCase):
             "ieee": IEEE,
             "manufacturer": "SONOFF",
             "model": "SNZB-02D",
-            "endpoints": {
-                1: {"profile": "Home Automation", "type": "0x0302",
-                    "type label": "Temperature sensor"},
-            },
+            "type": "0x0302 (HA) Temperature sensor",
             "firmware": "0x00002300",
             "update": "New version 0x00002400",
             "measures": {
-                "temperature": "tracked",
-                "humidity": "absent",
+                "temperature": "tracked 0.1",
+                "humidity": "tracked 0.2 (forced)",
                 "pressure": "absent",
-                "battery": "disabled",
+                "battery": "disabled (forced)",
                 "carbon_dioxide_concentration": "unmanaged",
             },
             "proprietary": "0xfc11",
