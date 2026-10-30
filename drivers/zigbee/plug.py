@@ -58,6 +58,8 @@ DEFAULTS: PlugReports = {
 class Plug(ZigbeeDevice):
     """Prise Zigbee : marche/arrêt et mesures, envoyées spontanément par la prise."""
 
+    DEFAULTS = DEFAULTS
+
     on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
     active_power = Attribute[float](readonly=True)
     voltage = Attribute[float](readonly=True)
@@ -74,6 +76,9 @@ class Plug(ZigbeeDevice):
         self._by_zcl = {(cluster_id, attr): key for key, (cluster_id, attr, _, _) in ZCL.items()}
 
     # --- état ---------------------------------------------------------------
+
+    def _cluster(self, zdev, key: str):
+        return find_cluster(zdev, ZCL[key][0])
 
     async def _configure(self, zdev) -> None:
         # facteur absent de l'appareil : fourni par son correctif zha-quirks, sinon 1

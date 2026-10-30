@@ -9,10 +9,18 @@ from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
 
 from core.base import Attribute, NetworkDevice
-from drivers.homekit import ERRORS, PairingError, connect, links, open_session
+from drivers.homekit import (
+    ERRORS,
+    PairingError,
+    connect,
+    links,
+    open_session,
+    read_pairing_file,
+)
 
 log = logging.getLogger(__name__)
 
+DETAILS = ("name", "manufacturer", "model", "serial", "firmware", "hardware", "paired")
 RETRY_MIN = 2  # s, entre deux tentatives de connexion (doublé à chaque échec)
 RETRY_MAX = 60
 FIND_TIMEOUT = 30  # s, attente de l'accessoire sur le réseau (mDNS)
@@ -110,8 +118,16 @@ class FP2(NetworkDevice):
     def physical(self) -> str:
         return links().get(self.id, "")
 
+    def details(self) -> dict:
+        try:
+            data = read_pairing_file(self.id)
+        except (PairingError, ValueError):
+            return super().details()
+        info = {"pairing id": data["hap"]["AccessoryPairingID"]}
+        return info | {field: str(data[field]) for field in DETAILS if field in data}
+
     async def start(self) -> None:
-        if self.physical():  # sinon reste injoignable, signalé par equipements.txt
+        if self.physical():  # sinon reste injoignable, signalé par equipements.yaml
             self._spawn(self._run())
 
     async def stop(self) -> None:

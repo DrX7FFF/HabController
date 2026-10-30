@@ -103,66 +103,80 @@ def protocol_modules() -> list[ModuleType]:
 
 
 def write_summary(devices: dict[str, Device], path: Path) -> int:
-    """Équipements logiques et leur appareil physique (« non appairé » sinon), puis les appareils
-    appairés sans équipement déclaré, chacun avec la déclaration à copier dans devices/ si le
-    modèle est connu. Un protocole les fournit par links() et link_models() (lien enregistré sous
-    un id), ou par undeclared() (lien porté par la déclaration : id à choisir ; None s'il ne
-    les connaît pas). Renvoie le nombre d'anomalies : non appairés et non déclarés."""
-    rows = [("id", "pilote", "physique")]
-    unpaired = 0
-    for dev_id, device in sorted(devices.items()):
-        driver = type(device).__module__.removeprefix("drivers.")
-        physical = device.physical()
-        if not physical:
-            unpaired += 1
-            physical = f"-> non appairé ({driver.split('.')[0]})"
-        rows.append((dev_id, driver, physical))
-    orphans = []  # un bloc par appareil : ligne « -> … », puis sa déclaration
+    """Rapport YAML : d'abord les appareils appairés sans équipement déclaré, chacun avec la
+    déclaration à copier dans devices/ si le modèle est connu, puis la fiche de chaque équipement
+    (pilote et appareil physique, voir Device.details ; « not paired » sinon). Un protocole
+    fournit les premiers par links() et link_models() (lien enregistré sous un id), ou par
+    undeclared() (lien porté par la déclaration : id à choisir ; None s'il ne les connaît pas).
+    Renvoie le nombre d'anomalies : non appairés et non déclarés."""
+    unlinked: dict = {}  # appareil : sa déclaration, ou protocole : appareils inconnus
+    orphans = 0
     for module in protocol_modules():
         models_path = Path(module.__file__).with_name("models.toml")
         if links := getattr(module, "links", None):
-            unlinked = [(i, p) for i, p in sorted(links().items()) if i not in devices]
+            found = [(i, p) for i, p in sorted(links().items()) if i not in devices]
             link_models = getattr(module, "link_models", None)
-            known = link_models() if unlinked and link_models else {}
-            for dev_id, physical in unlinked:
+            known = link_models() if found and link_models else {}
+            for dev_id, physical in found:
                 keys, comment = known.get(dev_id, ([], ""))
-                orphans += orphan(f"{dev_id}  {physical}", dev_id, keys, comment, (), models_path)
+                unlinked[f"{dev_id}  {physical}"] = orphan(dev_id, keys, comment, (), models_path)
+                orphans += 1
         if undeclared := getattr(module, "undeclared", None):
             if (found := undeclared()) is None:
                 name = module.__name__.removeprefix("drivers.")
-                orphans += [f"{name} : appareils du réseau inconnus (non initialisé)", ""]
+                unlinked[name] = "network devices unknown (not initialized)"
                 continue
             for physical, keys, comment, args in found:
-                orphans += orphan(physical, "<id>", keys, comment, args, models_path)
-    lines = [f"# Équipements au {time.strftime('%Y-%m-%d %H:%M:%S')}", ""]
-    lines += table(rows)
-    lines += ["", "# Appareils physiques non liés (équipement absent de devices/)", ""]
-    lines += orphans[:-1] if orphans else ["aucun"]
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return unpaired + sum(line.startswith("-> ") for line in orphans)
+                unlinked[physical] = orphan("<id>", keys, comment, args, models_path)
+                orphans += 1
+    report = {"unlinked": unlinked or "none"}
+    unpaired = 0
+    for dev_id, device in sorted(devices.items()):
+        info = {"driver": type(device).__module__.removeprefix("drivers.")}
+        if device.physical():
+            info |= device.details()
+        else:
+            unpaired += 1
+            info["physical"] = "not paired"
+        report[dev_id] = info
+    lines = [
+        f"# Devices at {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        "# unlinked: physical devices without equipment in devices/",
+        "",
+    ]
+    for key, value in report.items():
+        lines += yaml({key: value}, 0) + [""]
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return unpaired + orphans
 
 
 def orphan(
-    title: str, dev_id: str, keys: list[str], comment: str, args: tuple[str, ...], models: Path
-) -> list[str]:
-    """Bloc d'un appareil sans équipement : « -> titre », sa déclaration si le pilote est connu
-    (table `models`), puis une ligne vide."""
+    dev_id: str, keys: list[str], comment: str, args: tuple[str, ...], models: Path
+) -> dict:
+    """Déclaration à copier pour un appareil sans équipement, si le pilote est connu (table
+    `models`)."""
     try:
         statement, call = constructor(driver_for_model(keys, models), args)
     except ValueError:
-        return [f"-> {title}  pilote inconnu, à déclarer à la main", ""]
-    line = f"{dev_id} = {call}"
-    return [
-        f"-> {title}  à déclarer dans un fichier de devices/ ainsi :",
-        statement,
-        f"{line}  # {comment}" if comment else line,
-        "",
-    ]
+        return {"declaration": "unknown driver, to declare by hand"}
+    line = f"{dev_id} = {call}" + (f"  # {comment}" if comment else "")
+    return {"declaration": f"{statement}\n{line}"}
 
 
-def table(rows: list[tuple[str, ...]]) -> list[str]:
-    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
-    return ["  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip() for row in rows]
+def yaml(data: dict, indent: int) -> list[str]:
+    """Fiche en YAML lisible : libellés alignés, fiches imbriquées indentées, texte sur
+    plusieurs lignes en bloc (« | »)."""
+    pad = "  " * indent
+    width = max(len(str(key)) for key in data)
+    lines = []
+    for key, value in data.items():
+        if isinstance(value, dict):
+            lines += [f"{pad}{key}:", *yaml(value, indent + 1)]
+        elif "\n" in str(value):
+            lines += [f"{pad}{key}: |", *(f"{pad}  {line}" for line in str(value).splitlines())]
+        else:
+            lines.append(f"{pad}{str(key).ljust(width)} : {value}")
+    return lines
 
 
 def id_from_name(name: str) -> str:

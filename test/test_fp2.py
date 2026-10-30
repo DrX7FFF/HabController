@@ -320,7 +320,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
             await driver.set("on", True)
 
     async def test_stop_after_start_unreachable_pairing_missing(self):
-        # sans appairage enregistré : aucune connexion tentée (signalé par equipements.txt)
+        # sans appairage enregistré : aucune connexion tentée (signalé par equipements.yaml)
         driver = make_fp2("inconnu_test")
         with (
             tempfile.TemporaryDirectory() as tmp,

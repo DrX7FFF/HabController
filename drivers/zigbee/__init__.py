@@ -10,6 +10,7 @@ import shutil
 import sqlite3
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
+from typing import ClassVar
 
 import zhaquirks
 from bellows.ash import AshException
@@ -27,6 +28,7 @@ from zigpy.config import (
 )
 from zigpy.device import Device as ZigpyDevice
 from zigpy.exceptions import RadioException, ZigbeeException
+from zigpy.profiles import zha, zll
 from zigpy.types import EUI64
 from zigpy.zcl import (
     AttributeReportedEvent,
@@ -55,6 +57,14 @@ SNAPSHOT = (
     PAIRING_DIR / "zigbee.db"
 )  # copie de sauvegarde de la base, dans la configuration
 HOME_AUTOMATION = 0x0104  # profil Zigbee des types d'appareil standard
+PROFILES = {  # profils standard : libellé, types d'appareil de la norme
+    HOME_AUTOMATION: ("Home Automation", zha.DeviceType),
+    zll.PROFILE_ID: ("Light Link", zll.DeviceType),
+}
+# pile, marche/arrêt, intensité, couleur, alarme (IAS), compteur, mesures électriques
+# (mesures physiques : 0x0400 à 0x04ff)
+MEASURE_CLUSTERS = {0x0001, 0x0006, 0x0008, 0x0300, 0x0500, 0x0702, 0x0B04}
+MANUFACTURER = 0xFC00  # premier numéro de cluster propre au fabricant
 RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à chaque échec)
 RETRY_MAX = 60
 READY_WAIT = 30  # s, laissées à la clé pour s'ouvrir quand l'appairage l'emprunte
@@ -70,6 +80,34 @@ def device_types(zdev) -> list[str]:
         for ep_id, endpoint in zdev.endpoints.items()
         if ep_id != 0 and endpoint.profile_id == HOME_AUTOMATION
     ]
+
+
+def parts(zdev) -> dict:
+    """Endpoints de profil standard (hors Green Power, ZDO) : {numéro: endpoint}."""
+    return {
+        ep_id: endpoint
+        for ep_id, endpoint in zdev.endpoints.items()
+        if ep_id != 0 and endpoint.profile_id in PROFILES
+    }
+
+
+def endpoint_details(endpoint) -> dict:
+    """Profil et type d'appareil d'un endpoint, avec son libellé selon la norme."""
+    profile, types = PROFILES[endpoint.profile_id]
+    try:
+        label = types(endpoint.device_type).name.replace("_", " ").capitalize()
+    except ValueError:
+        label = "unknown"
+    return {
+        "profile": profile,
+        "type": f"0x{endpoint.device_type:04x}",
+        "type label": label,
+    }
+
+
+def is_measure(cluster_id: int) -> bool:
+    """Cluster standard de mesure ou de commande (pile, marche/arrêt, mesures physiques…)."""
+    return cluster_id in MEASURE_CLUSTERS or 0x0400 <= cluster_id <= 0x04FF
 
 
 def model_keys(zdev) -> list[str]:
@@ -468,6 +506,8 @@ class ZigbeeDevice(NetworkDevice):
     """
 
     POLL: float | None = 300  # s, période de lecture par défaut ; None : sur pile
+    DEFAULTS: ClassVar[Mapping[str, object]] = {}  # mesures du pilote, suivies par défaut
+    reports: dict = {}  # mesures suivies : tracked(DEFAULTS, déclaration), fixé par le pilote
 
     def __init__(self, ieee: str, poll: float | None = None):
         super().__init__()
@@ -486,14 +526,60 @@ class ZigbeeDevice(NetworkDevice):
     async def start(self) -> None:
         coordinator.register(self)
 
+    def _ota(self):
+        """Cluster de mise à jour OTA, ou None (clé fermée, ou équipement sans mise à jour)."""
+        try:
+            return self.zdev.find_cluster(Ota.cluster_id, ClusterType.Client)
+        except (AttributeError, ValueError):
+            return None
+
+    def _firmware(self) -> str:
+        """Version du firmware si zigpy la connaît, "" sinon."""
+        ota = self._ota()
+        version = ota.get("current_file_version") if ota is not None else None
+        return f"0x{version:08x}" if version else ""
+
     def physical(self) -> str:
         """Adresse IEEE, et version du firmware si zigpy la connaît (équipement à mise à jour OTA)."""
-        try:
-            ota = self.zdev.find_cluster(Ota.cluster_id, ClusterType.Client)
-            version = ota.get("current_file_version")
-        except (AttributeError, ValueError):  # clé fermée, ou pas de mise à jour OTA
-            version = None
-        return f"Zigbee {self.ieee}" + (f" (firmware 0x{version:08x})" if version else "")
+        firmware = self._firmware()
+        return f"Zigbee {self.ieee}" + (f" (firmware {firmware})" if firmware else "")
+
+    def details(self) -> dict:
+        """Identité et parties annoncées à l'appairage, firmware, et état de chaque mesure :
+        tracked, disabled (reports), absent (l'appareil ne l'a pas), unmanaged (mesure standard
+        de l'appareil inconnue du pilote) ; puis les clusters propres au fabricant."""
+        info = {"ieee": str(self.ieee)}
+        zdev = self.zdev
+        if zdev is None:  # clé fermée : rien de plus connu
+            return info
+        ota = self._ota()
+        info |= {
+            "manufacturer": zdev.manufacturer or "unknown",
+            "model": zdev.model or "unknown",
+            "endpoints": {
+                ep_id: endpoint_details(endpoint) for ep_id, endpoint in parts(zdev).items()
+            },
+            "firmware": self._firmware() or "unknown",
+            "update": "No" if ota is None
+            else f"New version 0x{self._ota_image.version:08x}" if self._ota_image
+            else "Yes",
+        }
+        measures, used = {}, set()
+        for key in self.DEFAULTS:
+            cluster = self._cluster(zdev, key)
+            if cluster is not None:
+                used.add(cluster.cluster_id)
+            measures[key] = (
+                "absent" if cluster is None else "tracked" if key in self.reports else "disabled"
+            )
+        clusters = {cid: c for ep in parts(zdev).values() for cid, c in ep.in_clusters.items()}
+        for cid, cluster in sorted(clusters.items()):
+            if cid not in used and is_measure(cid):
+                measures[cluster.ep_attribute or f"0x{cid:04x}"] = "unmanaged"
+        info["measures"] = measures
+        if proprietary := [f"0x{cid:04x}" for cid in sorted(clusters) if cid >= MANUFACTURER]:
+            info["proprietary"] = ", ".join(proprietary)
+        return info
 
     async def stop(self) -> None:
         updates.withdraw(self.id)
@@ -579,6 +665,10 @@ class ZigbeeDevice(NetworkDevice):
 
     async def _configure(self, zdev) -> None:
         """Binding et reporting (voir setup_reporting)."""
+
+    def _cluster(self, zdev, key: str):
+        """Cluster de l'équipement qui fournit la mesure `key` de DEFAULTS, ou None."""
+        return None
 
     async def _read(self, zdev) -> None:
         """Lit tout l'état de l'équipement."""

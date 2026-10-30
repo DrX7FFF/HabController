@@ -514,12 +514,12 @@ class UnusedTest(unittest.IsolatedAsyncioTestCase):
 
 
 class SummaryTest(unittest.IsolatedAsyncioTestCase):
-    """equipements.txt : appareils du réseau non déclarés, avec leur déclaration."""
+    """equipements.yaml : appareils du réseau non déclarés, avec leur déclaration, puis fiches."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.out = Path(tmp.name) / "equipements.txt"
+        self.out = Path(tmp.name) / "equipements.yaml"
         self.coordinator = zigbee.Coordinator()
         self.devices = {"prise": Plug(IEEE), "lampe": YeelightBulb(host="192.0.2.1")}
         for dev_id, device in self.devices.items():
@@ -539,15 +539,17 @@ class SummaryTest(unittest.IsolatedAsyncioTestCase):
             self.addCleanup(patcher.stop)
 
     def lines(self):
-        return self.out.read_text(encoding="utf-8").splitlines()[2:]
+        return self.out.read_text(encoding="utf-8").splitlines()[3:]
 
-    HEADER = [
-        "id     pilote         physique",
-        "lampe  yeelight.bulb  Yeelight 192.0.2.1",
-        f"prise  zigbee.plug    Zigbee {IEEE}",
+    DEVICES = [
         "",
-        "# Appareils physiques non liés (équipement absent de devices/)",
+        "lampe:",
+        "  driver   : yeelight.bulb",
+        "  physical : Yeelight 192.0.2.1",
         "",
+        "prise:",
+        "  driver : zigbee.plug",
+        f"  ieee   : {IEEE}",
     ]
 
     async def test_written_once_key_open(self):
@@ -560,14 +562,16 @@ class SummaryTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(task, 1)
         self.assertEqual(
             self.lines(),
-            self.HEADER
-            + [
-                f"-> Zigbee {OTHER}  à déclarer dans un fichier de devices/ ainsi :",
-                "from drivers.all import Plug",
-                f'<id> = Plug(ieee="{OTHER}")  # Zigbee : Fab, modèle LOM002',
-                "",
-                "-> Zigbee 11:22:33:44:55:66:77:88  pilote inconnu, à déclarer à la main",
-            ],
+            [
+                "unlinked:",
+                f"  Zigbee {OTHER}:",
+                "    declaration: |",
+                "      from drivers.all import Plug",
+                f'      <id> = Plug(ieee="{OTHER}")  # Zigbee : Fab, modèle LOM002',
+                "  Zigbee 11:22:33:44:55:66:77:88:",
+                "    declaration : unknown driver, to declare by hand",
+            ]
+            + self.DEVICES,
         )
         self.assertEqual(len(logs.output), 1)
         self.assertIn(f"2 anomalie(s) d'appairage, voir {self.out}", logs.output[0])
@@ -576,13 +580,61 @@ class SummaryTest(unittest.IsolatedAsyncioTestCase):
         with mock.patch("core.devices.SUMMARY_WAIT", 0.01):
             await asyncio.wait_for(summarize(self.devices, self.out), 1)
         self.assertEqual(
-            self.lines(), self.HEADER + ["zigbee : appareils du réseau inconnus (non initialisé)"]
+            self.lines(),
+            ["unlinked:", "  zigbee : network devices unknown (not initialized)"] + self.DEVICES,
         )
 
     async def test_key_never_requested(self):
         self.coordinator._task = None
         await asyncio.wait_for(summarize(self.devices, self.out), 1)
-        self.assertEqual(self.lines(), self.HEADER + ["aucun"])
+        self.assertEqual(self.lines(), ["unlinked : none"] + self.DEVICES)
+
+
+class DetailsTest(unittest.TestCase):
+    """Fiche d'un appareil Zigbee : identité annoncée, firmware, état de chaque mesure."""
+
+    def test_climate(self):
+        clusters = {
+            cid: SimpleNamespace(cluster_id=cid, ep_attribute=name)
+            for cid, name in ((0x0001, "power"), (0x0402, "temperature"),
+                              (0x040D, "carbon_dioxide_concentration"), (0xFC11, None))
+        }
+        ota = {"current_file_version": 0x2300}
+        endpoint = SimpleNamespace(
+            in_clusters=clusters, out_clusters={}, profile_id=0x0104, device_type=0x0302
+        )
+        green_power = SimpleNamespace(
+            in_clusters={}, out_clusters={}, profile_id=0xA1E0, device_type=0x0061
+        )
+        sensor = Climate(IEEE, reports={"battery": None})
+        sensor.zdev = SimpleNamespace(
+            manufacturer="SONOFF", model="SNZB-02D",
+            endpoints={0: SimpleNamespace(), 1: endpoint, 242: green_power},
+            find_cluster=lambda _cid, _type: ota,
+        )
+        sensor._ota_image = SimpleNamespace(version=0x2400)
+        self.assertEqual(sensor.details(), {
+            "ieee": IEEE,
+            "manufacturer": "SONOFF",
+            "model": "SNZB-02D",
+            "endpoints": {
+                1: {"profile": "Home Automation", "type": "0x0302",
+                    "type label": "Temperature sensor"},
+            },
+            "firmware": "0x00002300",
+            "update": "New version 0x00002400",
+            "measures": {
+                "temperature": "tracked",
+                "humidity": "absent",
+                "pressure": "absent",
+                "battery": "disabled",
+                "carbon_dioxide_concentration": "unmanaged",
+            },
+            "proprietary": "0xfc11",
+        })
+
+    def test_key_closed(self):
+        self.assertEqual(Plug(IEEE).details(), {"ieee": IEEE})
 
 
 class CoordinatorSessionTest(unittest.IsolatedAsyncioTestCase):

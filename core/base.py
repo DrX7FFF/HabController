@@ -138,6 +138,11 @@ class Device:
         """Appareil physique lié (protocole et identité), "" s'il n'y en a pas."""
         return ""
 
+    def details(self) -> dict:
+        """Fiche de l'appareil physique lié, d'après ce que l'appairage en a retenu (sans
+        l'interroger) : {libellé: texte, ou fiche imbriquée}."""
+        return {"physical": self.physical()}
+
     def state(self) -> dict:
         """État courant, lu en mémoire : ne doit jamais interroger l'équipement."""
         raise NotImplementedError

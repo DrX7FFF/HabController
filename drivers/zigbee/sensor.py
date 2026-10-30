@@ -79,6 +79,9 @@ class Sensor(ZigbeeDevice):
                 cfg = (low, high, raw_change(convert(self.reports[key])))
             await setup_reporting(self.id, cluster, {attr: cfg})
 
+    def _cluster(self, zdev, key: str):
+        return find_cluster(zdev, ZCL[key][0])
+
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
         if (measure := MEASURES.get((cluster_id, name))) and value is not None:
             key, convert = measure
