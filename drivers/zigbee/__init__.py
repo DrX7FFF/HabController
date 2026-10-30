@@ -40,6 +40,7 @@ from zigpy.zcl.foundation import Status
 
 from core import PAIRING_DIR, TEMP_DIR, settings
 from core.base import DeviceError, NetworkDevice
+from core.firmware import updates
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à cha
 RETRY_MAX = 60
 READY_WAIT = 30  # s, laissées à la clé pour s'ouvrir quand l'appairage l'emprunte
 CLOSE_WAIT = 10  # s, au plus, pour arrêter le coordinateur (clé retirée : il peut bloquer)
+SAVE_DELAY = 5  # s, laissées à zigpy pour écrire en base la version d'un firmware installé
 STOP = 0xFFFF  # intervalle maximal d'envoi spontané : ne plus envoyer
 
 
@@ -475,7 +477,7 @@ class ZigbeeDevice(NetworkDevice):
         self.zdev = None  # objet zigpy de l'équipement, tant que la clé est ouverte
         self._unsubscribe: list = []
         self._tasks: set[asyncio.Task] = set()
-        self._ota_version: int | None = None  # dernier firmware disponible journalisé
+        self._ota_image = None  # firmware plus récent trouvé par zigpy, à installer à la demande
 
     # --- cycle de vie -------------------------------------------------------
 
@@ -492,6 +494,7 @@ class ZigbeeDevice(NetworkDevice):
         return f"Zigbee {self.ieee}" + (f" (firmware 0x{version:08x})" if version else "")
 
     async def stop(self) -> None:
+        updates.withdraw(self.id)
         await coordinator.unregister(self)
         self._detach()
 
@@ -594,18 +597,31 @@ class ZigbeeDevice(NetworkDevice):
         self._notify()
 
     def _on_ota(self, event: OtaImageAvailableEvent) -> None:
-        """Firmware plus récent trouvé par zigpy (rien n'est installé) : journalisé une fois."""
+        """Recherche de firmware de zigpy : le plus récent est proposé (rien n'est installé)."""
         if not event.images_result.upgrades:
+            self._ota_image = None
+            updates.withdraw(self.id)
             return
-        version = max(image.version for image in event.images_result.upgrades)
-        if version != self._ota_version:
-            self._ota_version = version
-            log.info(
-                "%s : firmware 0x%08x disponible (actuel 0x%08x)",
-                self.id,
-                version,
-                event.query_cmd.current_file_version,
+        self._ota_image = max(event.images_result.upgrades, key=lambda image: image.version)
+        current = event.query_cmd.current_file_version
+        updates.offer(self, f"0x{current:08x}", f"0x{self._ota_image.version:08x}")
+
+    async def update_firmware(self, progress) -> None:
+        """Installe le firmware proposé (progress(%) pendant l'envoi), puis copie la base, qui
+        porte la nouvelle version, dans la configuration. DeviceError en cas d'échec."""
+        if self.zdev is None or self._ota_image is None:
+            raise DeviceError(f"{self.id} : injoignable")
+        try:
+            status = await self.zdev.update_firmware(
+                self._ota_image, lambda _sent, _total, percent: progress(percent)
             )
+        except (*ERRORS, TimeoutError) as err:
+            raise DeviceError(f"{self.id} : envoi interrompu ({type(err).__name__})") from err
+        if status != Status.SUCCESS:
+            raise DeviceError(f"{self.id} : firmware refusé ({getattr(status, 'name', status)})")
+        self._ota_image = None
+        await asyncio.sleep(SAVE_DELAY)
+        save_snapshot()
 
     def _received(self) -> None:
         """Message reçu : un équipement sur pile devient joignable (et se configure)."""

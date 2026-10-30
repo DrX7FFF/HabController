@@ -21,6 +21,7 @@ import drivers.zigbee.pair as zigbee_pair  # noqa: E402
 import drivers.zigbee.plug as zigbee_plug  # noqa: E402
 import drivers.homekit as homekit  # noqa: E402
 from core.devices import id_from_name, summarize  # noqa: E402
+from core.firmware import Firmwares  # noqa: E402
 from drivers.yeelight.bulb import YeelightBulb  # noqa: E402
 from core import base  # noqa: E402
 from drivers.zigbee.light import Light, rgb_to_xy, xy_to_rgb  # noqa: E402
@@ -365,6 +366,72 @@ def make_app(*devices):
         remove=mock.AsyncMock(),
         add_listener=lambda _listener: None,
     )
+
+
+class FirmwareTest(unittest.IsolatedAsyncioTestCase):
+    """Firmware proposé par zigpy : liste des mises à jour, installation, échec."""
+
+    def setUp(self):
+        self.updates = mock.patch.object(zigbee, "updates", Firmwares()).start()
+        self.addCleanup(mock.patch.stopall)
+        self.light = Light(OTHER)
+        self.light.configure("globe")
+
+    def event(self, *versions):
+        images = tuple(SimpleNamespace(version=v) for v in versions)
+        return SimpleNamespace(
+            images_result=SimpleNamespace(upgrades=images),
+            query_cmd=SimpleNamespace(current_file_version=0x4200382A),
+        )
+
+    def test_offer_newest_then_withdraw(self):
+        self.light._on_ota(self.event(0x42007530, 0x42000001))
+        self.assertEqual(
+            self.updates.list()["offers"],
+            [{"device": "globe", "current": "0x4200382a", "version": "0x42007530"}],
+        )
+        self.light._on_ota(self.event())
+        self.assertEqual(self.updates.list()["offers"], [])
+
+    async def test_install(self):
+        self.light._on_ota(self.event(0x42007530))
+        image = self.light._ota_image
+
+        async def update(img, progress):
+            self.assertIs(img, image)
+            progress(0, 10, 50.0)
+            return zigbee.Status.SUCCESS
+
+        self.light.zdev = SimpleNamespace(update_firmware=update)
+        changes = []
+        self.updates.on_change = lambda: changes.append(dict(self.updates.list()))
+        with (
+            mock.patch.object(zigbee, "SAVE_DELAY", 0),
+            mock.patch.object(zigbee, "save_snapshot") as snapshot,
+        ):
+            await self.updates.install("globe")
+        snapshot.assert_called_once()
+        self.assertEqual(changes[0]["running"], "globe")
+        self.assertEqual(changes[1]["progress"], 50)
+        result = self.updates.list()
+        self.assertEqual((result["offers"], result["running"]), ([], None))
+        self.assertEqual(result["last"], "globe : firmware 0x42007530 installé.")
+
+    async def test_install_refused(self):
+        self.light._on_ota(self.event(0x42007530))
+        update = mock.AsyncMock(return_value=zigbee.Status.FAILURE)
+        self.light.zdev = SimpleNamespace(update_firmware=update)
+        with mock.patch.object(zigbee, "save_snapshot") as snapshot:
+            await self.updates.install("globe")
+        snapshot.assert_not_called()
+        result = self.updates.list()
+        self.assertEqual(len(result["offers"]), 1)  # reste proposé
+        self.assertTrue(result["last"].startswith("Échec : globe : firmware refusé"))
+
+    async def test_one_at_a_time(self):
+        self.updates.running = "autre"
+        with self.assertRaises(RuntimeError):
+            await self.updates.install("globe")
 
 
 class DeclarationTest(unittest.IsolatedAsyncioTestCase):

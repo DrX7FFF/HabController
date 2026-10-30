@@ -19,6 +19,7 @@ from core.automation import load_automations, unload_automations
 from core.base import DeviceError, cancel_tasks
 from core.charts import downsample, load_charts
 from core.devices import load_devices, summarize
+from core.firmware import updates
 from core.log import collect_errors
 from core.log import setup as setup_logging
 from core.notifications import Notifications
@@ -29,7 +30,7 @@ log = logging.getLogger("habctrl")
 
 CONFIG_PACKAGES = ("devices", "automations")  # paquets Python de la configuration
 BOOT = int(time.time() * 1000)  # démarrage du programme : la page voit qu'il a redémarré
-BUSY = "une autre opération d'administration est en cours (appairage, rechargement…)"
+BUSY = "une autre opération d'administration est en cours (appairage, rechargement, firmware…)"
 # en attente : pastille sur l'onglet Administration, envoyées aux pages à chaque changement
 notifications = Notifications(lambda: broadcast(notifications_message()))
 
@@ -70,6 +71,7 @@ admin_lock = asyncio.Lock()  # une opération d'administration à la fois (appai
 server = None  # uvicorn.Server lancé par ./habctrl : arrêté pour redémarrer (voir restart())
 restart_requested = False
 clients: set[asyncio.Queue] = set()  # une file de messages par page connectée
+installing: asyncio.Task | None = None  # installation d'un firmware en cours
 
 
 def broadcast(message: dict) -> None:
@@ -97,11 +99,14 @@ def pairing_list() -> list[dict]:
 def init_message() -> dict:
     return {"type": "init", "boot": BOOT, "blocks": snapshot(), "charts": charts,
             "errors": config_errors(), "pairings": pairing_list(),
-            "notifications": notifications.list()}
+            "notifications": notifications.list(), "firmware": updates.list()}
 
 
 def notifications_message() -> dict:
     return {"type": "notifications", "notifications": notifications.list()}
+
+
+updates.on_change = lambda: broadcast({"type": "firmware", "firmware": updates.list()})
 
 
 def on_device_change(dev_id: str, state: dict) -> None:
@@ -395,6 +400,24 @@ async def read_history(path: str, start: int, end: int):
     return {"path": path, "points": points}
 
 
+# --- Firmwares (core/firmware.py) : installation de celui proposé pour un équipement --------
+# Lancée en tâche de fond (jusqu'à une heure), sous le verrou d'administration : un rechargement
+# l'interromprait. Avancement et résultat : par le WebSocket /ws (message firmware).
+
+
+@app.post("/api/firmware/{dev_id}", status_code=202)
+async def install_firmware(dev_id: str):
+    global installing
+    if dev_id not in {o["device"] for o in updates.list()["offers"]}:
+        raise HTTPException(status_code=404, detail="aucun firmware proposé pour cet équipement")
+    if admin_lock.locked():
+        raise HTTPException(status_code=409, detail=BUSY)
+    await admin_lock.acquire()
+    installing = asyncio.create_task(updates.install(dev_id))
+    installing.add_done_callback(lambda _: admin_lock.release())
+    return {}
+
+
 # --- WebSocket : événements dans les deux sens -------------------------------
 # Tout ce que les pages affichent de l'état du serveur passe par ici (REST : actions et lectures
 # à la demande seulement).
@@ -402,11 +425,14 @@ async def read_history(path: str, start: int, end: int):
 #                   {"type": "init", "boot" (démarrage du programme, ms), "blocks": [...],
 #                    "charts": [...], "errors": [...] (configuration : parties ignorées),
 #                    "pairings": [{protocol, label, duration, max_duration, cleanup}],
-#                    "notifications": [{id, text, level, since (ms)}]} ;
+#                    "notifications": [{id, text, level, since (ms)}],
+#                    "firmware": {"offers": [{device, current, version}], "running" (id ou null),
+#                                 "progress" (%), "last" (résultat de la dernière installation)}} ;
 #                   puis {"type": "state", "device", "state"} à chaque changement d'un équipement,
 #                   {"type": "datalog", "points": [[chemin, ms, valeur], ...]} à chaque
 #                   enregistrement du datalog (graphiques en direct),
 #                   {"type": "notifications", "notifications": [...]} à chaque changement,
+#                   {"type": "firmware", "firmware": {...}} à chaque changement (liste, avancement),
 #                   et {"type": "error", "device", "detail"} pour une commande refusée
 # page -> serveur : {"type": "set", "device", "name", "value", "transition"?}
 

@@ -1,4 +1,4 @@
-/* Onglet Administration : synchronisations, appairage, notifications. */
+/* Onglet Administration : synchronisations, firmwares, appairage, notifications. */
 .page-admin section { max-width: 50rem; margin-bottom: 1rem; }
 .page-admin section h2 { margin-bottom: .8rem; }
 .page-admin #protocols { display: grid; gap: .8rem; }
@@ -17,4 +17,8 @@
 .page-admin .sync .state { margin: 0 0 .8rem; color: var(--muted); }
 .page-admin .sync .state.pending { color: var(--error); font-weight: 600; }
 .page-admin .sync .state.failed { font-weight: normal; }
+.page-admin #firmware-none { margin: 0; color: var(--muted); }
+.page-admin #firmware-list { margin: 0 0 .8rem; padding: 0; list-style: none; display: grid; gap: .5rem; }
+.page-admin #firmware-list li { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
+.page-admin #firmware-list progress { width: 12rem; height: 1.2rem; accent-color: var(--accent-border); }
 .page-admin #notifications { margin: 0 0 1rem; padding-left: 1.2rem; color: var(--error); font-weight: 600; }

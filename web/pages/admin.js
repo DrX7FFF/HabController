@@ -8,6 +8,9 @@
 // affiche s'il y a quelque chose à faire, le bouton principal lance la synchro
 // (POST /api/sync/<nom>) puis rafraîchit le contrôle des sections concernées.
 // HabController mis à jour : la page se recharge quand le programme répond à nouveau.
+// Firmwares : un bouton par équipement à qui un firmware plus récent est proposé
+// (POST /api/firmware/<id>) ; une installation à la fois (les autres boutons sont désactivés),
+// avec sa progression. Liste, avancement et résultat : état du serveur.
 // Protocoles, erreurs de la configuration en cours (parties ignorées, listées sous « Recharger »)
 // et notifications (listées en tête de page) : état du serveur, reçu par le WebSocket /ws.
 
@@ -176,6 +179,35 @@ export function mount(page) {
   }
 
   const others = page.querySelector("#notifications");
+  const firmwareNone = page.querySelector("#firmware-none");
+  const firmwareList = page.querySelector("#firmware-list");
+  const firmwareResult = page.querySelector("#firmware-result");
+
+  function listFirmware(f) {
+    firmwareNone.hidden = !!f.offers.length;
+    firmwareList.replaceChildren(...f.offers.map(o => {
+      const row = el("li", {}, `${o.device} : ${o.current} → ${o.version}`);
+      if (o.device === f.running) {
+        row.append(el("progress", { max: 100, value: f.progress }), `${f.progress} %`);
+      } else {
+        const button = el("button", { textContent: "Mettre à jour", disabled: !!f.running });
+        button.onclick = async () => {
+          if (!confirm(`Mettre à jour le firmware de ${o.device} ? L'envoi peut durer une heure : `
+              + "laisser l'équipement alimenté.")) return;
+          show("");
+          try {
+            await request(`/api/firmware/${o.device}`, "POST");
+          } catch (err) {
+            show(`Mise à jour de ${o.device} impossible (${err.message}).`);
+          }
+        };
+        row.append(button);
+      }
+      return row;
+    }));
+    firmwareResult.className = f.last.startsWith("Échec") ? "failed" : "ok";
+    firmwareResult.textContent = f.running ? "" : f.last;
+  }
 
   // Les protocoles ne changent qu'au redémarrage : construits une fois (un appairage en cours
   // n'est pas dérangé par un nouveau message init).
@@ -186,6 +218,7 @@ export function mount(page) {
       listErrors(m.errors);
       if (restarted) restarted(m.boot);
     }
+    if (m.firmware) listFirmware(m.firmware);
     if (m.notifications) {
       others.replaceChildren(...m.notifications.map(n => el("li", { textContent: n.text })));
       others.hidden = !m.notifications.length;

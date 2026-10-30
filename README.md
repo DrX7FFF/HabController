@@ -68,6 +68,17 @@ inutilisés ici (pilotes d'autres clés). Pour s'en passer : retirer `zha-quirks
 puis réécrire dans chaque pilote ce que son correctif apportait (ex. TS011F : diviseurs 100 pour
 l'énergie, 1000 pour le courant, que la prise n'annonce pas).
 
+### Zigbee : mise à jour des firmwares
+Les appareils demandent d'eux-mêmes s'il existe un firmware plus récent (zigpy les y invite toutes
+les 4 h environ). zigpy le cherche dans ses sources par défaut et dans l'index de Zigbee2MQTT
+(Koenkk/zigbee-OTA, firmwares Philips notamment) ; rien n'est installé sans demande. Un firmware
+trouvé est journalisé et listé dans « Firmwares à mettre à jour » (Administration), avec un bouton
+par équipement : un seul envoi à la fois (jusqu'à une heure, appareil alimenté), avec sa
+progression, pendant lequel les autres opérations d'administration attendent. Une fois installé,
+l'équipement quitte la liste (il y revient si une version suivante existe) et `pairing/zigbee.db`
+est réécrit avec la nouvelle version. La version en cours suit l'adresse IEEE dans
+`temp/equipements.txt`. Seuls les appareils dotés de la mise à jour Zigbee (OTA) sont concernés.
+
 ## Administration : mise à jour et synchronisation du paramétrage
 Quatre sections identiques sur la page Administration (`core/sync.py`), rien n'est vérifié
 automatiquement : « Contrôler » indique s'il y a quelque chose à faire, le bouton principal le
