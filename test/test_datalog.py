@@ -205,6 +205,13 @@ class ConfigTest(unittest.TestCase):
             log = datalog.Datalog({**CONF, "devices": {"fantome": {"on": {}}}}, {})
         self.assertEqual(log.watched, {})
 
+    def test_unknown_measure_warned_and_kept(self):
+        log = datalog.Datalog(CONF, {"prise": FakeDevice("prise"), "fp2": FakeDevice("fp2")})
+        with self.assertLogs("core.datalog", "WARNING") as logs:
+            log.check()
+        self.assertIn("prise.on : mesure inconnue", logs.output[0])
+        self.assertIn("on", log.watched["prise"])
+
     def test_retention_per_attribute(self):
         log = datalog.Datalog(CONF, {"prise": FakeDevice("prise"), "fp2": FakeDevice("fp2")})
         self.assertEqual(log.retention["devices/prise/active_power"], datalog.duration_ms("1y"))

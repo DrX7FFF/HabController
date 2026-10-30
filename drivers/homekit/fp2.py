@@ -126,6 +126,15 @@ class FP2(NetworkDevice):
         info = {"pairing id": data["hap"]["AccessoryPairingID"]}
         return info | {field: str(data[field]) for field in DETAILS if field in data}
 
+    def check_measure(self, name: str) -> str:
+        prefix, _, zone = name.partition(".")
+        if prefix != "zone" or not zone:
+            return super().check_measure(name)
+        # zone sans alias : nommée par son numéro, connu seulement de l'appareil
+        if zone.isdigit() or zone in self._aliases.values():
+            return ""
+        return "zone inconnue (zonemapping)"
+
     async def start(self) -> None:
         if self.physical():  # sinon reste injoignable, signalé par equipements.yaml
             self._spawn(self._run())

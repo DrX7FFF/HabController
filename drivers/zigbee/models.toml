@@ -20,7 +20,7 @@
 "0x0106" = "zigbee.motion"  # Light Sensor
 "0x0107" = "zigbee.motion"  # Occupancy Sensor (ex. Xiaomi lumi.sensor_motion.aq2)
 "0x0302" = "zigbee.climate"  # Temperature Sensor (ex. Sonoff SNZB-02D)
-"lumi.weather" = "zigbee.climate"  # Xiaomi température, humidité, pression
+"lumi.weather" = "zigbee.climate"  # Xiaomi température, humidité, pression. Ancienne version annoncée en 0x5f01
 "lumi.sensor_magnet.aq2" = "zigbee.contact"  # Xiaomi contact de porte
 
 "0x0103" = "zigbee.button"  # On/Off Light Switch (ex. Xiaomi lumi.remote.b1acn01)

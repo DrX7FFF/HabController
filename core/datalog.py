@@ -72,6 +72,15 @@ class Datalog:
         for device, callback in self._bindings:
             device.subscribe(callback)
 
+    def check(self) -> None:
+        """Signale les attributs suivis qui ne seront jamais reçus (voir Device.check_measure)."""
+        for device, _ in self._bindings:
+            for attr in self.watched[device.id]:
+                if reason := device.check_measure(attr):
+                    log.warning(
+                        "datalog : %s.%s : %s, rien ne sera enregistré", device.id, attr, reason
+                    )
+
     # --- cycle de vie -------------------------------------------------------
 
     async def start(self) -> None:

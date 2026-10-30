@@ -15,10 +15,11 @@ from fastapi.websockets import WebSocketState
 from pydantic import BaseModel, ValidationError
 
 from core import CONFIG_DIR, ROOT, TEMP_DIR, datalog, git, pair, sync
+from core.automation import check as check_automations
 from core.automation import load_automations, unload_automations
-from core.base import DeviceError, cancel_tasks
+from core.base import DeviceError, cancel_tasks, spawn_task
 from core.charts import downsample, load_charts
-from core.devices import load_devices, summarize, write_summary
+from core.devices import load_devices, summarize, wait_ready, write_summary
 from core.firmware import updates
 from core.log import collect_errors
 from core.log import setup as setup_logging
@@ -136,6 +137,25 @@ async def start_datalog() -> None:
     errors["datalog"] = errs
 
 
+def check_datalog() -> None:
+    if history:
+        history.check()
+
+
+async def check_when_ready(check) -> None:
+    """Contrôle des mesures (voir Device.check_measure) une fois les appareils connus : un
+    appareil Zigbee ne sait ce qu'il fournit qu'une fois rattaché."""
+    await wait_ready()
+    check()
+
+
+async def after_start() -> None:
+    """Une fois les appareils connus : résumé des équipements, puis contrôle des mesures."""
+    await summarize(devices, SUMMARY)
+    check_automations(devices)
+    check_datalog()
+
+
 async def start() -> None:
     """Abonne pages, automatisations et datalog aux équipements chargés, puis les démarre."""
     global summary
@@ -151,7 +171,7 @@ async def start() -> None:
             if isinstance(result, Exception):
                 log.error("%s : démarrage impossible", dev.id, exc_info=result)
     errors["devices"] += errs
-    summary = asyncio.create_task(summarize(devices, SUMMARY))
+    summary = asyncio.create_task(after_start())
 
 
 async def stop() -> None:
@@ -209,12 +229,14 @@ async def reload_automations() -> None:
     await unload_automations()
     forget_modules(("automations",))
     start_automations()
+    spawn_task(check_when_ready(partial(check_automations, devices)), "contrôle des automatisations")
 
 
 async def reload_datalog() -> None:
     """Relit datalog.toml : le nouveau datalog prend la relève, puis l'ancien finit ses envois."""
     old = history
     await start_datalog()
+    spawn_task(check_when_ready(check_datalog), "contrôle du datalog")
     if old:
         await old.stop()
 

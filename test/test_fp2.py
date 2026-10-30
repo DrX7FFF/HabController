@@ -78,6 +78,15 @@ def make_fp2(dev_id="fp2", **kwargs):
     return device
 
 
+class CheckMeasureTest(unittest.TestCase):
+    def test_zones_from_config(self):
+        device = make_fp2(zonemapping={0: "Global"})
+        for name in ("illuminance", "zone.Global", "zone.3"):
+            self.assertEqual(device.check_measure(name), "", name)
+        self.assertEqual(device.check_measure("zone.Glob"), "zone inconnue (zonemapping)")
+        self.assertEqual(device.check_measure("zone"), "mesure inconnue")
+
+
 class FakePairing:
     def __init__(self):
         self.accessories = accessories()

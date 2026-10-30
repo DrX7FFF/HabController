@@ -79,6 +79,9 @@ async def eclairage(event: Event):        # event.old, event.new, event.changed,
 - Les événements d'une même fonction sont traités dans l'ordre ; une erreur dans une
   automatisation n'arrête pas les autres.
 - Un équipement inconnu dans un `@on_change` est signalé au démarrage.
+- Un attribut qui ne sera jamais reçu (inconnu du pilote, non suivi dans `reports`, absent de
+  l'appareil, zone absente du `zonemapping` du FP2) est signalé une fois les appareils
+  rattachés ; l'automatisation est gardée.
 - **Minuteur** : `Timer(délai_s, action)` appelle `action()` (fonction simple ou async) à la
   fin du délai. `start()` (re)lance le décompte depuis zéro, même s'il tourne déjà : un seul
   minuteur, quel que soit le nombre de départs ; `cancel()` l'arrête ; `running` indique s'il
@@ -147,6 +150,8 @@ active_power = { hysteresis = 5, retention = "1y" }
 - L'hystérésis ne s'applique qu'aux nombres : une valeur n'est enregistrée que si elle s'écarte
   d'au moins `hysteresis` de la dernière enregistrée.
 - Un équipement injoignable n'enregistre rien.
+- Un attribut qui ne sera jamais reçu (même contrôle que pour `@on_change`) est signalé une
+  fois les appareils rattachés.
 - Envoi immédiat en tâche de fond ; sans réseau, la valeur est perdue (journalisé).
 - Une fois par jour, les valeurs plus vieilles que leur rétention sont supprimées.
 - Datalog non configuré : pas d'historique, les graphiques signalent l'erreur.

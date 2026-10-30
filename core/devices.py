@@ -77,10 +77,9 @@ def load_devices(package: str = "devices") -> dict:
 SUMMARY_WAIT = 60  # s, au plus, pour que chaque protocole connaisse ses appareils
 
 
-async def summarize(devices: dict[str, Device], path: Path) -> None:
-    """Écrit le résumé (voir write_summary) une fois que chaque protocole qui fournit ready()
-    connaît ses appareils (au plus SUMMARY_WAIT s). Anomalies (non appairé, non déclaré) : un
-    avertissement dans le journal."""
+async def wait_ready() -> None:
+    """Rend la main quand chaque protocole qui fournit ready() connaît ses appareils (au plus
+    SUMMARY_WAIT s)."""
     waiting = [
         asyncio.ensure_future(module.ready())
         for module in protocol_modules()
@@ -90,6 +89,12 @@ async def summarize(devices: dict[str, Device], path: Path) -> None:
         _, late = await asyncio.wait(waiting, timeout=SUMMARY_WAIT)
         for task in late:
             task.cancel()
+
+
+async def summarize(devices: dict[str, Device], path: Path) -> None:
+    """Écrit le résumé (voir write_summary) une fois les appareils connus (voir wait_ready).
+    Anomalies (non appairé, non déclaré) : un avertissement dans le journal."""
+    await wait_ready()
     if anomalies := write_summary(devices, path):
         log.warning("Équipements : %d anomalie(s) d'appairage, voir %s", anomalies, path)
 

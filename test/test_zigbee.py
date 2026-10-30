@@ -630,6 +630,19 @@ class DetailsTest(unittest.TestCase):
     def test_key_closed(self):
         self.assertEqual(Plug(IEEE).details(), {"ieee": IEEE})
 
+    def test_check_measure(self):
+        sensor = Climate(IEEE, reports={"battery": None})
+        self.assertEqual(sensor.check_measure("temperature"), "")
+        self.assertEqual(sensor.check_measure("connected"), "")
+        self.assertEqual(sensor.check_measure("pressure"), "non suivie (reports)")
+        self.assertEqual(sensor.check_measure("battery"), "non suivie (reports)")
+        self.assertEqual(sensor.check_measure("temperatur"), "mesure inconnue")
+        humidity = SimpleNamespace(cluster_id=0x0405, ep_attribute="humidity")
+        endpoint = SimpleNamespace(in_clusters={0x0405: humidity}, out_clusters={}, profile_id=0x0104)
+        sensor.zdev = SimpleNamespace(endpoints={1: endpoint})  # rattaché : clusters connus
+        self.assertEqual(sensor.check_measure("humidity"), "")
+        self.assertEqual(sensor.check_measure("temperature"), "l'appareil ne la fournit pas")
+
 
 class CoordinatorSessionTest(unittest.IsolatedAsyncioTestCase):
     """L'appairage emprunte la clé : ouverte pour l'occasion, refermée ensuite."""

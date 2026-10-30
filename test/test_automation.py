@@ -269,6 +269,24 @@ class OnChangeTest(AutomationTestCase):
             automation.bind({})
         self.assertIn("fantome", logs.output[0])
 
+    async def test_unknown_measure_is_reported_and_kept(self):
+        @automation.on_change("lampe.brigt")
+        async def typo(event):
+            pass
+
+        @automation.on_change("lampe.bright")
+        @automation.on_event("lampe.single")
+        async def known(event):
+            pass
+
+        devs = {"lampe": FakeBulb("lampe")}
+        automation.bind(devs)
+        with self.assertLogs("core.automation", "WARNING") as logs:
+            automation.check(devs)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("lampe.brigt : mesure inconnue", logs.output[0])
+        self.assertEqual(len(automation._bindings), 2)
+
     async def test_stop_with_finished_tasks_not_yet_removed(self):
         async def quick():
             pass

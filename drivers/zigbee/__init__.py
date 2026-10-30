@@ -548,6 +548,16 @@ class ZigbeeDevice(NetworkDevice):
         state = "disabled" if value is None else "tracked" if value is True else f"tracked {value}"
         return state + (" (forced)" if value != self.DEFAULTS[key] else "")
 
+    def check_measure(self, name: str) -> str:
+        """Comme Device, plus : mesure non suivie, ou absente de l'appareil (connu une fois
+        rattaché)."""
+        if name in self.DEFAULTS:
+            if self.zdev is not None and self._cluster(self.zdev, name) is None:
+                return "l'appareil ne la fournit pas"
+            if name not in self.reports:
+                return "non suivie (reports)"
+        return super().check_measure(name)
+
     def details(self) -> dict:
         """Identité et parties annoncées à l'appairage, firmware, et état de chaque mesure :
         tracked ou disabled (voir _measure_state), absent (l'appareil ne l'a pas), unmanaged

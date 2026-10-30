@@ -199,6 +199,19 @@ def bind(devs: dict[str, Device]) -> None:
             _bindings.append((device, callback))
 
 
+def check(devs: dict[str, Device]) -> None:
+    """Signale les @on_change sur un attribut qui ne sera jamais reçu (voir
+    Device.check_measure)."""
+    for handler in _handlers:
+        if handler.event or not handler.attr or handler.device not in devs:
+            continue
+        if reason := devs[handler.device].check_measure(handler.attr):
+            log.warning(
+                "%s : %s.%s : %s, jamais déclenchée",
+                handler.name, handler.device, handler.attr, reason,
+            )
+
+
 def load_automations(devs: dict[str, Device]) -> None:
     """Charge automations/*.py (sauf les fichiers commençant par _) puis les abonne. Un fichier
     en erreur est ignoré en entier : ses automatisations déjà déclarées sont retirées."""

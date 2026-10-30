@@ -143,6 +143,13 @@ class Device:
         l'interroger) : {libellé: texte, ou fiche imbriquée}."""
         return {"physical": self.physical()}
 
+    def check_measure(self, name: str) -> str:
+        """Pourquoi la mesure `name` ne sera jamais reçue ("" si elle peut l'être), d'après la
+        déclaration de l'équipement."""
+        if isinstance(getattr(type(self), name, None), Attribute):
+            return ""
+        return "mesure inconnue"
+
     def state(self) -> dict:
         """État courant, lu en mémoire : ne doit jamais interroger l'équipement."""
         raise NotImplementedError
