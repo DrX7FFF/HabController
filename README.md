@@ -76,8 +76,8 @@ trouvé est journalisé et listé dans « Firmwares à mettre à jour » (Admini
 par équipement : un seul envoi à la fois (jusqu'à une heure, appareil alimenté), avec sa
 progression, pendant lequel les autres opérations d'administration attendent. Une fois installé,
 l'équipement quitte la liste (il y revient si une version suivante existe) et `pairing/zigbee.db`
-est réécrit avec la nouvelle version. La version en cours suit l'adresse IEEE dans
-`temp/equipements.txt`. Seuls les appareils dotés de la mise à jour Zigbee (OTA) sont concernés.
+est réécrit avec la nouvelle version, comme `temp/equipements.txt`, où la version en cours suit
+l'adresse IEEE. Seuls les appareils dotés de la mise à jour Zigbee (OTA) sont concernés.
 
 ## Administration : mise à jour et synchronisation du paramétrage
 Quatre sections identiques sur la page Administration (`core/sync.py`), rien n'est vérifié

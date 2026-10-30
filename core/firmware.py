@@ -43,8 +43,9 @@ class Firmwares:
         return {"offers": sorted(offers, key=lambda o: o["device"]), "running": self.running,
                 "progress": self.progress, "last": self.last}
 
-    async def install(self, dev_id: str) -> None:
-        """Installe le firmware proposé pour `dev_id` (LookupError s'il n'y en a pas)."""
+    async def install(self, dev_id: str) -> bool:
+        """Installe le firmware proposé pour `dev_id` (LookupError s'il n'y en a pas) ; True s'il
+        est installé."""
         if self.running:
             raise RuntimeError(f"mise à jour de {self.running} en cours")
         device, _, version = self._offers[dev_id]
@@ -63,9 +64,11 @@ class Firmwares:
             self.last = f"{dev_id} : firmware {version} installé."
             log.info("%s : firmware %s installé", dev_id, version)
             self._offers.pop(dev_id, None)
+            return True
         finally:
             self.running = None
             self.on_change()
+        return False
 
     def _advance(self, percent: float) -> None:
         if int(percent) != self.progress:  # un message par pourcent, pas par bloc envoyé

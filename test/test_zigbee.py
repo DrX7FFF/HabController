@@ -409,7 +409,7 @@ class FirmwareTest(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(zigbee, "SAVE_DELAY", 0),
             mock.patch.object(zigbee, "save_snapshot") as snapshot,
         ):
-            await self.updates.install("globe")
+            self.assertTrue(await self.updates.install("globe"))
         snapshot.assert_called_once()
         self.assertEqual(changes[0]["running"], "globe")
         self.assertEqual(changes[1]["progress"], 50)
@@ -422,11 +422,20 @@ class FirmwareTest(unittest.IsolatedAsyncioTestCase):
         update = mock.AsyncMock(return_value=zigbee.Status.FAILURE)
         self.light.zdev = SimpleNamespace(update_firmware=update)
         with mock.patch.object(zigbee, "save_snapshot") as snapshot:
-            await self.updates.install("globe")
+            self.assertFalse(await self.updates.install("globe"))
         snapshot.assert_not_called()
         result = self.updates.list()
         self.assertEqual(len(result["offers"]), 1)  # reste proposé
         self.assertTrue(result["last"].startswith("Échec : globe : firmware refusé"))
+
+    def test_reattach_after_reinterview(self):
+        """Après une mise à jour, zigpy remplace l'objet de l'appareil : le pilote s'y rattache."""
+        coordinator = zigbee.Coordinator()
+        coordinator.app = SimpleNamespace()
+        coordinator._devices[self.light.ieee] = self.light
+        with mock.patch.object(self.light, "_attach") as attach:
+            coordinator.device_reinterviewed(SimpleNamespace(ieee=self.light.ieee))
+        attach.assert_called_once_with(coordinator.app)
 
     async def test_one_at_a_time(self):
         self.updates.running = "autre"

@@ -418,6 +418,8 @@ class Coordinator:
         if device is not None and self.app is not None:
             device._attach(self.app)
 
+    device_reinterviewed = device_initialized  # après une mise à jour de firmware, notamment
+
     def device_left(self, zdev) -> None:
         device = self._devices.get(zdev.ieee)
         if device is not None:

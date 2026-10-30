@@ -18,7 +18,7 @@ from core import CONFIG_DIR, ROOT, TEMP_DIR, datalog, git, pair, sync
 from core.automation import load_automations, unload_automations
 from core.base import DeviceError, cancel_tasks
 from core.charts import downsample, load_charts
-from core.devices import load_devices, summarize
+from core.devices import load_devices, summarize, write_summary
 from core.firmware import updates
 from core.log import collect_errors
 from core.log import setup as setup_logging
@@ -29,6 +29,7 @@ setup_logging()
 log = logging.getLogger("habctrl")
 
 CONFIG_PACKAGES = ("devices", "automations")  # paquets Python de la configuration
+SUMMARY = TEMP_DIR / "equipements.txt"  # équipements et leur appareil physique
 BOOT = int(time.time() * 1000)  # démarrage du programme : la page voit qu'il a redémarré
 BUSY = "une autre opération d'administration est en cours (appairage, rechargement, firmware…)"
 # en attente : pastille sur l'onglet Administration, envoyées aux pages à chaque changement
@@ -150,7 +151,7 @@ async def start() -> None:
             if isinstance(result, Exception):
                 log.error("%s : démarrage impossible", dev.id, exc_info=result)
     errors["devices"] += errs
-    summary = asyncio.create_task(summarize(devices, TEMP_DIR / "equipements.txt"))
+    summary = asyncio.create_task(summarize(devices, SUMMARY))
 
 
 async def stop() -> None:
@@ -403,6 +404,12 @@ async def read_history(path: str, start: int, end: int):
 # --- Firmwares (core/firmware.py) : installation de celui proposé pour un équipement --------
 # Lancée en tâche de fond (jusqu'à une heure), sous le verrou d'administration : un rechargement
 # l'interromprait. Avancement et résultat : par le WebSocket /ws (message firmware).
+# Installé : le résumé des équipements est réécrit (nouvelle version).
+
+
+async def install(dev_id: str) -> None:
+    if await updates.install(dev_id):
+        write_summary(devices, SUMMARY)
 
 
 @app.post("/api/firmware/{dev_id}", status_code=202)
@@ -413,7 +420,7 @@ async def install_firmware(dev_id: str):
     if admin_lock.locked():
         raise HTTPException(status_code=409, detail=BUSY)
     await admin_lock.acquire()
-    installing = asyncio.create_task(updates.install(dev_id))
+    installing = asyncio.create_task(install(dev_id))
     installing.add_done_callback(lambda _: admin_lock.release())
     return {}
 
