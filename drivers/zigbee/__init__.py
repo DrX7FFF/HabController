@@ -557,20 +557,17 @@ class ZigbeeDevice(NetworkDevice):
         zdev = self.zdev
         if zdev is None:  # clé fermée : rien de plus connu
             return info
-        ota = self._ota()
         endpoints = parts(zdev)
         info |= {
-            "manufacturer": zdev.manufacturer or "unknown",
-            "model": zdev.model or "unknown",
+            "model": f"{zdev.model or 'unknown'} [{zdev.manufacturer or 'unknown'}]",
             # une ligne par endpoint standard, numérotée s'il y en a plusieurs
             **{
                 "type" if len(endpoints) == 1 else f"type {ep_id}": device_type(endpoint)
                 for ep_id, endpoint in endpoints.items()
             },
-            "firmware": self._firmware() or "unknown",
-            "update": "No" if ota is None
-            else f"New version 0x{self._ota_image.version:08x}" if self._ota_image
-            else "Yes",
+            # (OTA) : l'équipement accepte la mise à jour du firmware
+            "firmware": (self._firmware() or "unknown")
+            + (" (OTA)" if self._ota() is not None else ""),
         }
         measures, used = {}, set()
         for key in self.DEFAULTS:

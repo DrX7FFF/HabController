@@ -612,14 +612,11 @@ class DetailsTest(unittest.TestCase):
             endpoints={0: SimpleNamespace(), 1: endpoint, 242: green_power},
             find_cluster=lambda _cid, _type: ota,
         )
-        sensor._ota_image = SimpleNamespace(version=0x2400)
         self.assertEqual(sensor.details(), {
             "ieee": IEEE,
-            "manufacturer": "SONOFF",
-            "model": "SNZB-02D",
+            "model": "SNZB-02D [SONOFF]",
             "type": "0x0302 (HA) Temperature sensor",
-            "firmware": "0x00002300",
-            "update": "New version 0x00002400",
+            "firmware": "0x00002300 (OTA)",
             "measures": {
                 "temperature": "tracked 0.1",
                 "humidity": "tracked 0.2 (forced)",
