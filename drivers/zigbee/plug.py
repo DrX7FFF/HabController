@@ -59,6 +59,7 @@ class Plug(ZigbeeDevice):
     """Prise Zigbee : marche/arrêt et mesures, envoyées spontanément par la prise."""
 
     DEFAULTS = DEFAULTS
+    WIDGET = "plug"
 
     on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
     active_power = Attribute[float](readonly=True)

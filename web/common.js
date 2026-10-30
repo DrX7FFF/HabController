@@ -36,8 +36,8 @@ export const wsUrl = path =>
 // --- WebSocket /ws -----------------------------------------------------------
 // Tout l'état du serveur affiché par les onglets (voir main.py). Une connexion pour tous les
 // onglets, reconnectée 2 s après sa perte. Le dernier message init, tenu à jour des messages
-// state, notifications et firmware, est rejoué à chaque nouvel abonné ; la perte de connexion lui est
-// signalée par un message { type: "closed" } et par le bandeau commun #lost.
+// state, measures, notifications et firmware, est rejoué à chaque nouvel abonné ; la perte de
+// connexion lui est signalée par un message { type: "closed" } et par le bandeau commun #lost.
 // Notifications en attente : pastille rouge sur l'onglet Administration (textes en info-bulle).
 
 const listeners = new Set();
@@ -71,6 +71,8 @@ function connect() {
       lostBanner.hidden = true;
     } else if (m.type === "state" && init) {
       init.blocks.filter(b => b.device === m.device).forEach(b => { b.state = m.state; });
+    } else if (m.type === "measures" && init) {
+      init.blocks.filter(b => b.device === m.device).forEach(b => { b.measures = m.measures; });
     } else if (m.type === "notifications" && init) {
       init.notifications = m.notifications;
     } else if (m.type === "firmware" && init) {

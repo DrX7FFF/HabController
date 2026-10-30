@@ -45,6 +45,7 @@ async def read_response(reader: asyncio.StreamReader) -> bytes:
 class SamsungTV(NetworkDevice):
     """TV Samsung legacy : connexion permanente, allumée tant qu'elle répond."""
 
+    WIDGET = "onoff"
     on = Attribute[bool]()  # écriture : False seulement
 
     def __init__(self, host: str, port: int = 55000, retry: float = 30):

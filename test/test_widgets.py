@@ -11,18 +11,23 @@ from core.widgets import load_blocks  # noqa: E402
 
 
 class LoadBlocksTest(unittest.TestCase):
-    def test_unknown_device_or_widget_ignored(self):
+    def test_widget_of_device(self):
+        """Le widget est celui de l'équipement ; inconnu ou sans widget : bloc ignoré."""
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "screens.toml"
             path.write_text(
-                "[[blocks]]\ndevice = \"salon\"\nwidget = \"onoff\"\n"
-                "[[blocks]]\ndevice = \"fantome\"\nwidget = \"onoff\"\n"
-                "[[blocks]]\ndevice = \"salon\"\nwidget = \"inconnu\"\n",
+                "[[blocks]]\ndevice = \"salon\"\n"
+                "[[blocks]]\ndevice = \"fantome\"\n"
+                "[[blocks]]\ndevice = \"bouton\"\n",
                 encoding="utf-8",
             )
+            devices = {
+                "salon": SimpleNamespace(id="salon", WIDGET="light"),
+                "bouton": SimpleNamespace(id="bouton", WIDGET=""),
+            }
             with self.assertLogs("core.widgets", "ERROR") as logs:
-                blocks = load_blocks({"salon": SimpleNamespace(id="salon")}, path)
-        self.assertEqual(blocks, [{"title": "salon", "widget": "onoff", "device": "salon"}])
+                blocks = load_blocks(devices, path)
+        self.assertEqual(blocks, [{"title": "salon", "widget": "light", "device": "salon"}])
         self.assertEqual(len(logs.output), 2)
 
 
@@ -32,7 +37,7 @@ class LoadBlocksTest(unittest.TestCase):
             path.write_text("[[blocks]\n", encoding="utf-8")
             with self.assertLogs("core.widgets", "ERROR"):
                 self.assertEqual(load_blocks({}, path), [])
-            path.write_text("[[blocks]]\nwidget = \"onoff\"\n", encoding="utf-8")
+            path.write_text("[[blocks]]\ntitle = \"Salon\"\n", encoding="utf-8")
             with self.assertLogs("core.widgets", "ERROR"):
                 self.assertEqual(load_blocks({}, path), [])
             self.assertEqual(load_blocks({}, Path(tmp) / "absent.toml"), [])

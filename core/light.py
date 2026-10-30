@@ -7,6 +7,7 @@ from core.base import Attribute, Device
 
 
 class Light(Device):
+    WIDGET = "light"
     on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
     brightness = Attribute[int]()  # 1 à 100
     color_temp = Attribute[int]()  # Kelvin

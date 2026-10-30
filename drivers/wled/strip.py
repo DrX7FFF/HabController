@@ -18,6 +18,7 @@ ERRORS = (OSError, TimeoutError, WebSocketException)
 class WLED(NetworkDevice):
     """Contrôleur WLED : connexion permanente, l'état vient de ses messages."""
 
+    WIDGET = "onoff"
     on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
 
     def __init__(self, host: str, port: int = 80, retry: float = 10):

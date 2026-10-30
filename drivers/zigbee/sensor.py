@@ -59,6 +59,7 @@ class Sensor(ZigbeeDevice):
     """Appareil sur pile : l'état ne vient que de ce qu'il envoie."""
 
     POLL = None
+    WIDGET = "sensor"
     # valeurs suivies par défaut, propres à chaque variante
     DEFAULTS: ClassVar[Mapping[str, object]] = {"battery": 1}
     battery = Attribute[int](readonly=True)

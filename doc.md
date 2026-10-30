@@ -156,6 +156,23 @@ active_power = { hysteresis = 5, retention = "1y" }
 - Une fois par jour, les valeurs plus vieilles que leur rétention sont supprimées.
 - Datalog non configuré : pas d'historique, les graphiques signalent l'erreur.
 
+## Commandes
+
+`dashboard/screens.toml` liste les blocs de la page Commandes :
+
+```toml
+[[blocks]]
+device = "filament"
+title = "Filament Temp&Hum"   # par défaut : l'id de l'équipement
+```
+
+Le widget suit le type de l'équipement : capteur (capteurs Zigbee, FP2), prise (marche/arrêt
+et mesures), lampe (marche/arrêt, puis intensité, température et couleur si suivies), marche/
+arrêt (TV, WLED). Un widget affiche toutes les mesures suivies de l'équipement (`tracked`), vides
+tant qu'aucune valeur n'est reçue ; une mesure non suivie (`disabled`) ou absente de l'appareil
+n'apparaît pas. Tant que l'équipement n'est pas prêt (appareil Zigbee pas encore rattaché), le
+bloc n'a que son titre.
+
 ## Graphiques
 
 `dashboard/charts.toml` décrit les graphiques de la page `/graphiques` :

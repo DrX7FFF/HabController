@@ -269,6 +269,17 @@ class SensorTest(unittest.IsolatedAsyncioTestCase):
             sensor._attach(SimpleNamespace(devices={sensor.ieee: zdev}))
         self.assertFalse(sensor._tasks)
 
+    async def test_ready_on_attach(self):
+        """Prêt une fois rattaché, plus prêt une fois détaché : les abonnés sont prévenus."""
+        sensor = Sensor(IEEE)
+        zdev = SimpleNamespace(endpoints={})
+        seen = []
+        sensor.subscribe_ready(lambda: seen.append(sensor.ready()))
+        with mock.patch.object(zigbee, "ZigpyDevice", SimpleNamespace):
+            sensor._attach(SimpleNamespace(devices={sensor.ieee: zdev}))
+        sensor._detach()
+        self.assertEqual(seen, [False, True, False])
+
 
 class LightTest(unittest.IsolatedAsyncioTestCase):
     def test_state_from_zcl(self):
@@ -642,6 +653,23 @@ class DetailsTest(unittest.TestCase):
         sensor.zdev = SimpleNamespace(endpoints={1: endpoint})  # rattaché : clusters connus
         self.assertEqual(sensor.check_measure("humidity"), "")
         self.assertEqual(sensor.check_measure("temperature"), "l'appareil ne la fournit pas")
+
+    def test_measures(self):
+        """État de surveillance : absence connue une fois rattaché (prêt)."""
+        sensor = Climate(IEEE, reports={"battery": None})
+        self.assertFalse(sensor.ready())
+        self.assertEqual(sensor.measures(), {
+            "battery": "disabled", "connected": "tracked", "humidity": "tracked",
+            "pressure": "disabled", "temperature": "tracked",
+        })
+        humidity = SimpleNamespace(cluster_id=0x0405, ep_attribute="humidity")
+        endpoint = SimpleNamespace(in_clusters={0x0405: humidity}, out_clusters={}, profile_id=0x0104)
+        sensor.zdev = SimpleNamespace(endpoints={1: endpoint})
+        self.assertTrue(sensor.ready())
+        self.assertEqual(sensor.measures(), {
+            "battery": "absent", "connected": "tracked", "humidity": "tracked",
+            "pressure": "absent", "temperature": "absent",
+        })
 
 
 class CoordinatorSessionTest(unittest.IsolatedAsyncioTestCase):

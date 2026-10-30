@@ -1,16 +1,13 @@
-# Un bloc par widget affiché. "widget" : onoff | white | rgb (commandes) | sensor (mesures)
+# Un bloc par équipement affiché, avec le widget de son type (capteur, prise, lampe…).
 
 [[blocks]]
 device = "salon"
 title = "Salon"
-widget = "rgb"
 
 [[blocks]]
 device = "cuisine"
 title = "Cuisine"
-widget = "white"
 
 [[blocks]]
 device = "prise_salon"
 title = "Prise salon"
-widget = "onoff"

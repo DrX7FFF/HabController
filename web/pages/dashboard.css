@@ -11,5 +11,3 @@
                             margin: 0; font-size: 1.1rem; }
 .page-dashboard .measures dt { color: var(--muted); }
 .page-dashboard .measures dd { margin: 0; font-weight: 600; text-align: right; }
-.page-dashboard .measures dd:only-child { grid-column: 1 / -1; text-align: left;
-                                          font-weight: normal; color: var(--muted); }

@@ -73,15 +73,25 @@ class Attribute(Generic[T]):
         obj._assign(self.name, value)  # pyright: ignore[reportArgumentType]
 
 
+# État de surveillance d'une mesure (voir Device.measures) -> pourquoi elle ne sera jamais reçue
+REASONS = {
+    "tracked": "",
+    "disabled": "non suivie (reports)",
+    "absent": "l'appareil ne la fournit pas",
+}
+
+
 class Device:
     """Base commune des pilotes : identité, état et commandes."""
 
+    WIDGET = ""  # widget du tableau de bord : sensor, plug, onoff ou light ; "" : aucun
     connected = Attribute[bool](readonly=True)
 
     def __init__(self):
         self.id = ""  # affecté par configure() : le chargeur le déduit du nom de la variable
         self._listeners: list[Callable[[dict], None]] = []
         self._event_listeners: list[Callable[[str, Any], None]] = []
+        self._ready_listeners: list[Callable[[], None]] = []
         self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre
         self._last_notified: dict | None = None
         self.changed_at: int | None = None  # ms depuis l'époque Unix, dernier changement d'état
@@ -99,9 +109,15 @@ class Device:
         """callback(nom, valeur) est appelé à chaque événement de l'équipement (appui…)."""
         self._event_listeners.append(callback)
 
+    def subscribe_ready(self, callback: Callable[[], None]) -> None:
+        """callback() est appelé quand l'équipement devient prêt ou cesse de l'être (voir
+        ready)."""
+        self._ready_listeners.append(callback)
+
     def unsubscribe(self, callback: Callable) -> None:
-        """Retire un abonnement de subscribe() ou subscribe_events() (rechargement partiel)."""
-        for listeners in (self._listeners, self._event_listeners):
+        """Retire un abonnement de subscribe(), subscribe_events() ou subscribe_ready()
+        (rechargement partiel)."""
+        for listeners in (self._listeners, self._event_listeners, self._ready_listeners):
             if callback in listeners:
                 listeners.remove(callback)
 
@@ -128,6 +144,11 @@ class Device:
             for callback in self._listeners:
                 callback(state)
 
+    def _ready_changed(self) -> None:
+        """À appeler quand ready() change."""
+        for callback in self._ready_listeners:
+            callback()
+
     async def start(self) -> None:
         """Appelé au démarrage de l'application (connexion, écoute...)."""
 
@@ -143,12 +164,23 @@ class Device:
         l'interroger) : {libellé: texte, ou fiche imbriquée}."""
         return {"physical": self.physical()}
 
+    def ready(self) -> bool:
+        """Appareil connu : l'état de surveillance de ses mesures est définitif (voir
+        measures)."""
+        return True
+
+    def measures(self) -> dict[str, str]:
+        """État de surveillance de chaque attribut : tracked (peut être reçu), disabled (non
+        suivi, voir reports), absent (l'appareil ne le fournit pas). Par défaut : tous suivis."""
+        cls = type(self)
+        return {
+            name: "tracked" for name in dir(cls) if isinstance(getattr(cls, name), Attribute)
+        }
+
     def check_measure(self, name: str) -> str:
-        """Pourquoi la mesure `name` ne sera jamais reçue ("" si elle peut l'être), d'après la
-        déclaration de l'équipement."""
-        if isinstance(getattr(type(self), name, None), Attribute):
-            return ""
-        return "mesure inconnue"
+        """Pourquoi la mesure `name` ne sera jamais reçue ("" si elle peut l'être), d'après son
+        état de surveillance."""
+        return REASONS.get(self.measures().get(name, ""), "mesure inconnue")
 
     def state(self) -> dict:
         """État courant, lu en mémoire : ne doit jamais interroger l'équipement."""

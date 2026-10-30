@@ -81,8 +81,16 @@ def broadcast(message: dict) -> None:
         queue.put_nowait(message)
 
 
+def measures(dev) -> dict | None:
+    """État de surveillance des mesures, None tant que l'équipement n'est pas prêt."""
+    return dev.measures() if dev.ready() else None
+
+
 def snapshot() -> list[dict]:
-    return [{**b, "state": devices[b["device"]].state()} for b in blocks]
+    return [
+        {**b, "state": devices[b["device"]].state(), "measures": measures(devices[b["device"]])}
+        for b in blocks
+    ]
 
 
 def pairing_list() -> list[dict]:
@@ -113,6 +121,10 @@ updates.on_change = lambda: broadcast({"type": "firmware", "firmware": updates.l
 
 def on_device_change(dev_id: str, state: dict) -> None:
     broadcast({"type": "state", "device": dev_id, "state": state})
+
+
+def on_device_ready(dev) -> None:
+    broadcast({"type": "measures", "device": dev.id, "measures": measures(dev)})
 
 
 def start_automations() -> None:
@@ -161,6 +173,7 @@ async def start() -> None:
     global summary
     for dev in devices.values():
         dev.subscribe(partial(on_device_change, dev.id))
+        dev.subscribe_ready(partial(on_device_ready, dev))
     start_automations()
     await start_datalog()
     with collect_errors() as errs:
@@ -451,13 +464,17 @@ async def install_firmware(dev_id: str):
 # Tout ce que les pages affichent de l'état du serveur passe par ici (REST : actions et lectures
 # à la demande seulement).
 # serveur -> page : à la connexion, puis à chaque rechargement de la configuration,
-#                   {"type": "init", "boot" (démarrage du programme, ms), "blocks": [...],
+#                   {"type": "init", "boot" (démarrage du programme, ms),
+#                    "blocks": [{title, widget, device, state, measures}] (measures : état de
+#                    surveillance de chaque mesure, null tant que l'équipement n'est pas prêt),
 #                    "charts": [...], "errors": [...] (configuration : parties ignorées),
 #                    "pairings": [{protocol, label, duration, max_duration, cleanup}],
 #                    "notifications": [{id, text, level, since (ms)}],
 #                    "firmware": {"offers": [{device, current, version}], "running" (id ou null),
 #                                 "progress" (%), "last" (résultat de la dernière installation)}} ;
 #                   puis {"type": "state", "device", "state"} à chaque changement d'un équipement,
+#                   {"type": "measures", "device", "measures"} quand il devient prêt ou cesse
+#                   de l'être,
 #                   {"type": "datalog", "points": [[chemin, ms, valeur], ...]} à chaque
 #                   enregistrement du datalog (graphiques en direct),
 #                   {"type": "notifications", "notifications": [...]} à chaque changement,

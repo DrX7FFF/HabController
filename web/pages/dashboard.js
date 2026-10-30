@@ -6,8 +6,9 @@ const labels = { on: "allumé", off: "éteint", unreachable: "injoignable" };
 // connected false, ou on pas encore lu : affiché injoignable
 const onKey = s =>
   s.connected === false || s.on === undefined ? "unreachable" : s.on ? "on" : "off";
-// Widget sensor : mesures affichées, si l'équipement les a (clé d'état, libellé, mise en forme)
-const MEASURES = [
+// Mesures affichées par les widgets sensor et plug, si l'équipement les suit (clé d'état,
+// libellé, mise en forme)
+const SENSOR = [
   ["temperature", "Température", v => `${v.toFixed(1)} °C`],
   ["humidity", "Humidité", v => `${Math.round(v)} %`],
   ["pressure", "Pression", v => `${Math.round(v)} hPa`],
@@ -15,6 +16,12 @@ const MEASURES = [
   ["presence", "Présence", v => (v ? "oui" : "non")],
   ["open", "Ouverture", v => (v ? "ouvert" : "fermé")],
   ["battery", "Pile", v => `${v} %`],
+];
+const PLUG = [
+  ["active_power", "Puissance", v => `${v} W`],
+  ["voltage", "Tension", v => `${v} V`],
+  ["current", "Intensité", v => `${v} A`],
+  ["energy", "Énergie", v => `${v} kWh`],
 ];
 
 const command = (device, name, value) => send({ type: "set", device, name, value });
@@ -37,53 +44,58 @@ function colorPicker(dev) {
   return { el: input, set: s => { if (!busy && s.rgb) input.value = s.rgb; } };
 }
 
-// Mesures en lecture seule ; sans mesure, l'état (un capteur sur pile attend son premier message).
-function measures(s) {
+// Mesures suivies (tracked) en lecture seule ; vide tant qu'aucune valeur n'est reçue.
+function values(rows, measures) {
   const list = el("dl", { className: "measures" });
-  const shown = MEASURES.filter(([key]) => s[key] !== undefined && s[key] !== null);
-  if (!shown.length) {
-    list.append(el("dd",
-      { textContent: s.connected === false ? "injoignable" : "en attente de mesure" }));
-  }
-  shown.forEach(([key, label, format]) => {
-    list.append(el("dt", { textContent: label }), el("dd", { textContent: format(s[key]) }));
+  const cells = rows.filter(([key]) => measures[key] === "tracked").map(([key, label, format]) => {
+    const value = el("dd");
+    list.append(el("dt", { textContent: label }), value);
+    return s => { value.textContent = s[key] == null ? "" : format(s[key]); };
   });
-  return list;
+  return { el: list, set: s => cells.forEach(set => set(s)) };
 }
 
-function build(b) {
-  const block = el("div", { className: "block card" });
-  const title = el("h2", { textContent: b.title });
-  if (b.widget === "sensor") {
-    let list = measures({});
-    block.append(title, list);
-    return { el: block, device: b.device, update: s => {
-      block.classList.toggle("down", s.connected === false);
-      const next = measures(s);
-      list.replaceWith(next);
-      list = next;
-    } };
-  }
-  const power = el("button");
-  power.onclick = () => command(b.device, "on", "toggle");
-  const parts = [{ el: power, set: s => {
-    power.className = onKey(s);
-    power.textContent = labels[onKey(s)];
-  } }];
-  if (b.widget === "white") {
-    parts.push(slider(b.device, "brightness", "Intensité", 1, 100));
-    parts.push(slider(b.device, "color_temp", "Température", 1700, 6500));
-  } else if (b.widget === "rgb") {
-    parts.push(slider(b.device, "brightness", "Intensité", 1, 100));
-    parts.push(colorPicker(b.device));
-  }
-  block.append(title, ...parts.map(p => p.el));
-  return { el: block, device: b.device, update: s => {
-    block.classList.toggle("down", s.connected === false);
-    parts.forEach(p => p.set(s));
+function power(dev) {
+  const button = el("button");
+  button.onclick = () => command(dev, "on", "toggle");
+  return { el: button, set: s => {
+    button.className = onKey(s);
+    button.textContent = labels[onKey(s)];
   } };
 }
 
+// Widget de chaque type d'équipement : ses parties, d'après l'état de surveillance des mesures.
+const WIDGETS = {
+  sensor: (dev, m) => [values(SENSOR, m)],
+  plug: (dev, m) => [power(dev), values(PLUG, m)],
+  onoff: dev => [power(dev)],
+  light: (dev, m) => [
+    power(dev),
+    m.brightness === "tracked" && slider(dev, "brightness", "Intensité", 1, 100),
+    m.color_temp === "tracked" && slider(dev, "color_temp", "Température", 1700, 6500),
+    m.rgb === "tracked" && colorPicker(dev),
+  ].filter(Boolean),
+};
+
+// Cadre et titre seuls tant que l'équipement n'est pas prêt (measures null).
+function build(b) {
+  const block = el("div", { className: "block card" });
+  const title = el("h2", { textContent: b.title });
+  let parts = [];
+  let state = {};
+  const update = s => {
+    state = s;
+    block.classList.toggle("down", s.connected === false);
+    parts.forEach(p => p.set(s));
+  };
+  const measures = m => {
+    parts = m ? WIDGETS[b.widget](b.device, m) : [];
+    block.replaceChildren(title, ...parts.map(p => p.el));
+    update(state);
+  };
+  measures(b.measures);
+  return { el: block, device: b.device, update, measures };
+}
 export function mount(page) {
   const box = page.querySelector("#blocks");
   const say = banner(page);
@@ -101,6 +113,8 @@ export function mount(page) {
       show("");
     } else if (m.type === "state") {
       views.filter(v => v.device === m.device).forEach(v => v.update(m.state));
+    } else if (m.type === "measures") {
+      views.filter(v => v.device === m.device).forEach(v => v.measures(m.measures));
     } else if (m.type === "error") {
       show(m.detail);
       clearTimeout(hide);

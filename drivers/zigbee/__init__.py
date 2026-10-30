@@ -548,15 +548,20 @@ class ZigbeeDevice(NetworkDevice):
         state = "disabled" if value is None else "tracked" if value is True else f"tracked {value}"
         return state + (" (forced)" if value != self.DEFAULTS[key] else "")
 
-    def check_measure(self, name: str) -> str:
-        """Comme Device, plus : mesure non suivie, ou absente de l'appareil (connu une fois
-        rattaché)."""
-        if name in self.DEFAULTS:
-            if self.zdev is not None and self._cluster(self.zdev, name) is None:
-                return "l'appareil ne la fournit pas"
-            if name not in self.reports:
-                return "non suivie (reports)"
-        return super().check_measure(name)
+    def ready(self) -> bool:
+        """Rattaché : les mesures absentes de l'appareil sont connues."""
+        return self.zdev is not None
+
+    def measures(self) -> dict[str, str]:
+        """Comme Device, plus : mesure non suivie (reports), ou absente de l'appareil (connu
+        une fois rattaché)."""
+        measures = super().measures()
+        for key in self.DEFAULTS:
+            if self.zdev is not None and self._cluster(self.zdev, key) is None:
+                measures[key] = "absent"
+            elif key not in self.reports:
+                measures[key] = "disabled"
+        return measures
 
     def details(self) -> dict:
         """Identité et parties annoncées à l'appairage, firmware, et état de chaque mesure :
@@ -579,12 +584,14 @@ class ZigbeeDevice(NetworkDevice):
             "firmware": (self._firmware() or "unknown")
             + (" (OTA)" if self._ota() is not None else ""),
         }
-        measures, used = {}, set()
-        for key in self.DEFAULTS:
-            cluster = self._cluster(zdev, key)
-            if cluster is not None:
-                used.add(cluster.cluster_id)
-            measures[key] = "absent" if cluster is None else self._measure_state(key)
+        watch = self.measures()
+        measures = {
+            key: "absent" if watch[key] == "absent" else self._measure_state(key)
+            for key in self.DEFAULTS
+        }
+        used = {
+            self._cluster(zdev, key).cluster_id for key in self.DEFAULTS if watch[key] != "absent"
+        }
         clusters = {cid: c for ep in endpoints.values() for cid, c in ep.in_clusters.items()}
         for cid, cluster in sorted(clusters.items()):
             if cid not in used and is_measure(cid):
@@ -620,6 +627,7 @@ class ZigbeeDevice(NetworkDevice):
             )
             return
         self.zdev = zdev
+        self._ready_changed()
         for endpoint_id, endpoint in zdev.endpoints.items():
             if endpoint_id == 0:
                 continue
@@ -647,6 +655,7 @@ class ZigbeeDevice(NetworkDevice):
         for task in self._tasks:
             task.cancel()
         self.zdev = None
+        self._ready_changed()
         self._set_connected(False)
 
     async def _poll_loop(self, zdev) -> None:
