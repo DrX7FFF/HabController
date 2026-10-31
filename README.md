@@ -30,6 +30,8 @@ Habitation domotique home mad
   Firebase pour le datalog (`datalog.toml`, voir `doc.md`).
 
 Emplacements modifiables : configuration avec `HABCTRL_CONFIG`, temp/ avec `[paths] temp` de `habctrl.toml`.
+Niveau d'un journal (diagnostic, pris en compte au redémarrage) : `[global] loglevels` de
+`habctrl.toml`, ex. `loglevels = { bellows = "DEBUG", zigpy = "DEBUG" }`.
 
 ## Équipements
 Chaque fichier de `devices/` déclare autant d'équipements que voulu (par pièce, par type…) :

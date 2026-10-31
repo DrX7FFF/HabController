@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from logging.handlers import RotatingFileHandler
 
-from core import TEMP_DIR
+from core import TEMP_DIR, settings
 
 FORMAT = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s : %(message)s")
 
@@ -42,6 +42,12 @@ def setup() -> None:
     root.addHandler(_file_handler("system.log"))
     for library in ("zigpy", "bellows"):  # très bavardes en INFO : seulement les problèmes
         logging.getLogger(library).setLevel(logging.WARNING)
+    # [global] loglevels de habctrl.toml, ex. { bellows = "DEBUG" } : niveau par journal
+    for name, level in settings("global").get("loglevels", {}).items():
+        try:
+            logging.getLogger(name).setLevel(level.upper())
+        except (ValueError, AttributeError):
+            root.error("habctrl.toml : [global] loglevels, niveau %r de %s inconnu", level, name)
     # uvicorn (lancé avec log_config=None) passe par ces mêmes journaux
     logging.getLogger("uvicorn.access").addFilter(_http_problem)
     logging.getLogger("uvicorn.error").addFilter(_uvicorn_server)
