@@ -10,6 +10,7 @@ import tempfile
 import tomllib
 import unittest
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -92,6 +93,7 @@ class FakePairing:
         self.accessories = accessories()
         self.values = {presence_key(0): 0, presence_key(1): 1, (1, 32): 42.5}
         self.is_available = True
+        self.poll_interval = timedelta(minutes=1)
         self.subscribed: set = set()
         self.closed = False
         self.pairing_data = {
@@ -248,6 +250,24 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         await until(lambda: driver.state().get("connected"))
         self.assertTrue(driver.state()["zone.0"])
         self.assertEqual([s["connected"] for s in self.states], [True, False, True])
+
+    async def test_poll_reads_state(self):
+        pairing = FakePairing()
+        pairing.poll_interval = timedelta(0)
+        driver = await self.start(pairing)
+        pairing.values[presence_key(0)] = 1  # événement perdu
+        await until(lambda: driver.state()["zone.0"])
+
+    async def test_poll_failure_ends_session(self):
+        pairing = FakePairing()
+        pairing.poll_interval = timedelta(0)
+        driver = make_fp2()
+        task = asyncio.create_task(driver._serve(pairing))
+        await until(lambda: driver._pairing is not None)
+        pairing.read_error = OSError("connexion morte")
+        with self.assertRaises(OSError):
+            await asyncio.wait_for(task, 1)
+        self.assertIsNone(driver._pairing)
 
     async def test_config_change_rebuilds_mapping(self):
         pairing = FakePairing()

@@ -24,6 +24,7 @@ DETAILS = ("name", "manufacturer", "model", "serial", "firmware", "hardware", "p
 RETRY_MIN = 2  # s, entre deux tentatives de connexion (doublé à chaque échec)
 RETRY_MAX = 60
 FIND_TIMEOUT = 30  # s, attente de l'accessoire sur le réseau (mDNS)
+POLL_TIMEOUT = 10  # s, au-delà la connexion est tenue pour morte
 
 Key = tuple[int, int]  # (aid, iid) : une caractéristique HomeKit
 
@@ -188,8 +189,14 @@ class FP2(NetworkDevice):
             await self._sync(pairing)
             self._backoff = RETRY_MIN
             self._pairing = pairing
-            # La bibliothèque se reconnecte seule et nous prévient : on attend l'arrêt.
-            await asyncio.Event().wait()
+            log.info("%s : connecté", self.id)
+            # La bibliothèque se reconnecte seule et nous prévient, mais ne voit pas une connexion
+            # morte sans fermeture TCP : lecture au rythme qu'elle préconise, un échec relance tout.
+            while True:
+                await asyncio.sleep(pairing.poll_interval.total_seconds())
+                async with asyncio.timeout(POLL_TIMEOUT):
+                    await self._read(pairing)
+                self._notify()
         finally:
             for stop in stops:
                 stop()
@@ -265,6 +272,10 @@ class FP2(NetworkDevice):
             return
         self._connected = available
         self._synced = False
+        if available:
+            log.info("%s : connecté", self.id)
+        else:
+            log.warning("%s : connexion perdue", self.id)
         if available and self._pairing is not None:  # l'état a pu changer pendant la coupure
             self._spawn(self._resync(self._pairing))
         self._notify()
