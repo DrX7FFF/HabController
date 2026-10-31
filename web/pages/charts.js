@@ -9,7 +9,7 @@
 // La liste des graphiques arrive aussi par le WebSocket (message init, renvoyé après chaque
 // rechargement de la configuration) : un charts.toml modifié s'affiche sans recharger la page.
 
-import { banner, el, request, subscribe } from "/common.js";
+import { banner, el, request, send, subscribe } from "/common.js";
 import { createPlot } from "/plot.js";
 
 const MINUTE = 60_000;
@@ -43,6 +43,7 @@ export function mount(page) {
     unzoom.onclick = draw;  // redessine sur la période (à jour si Direct), ce qui sort du zoom
     fromInput.onchange = refresh;
     liveBox.onchange = () => {
+      send({ type: "live", on: liveBox.checked });
       fromInput.hidden = liveBox.checked;
       if (liveBox.checked) {
         refresh();  // repart d'un historique à jour
@@ -107,7 +108,10 @@ export function mount(page) {
   // Les points arrivent tels que le datalog les enregistre (hystérésis comprise) : le direct
   // montre la même chose que l'historique relu.
   function receive(m) {
-    if (m.type === "init") build(m.charts);
+    if (m.type === "init") {
+      send({ type: "live", on: liveBox.checked });  // nouvelle connexion : le serveur l'ignore
+      build(m.charts);
+    }
     if (m.type === "idle" && liveBox.checked) {
       liveBox.checked = false;
       liveBox.onchange();

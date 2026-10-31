@@ -19,12 +19,6 @@ Zigbee, à faire devant les appareils (réinitialiser chacun puis Administration
   zigbee.light ; double interrupteur (lumi.switch.b2nacn02) : 2 relais = 2 attributs on_1 / on_2.
 - Migration finie : supprimer HabConfig/listetemp.txt.
 
-TV Samsung (samsung.tv, à vérifier TV allumée) :
-- Accepter « HabController » sur l'écran à la première connexion.
-- La TV garde-t-elle ouverte une connexion inactive ? Sinon l'état clignote : revenir à une
-  vérification périodique (connexion ouverte puis fermée toutes les 30 s).
-- Extinction (tv.on = False) et détection de l'extinction (connexion coupée par la TV).
-
 
 Alertes : équipement qui ne vit plus, pile faible.
 - Une tâche périodique (ex. toutes les 15 min) parcourt les équipements :

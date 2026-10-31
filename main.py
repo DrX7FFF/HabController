@@ -73,11 +73,12 @@ admin_lock = asyncio.Lock()  # une opération d'administration à la fois (appai
 server = None  # uvicorn.Server lancé par ./habctrl : arrêté pour redémarrer (voir restart())
 restart_requested = False
 clients: set[asyncio.Queue] = set()  # une file de messages par page connectée
+live: set[asyncio.Queue] = set()  # pages en Direct : reçoivent les enregistrements du datalog
 installing: asyncio.Task | None = None  # installation d'un firmware en cours
 
 
-def broadcast(message: dict) -> None:
-    for queue in clients:
+def broadcast(message: dict, queues: set[asyncio.Queue] = clients) -> None:
+    for queue in queues:
         queue.put_nowait(message)
 
 
@@ -144,7 +145,7 @@ async def start_datalog() -> None:
             log.error("datalog : réglages incorrects (%s), pas d'historique", datalog.describe(err))
             history = None
         if history:
-            history.subscribe(lambda points: broadcast({"type": "datalog", "points": points}))
+            history.subscribe(lambda points: broadcast({"type": "datalog", "points": points}, live))
             await history.start()
     errors["datalog"] = errs
 
@@ -477,16 +478,20 @@ async def install_firmware(dev_id: str):
 #                   {"type": "measures", "device", "measures"} quand il devient prêt ou cesse
 #                   de l'être,
 #                   {"type": "datalog", "points": [[chemin, ms, valeur], ...]} à chaque
-#                   enregistrement du datalog (graphiques en direct),
+#                   enregistrement du datalog, aux pages en Direct (graphiques),
 #                   {"type": "notifications", "notifications": [...]} à chaque changement,
 #                   {"type": "firmware", "firmware": {...}} à chaque changement (liste, avancement),
 #                   et {"type": "error", "device", "detail"} pour une commande refusée
-# page -> serveur : {"type": "set", "device", "name", "value", "transition"?}
+# page -> serveur : {"type": "set", "device", "name", "value", "transition"?},
+#                   {"type": "live", "on"} pour recevoir ou non les messages datalog
 
 
-async def handle_message(message: dict) -> str | None:
+async def handle_message(message: dict, queue: asyncio.Queue) -> str | None:
     """Exécute une commande reçue ; renvoie un message d'erreur, ou None si tout va bien."""
     try:
+        if message.get("type") == "live":
+            (live.add if message.get("on") else live.discard)(queue)
+            return None
         if message.get("type") != "set":
             return "type de message inconnu"
         await apply_command(SetMessage.model_validate(message))
@@ -509,7 +514,7 @@ async def read_loop(ws: WebSocket, queue: asyncio.Queue) -> None:
         except json.JSONDecodeError:
             queue.put_nowait({"type": "error", "detail": "message illisible"})
             continue
-        error = await handle_message(message) if isinstance(message, dict) else "message invalide"
+        error = await handle_message(message, queue) if isinstance(message, dict) else "message invalide"
         if error:
             device = message.get("device") if isinstance(message, dict) else None
             queue.put_nowait({"type": "error", "device": device, "detail": error})
@@ -533,6 +538,7 @@ async def websocket(ws: WebSocket):
         pass
     finally:
         clients.discard(queue)
+        live.discard(queue)
         sender.cancel()
 
 
