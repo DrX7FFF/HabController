@@ -277,7 +277,7 @@ class FP2(NetworkDevice):
                 log.info("%s : connecté", self.id)
                 self._spawn(self._resync(self._pairing))  # l'état a pu changer pendant la coupure
             else:
-                log.warning("%s : connexion perdue", self.id)
+                log.warning("%s : déconnecté", self.id)
         self._notify()
 
     def _on_config(self, _config_num: int) -> None:

@@ -671,7 +671,7 @@ class ZigbeeDevice(NetworkDevice):
                 await self._read(zdev)
             except ERRORS as err:
                 if self._connected:
-                    log.warning("%s : ne répond plus (%s)", self.id, type(err).__name__)
+                    log.warning("%s : déconnecté (%s)", self.id, type(err).__name__)
                 self._set_connected(False)
             else:
                 if not self._connected:

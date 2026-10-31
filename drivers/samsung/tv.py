@@ -90,7 +90,7 @@ class SamsungTV(NetworkDevice):
                 self._writer = None
                 writer.close()
                 if self._connected:
-                    log.info("%s : éteinte", self.id)
+                    log.info("%s : déconnecté", self.id)
                 self._set_connected(False)
             await asyncio.sleep(self._retry)
 
@@ -102,7 +102,7 @@ class SamsungTV(NetworkDevice):
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
         writer.write(auth_packet())
         await writer.drain()
-        log.info("%s : allumée", self.id)
+        log.info("%s : connecté", self.id)
         self._writer = writer
         self._set_connected(True)
         while True:  # réponses de la TV, jusqu'à la fermeture de la connexion

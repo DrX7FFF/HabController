@@ -90,8 +90,12 @@ class YeelightBulb(Light, NetworkDevice):
         if connected != self._connected:
             self._connected = connected
             self._synced = False
-            if connected:  # l'état a pu changer pendant la coupure
+            if connected:
+                log.info("%s : connecté", self.id)
+                # l'état a pu changer pendant la coupure
                 self._refresh_task = asyncio.get_running_loop().create_task(self._refresh())
+            else:
+                log.warning("%s : déconnecté", self.id)
         self._merge(props)
         self._notify()
 

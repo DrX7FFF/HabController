@@ -55,11 +55,12 @@ class WLED(NetworkDevice):
                 async with connect(f"ws://{self._host}:{self._port}/ws", open_timeout=5) as ws:
                     self._ws = ws
                     self._connected = True
+                    log.info("%s : connecté", self.id)
                     async for message in ws:
                         self._on_message(message)
             except ERRORS as err:
                 if self._connected:
-                    log.warning("%s : connexion perdue (%s)", self.id, err)
+                    log.warning("%s : déconnecté (%s)", self.id, err)
             self._ws = None
             self._connected = self._synced = False
             self._notify()
