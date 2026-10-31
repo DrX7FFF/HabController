@@ -20,7 +20,7 @@ from core import pair as core_pair  # noqa: E402
 import drivers.zigbee.pair as zigbee_pair  # noqa: E402
 import drivers.zigbee.plug as zigbee_plug  # noqa: E402
 import drivers.homekit as homekit  # noqa: E402
-from core.devices import id_from_name, summarize  # noqa: E402
+from core.devices import id_from_name, summarize, write_summary  # noqa: E402
 from core.firmware import Firmwares  # noqa: E402
 from drivers.yeelight.bulb import YeelightBulb  # noqa: E402
 from core import base  # noqa: E402
@@ -587,13 +587,10 @@ class SummaryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(logs.output), 1)
         self.assertIn(f"2 anomalie(s) d'appairage, voir {self.out}", logs.output[0])
 
-    async def test_key_not_open_in_time(self):
-        with mock.patch("core.devices.SUMMARY_WAIT", 0.01):
-            await asyncio.wait_for(summarize(self.devices, self.out), 1)
-        self.assertEqual(
-            self.lines(),
-            ["unlinked:", "  zigbee : network devices unknown (not initialized)"] + self.DEVICES,
-        )
+    def test_not_written_key_not_open(self):
+        with self.assertLogs("core.devices", "INFO"):
+            self.assertEqual(write_summary(self.devices, self.out), 0)
+        self.assertFalse(self.out.exists())
 
     async def test_key_never_requested(self):
         self.coordinator._task = None

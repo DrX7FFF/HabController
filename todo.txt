@@ -38,7 +38,6 @@ Alertes : équipement qui ne vit plus, pile faible.
   Administration) pour commencer, puis notification externe (mail, push…).
 
 désactiver l’état None des équipements (par exemple sur on) ;
-étudier l’intérêt des 30 s d’attente du Zigbee.
 Surveiller l'utilisation mémoire/CPU, cas de plantage
 Vérifier les horodate utilisé dans l'application
 Démarrage : démarrer le datalog avant les automatisations ? (un record() appelé au chargement d'une
@@ -46,3 +45,7 @@ automatisation est aujourd'hui ignoré au démarrage, le datalog n'étant pas en
 Datalog : n'enregistrer qu'après une synchronisation NTP ; sans synchro, ignorer les valeurs
 (horodatages faux).
 Déconnection automatique du live
+
+
+Mesures propriétaires unmanaged : pouvoir déclarer dans reports un numéro de fonction propriétaire pour en recevoir la valeur et l’enregistrer.
+Mesures unmanaged : compléter les pilotes concernés si besoin. Le seul cas actuel est level sur ventilateur.

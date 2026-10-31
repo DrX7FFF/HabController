@@ -74,21 +74,11 @@ def load_devices(package: str = "devices") -> dict:
     return devices
 
 
-SUMMARY_WAIT = 60  # s, au plus, pour que chaque protocole connaisse ses appareils
-
-
 async def wait_ready() -> None:
-    """Rend la main quand chaque protocole qui fournit ready() connaît ses appareils (au plus
-    SUMMARY_WAIT s)."""
-    waiting = [
-        asyncio.ensure_future(module.ready())
-        for module in protocol_modules()
-        if hasattr(module, "ready")
-    ]
-    if waiting:
-        _, late = await asyncio.wait(waiting, timeout=SUMMARY_WAIT)
-        for task in late:
-            task.cancel()
+    """Rend la main quand chaque protocole qui fournit ready() connaît ses appareils."""
+    await asyncio.gather(
+        *(module.ready() for module in protocol_modules() if hasattr(module, "ready"))
+    )
 
 
 async def summarize(devices: dict[str, Device], path: Path) -> None:
@@ -112,9 +102,9 @@ def write_summary(devices: dict[str, Device], path: Path) -> int:
     déclaration à copier dans devices/ si le modèle est connu, puis la fiche de chaque équipement
     (pilote et appareil physique, voir Device.details ; « not paired » sinon). Un protocole
     fournit les premiers par links() et link_models() (lien enregistré sous un id), ou par
-    undeclared() (lien porté par la déclaration : id à choisir ; None s'il ne les connaît pas).
-    Renvoie le nombre d'anomalies : non appairés et non déclarés."""
-    unlinked: dict = {}  # appareil : sa déclaration, ou protocole : appareils inconnus
+    undeclared() (lien porté par la déclaration : id à choisir ; None s'il ne les connaît pas :
+    rapport non écrit). Renvoie le nombre d'anomalies : non appairés et non déclarés."""
+    unlinked: dict = {}  # appareil : sa déclaration
     orphans = 0
     for module in protocol_modules():
         models_path = Path(module.__file__).with_name("models.toml")
@@ -128,9 +118,8 @@ def write_summary(devices: dict[str, Device], path: Path) -> int:
                 orphans += 1
         if undeclared := getattr(module, "undeclared", None):
             if (found := undeclared()) is None:
-                name = module.__name__.removeprefix("drivers.")
-                unlinked[name] = "network devices unknown (not initialized)"
-                continue
+                log.info("Équipements : rapport non écrit, %s non initialisé", module.__name__)
+                return 0
             for physical, keys, comment, args in found:
                 unlinked[physical] = orphan("<id>", keys, comment, args, models_path)
                 orphans += 1

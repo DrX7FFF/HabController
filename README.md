@@ -15,7 +15,7 @@ Habitation domotique home mad
   l'installation et suffit à la restaurer — `habctrl.toml` (réglages), `datalog.toml`, `dashboard/`, `devices/`,
   `automations/`, `pairing/` (appairages HomeKit, copie de la base Zigbee).
 - **temp/** : 100 % jetable (journaux, base Zigbee vivante), peut être en RAM.
-  `equipements.yaml`, écrit au démarrage une fois la clé Zigbee initialisée (60 s au plus) :
+  `equipements.yaml`, écrit au démarrage une fois la clé Zigbee initialisée :
   d'abord les appareils appairés sans équipement déclaré (`unlinked`), avec la déclaration à
   copier dans devices/, puis une fiche par équipement, d'après ce que l'appairage en a retenu
   (l'appareil n'est pas interrogé) : pilote, appareil physique (ou « not paired »). Pour Zigbee :
