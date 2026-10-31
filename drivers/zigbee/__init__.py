@@ -133,10 +133,13 @@ _quirks_loaded = False
 
 async def load_quirks():
     """Correctifs zha-quirks des appareils non standard, chargés une fois hors de la boucle
-    (environ 2 s) ; renvoie de quoi les appliquer à chaque appareil de la base ou appairé."""
+    (environ 2 s sur PC, 25 s sur le serveur) ; renvoie de quoi les appliquer à chaque appareil
+    de la base ou appairé."""
     global _quirks_loaded
     if not _quirks_loaded:
+        log.info("Chargement des correctifs zha-quirks")
         await asyncio.to_thread(zhaquirks.setup)
+        log.info("Correctifs zha-quirks chargés")
         _quirks_loaded = True
     return DEVICE_REGISTRY.resolve
 
