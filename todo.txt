@@ -1,11 +1,7 @@
 A revoir :
-Sur le capteur FP2 : Un capteur sans index serait nommé zone_<aid>_<iid>.
-
 désactiver l’état None des équipements (par exemple sur on) ;
 Surveiller l'utilisation mémoire/CPU, cas de plantage
 Vérifier les horodate utilisé dans l'application
-Déconnection automatique du live
-
 
 Démarrage : temporiser de quelques secondes le déclenchement des automatisations (happy flow : équipements pas encore connectés).
 
@@ -29,9 +25,6 @@ TV Samsung (samsung.tv, à vérifier TV allumée) :
   vérification périodique (connexion ouverte puis fermée toutes les 30 s).
 - Extinction (tv.on = False) et détection de l'extinction (connexion coupée par la TV).
 
-Datalog : regrouper les valeurs d'un équipement par horodatage
-(devices/<id>/<ms> = {temperature, humidity}) ? À revoir plus tard : perte de la rétention par
-attribut, lecture d'un seul attribut plus coûteuse.
 
 Alertes : équipement qui ne vit plus, pile faible.
 - Une tâche périodique (ex. toutes les 15 min) parcourt les équipements :
@@ -47,3 +40,4 @@ Alertes : équipement qui ne vit plus, pile faible.
 ## Peut être un jour
 Mesures propriétaires unmanaged : pouvoir déclarer dans reports un numéro de fonction propriétaire pour en recevoir la valeur et l’enregistrer.
 Mesures unmanaged : compléter les pilotes concernés si besoin. Le seul cas actuel est level sur ventilateur.
+Datalog : regrouper les valeurs d'un équipement par horodatage (devices/<id>/<ms> = {temperature, humidity}) ? À revoir plus tard : perte de la rétention par attribut, lecture d'un seul attribut plus coûteuse.

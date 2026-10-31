@@ -35,16 +35,20 @@ export const wsUrl = path =>
 
 // --- WebSocket /ws -----------------------------------------------------------
 // Tout l'état du serveur affiché par les onglets (voir main.py). Une connexion pour tous les
-// onglets, reconnectée 2 s après sa perte. Le dernier message init, tenu à jour des messages
-// state, measures, notifications et firmware, est rejoué à chaque nouvel abonné ; la perte de
-// connexion lui est signalée par un message { type: "closed" } et par le bandeau commun #lost.
+// onglets, reconnectée 2 s après sa perte. Fermée quand la page est masquée depuis 15 min
+// (message { type: "idle" }, sans bandeau), rouverte dès qu'elle redevient visible. Le dernier
+// message init, tenu à jour des messages state, measures, notifications et firmware, est rejoué
+// à chaque nouvel abonné ; la perte de connexion lui est signalée par un message
+// { type: "closed" } et par le bandeau commun #lost.
 // Notifications en attente : pastille rouge sur l'onglet Administration (textes en info-bulle).
 
+const IDLE = 15 * 60_000;
 const listeners = new Set();
 const lostBanner = document.getElementById("lost");
-let socket = null;
+let socket = null;  // null : fermée, page masquée
 let init = null;
 let lost = false;  // connexion perdue, pas encore rétablie
+let idleTimer = null;
 
 function dispatch(m) {
   listeners.forEach(fn => fn(m));
@@ -62,8 +66,8 @@ function badge(notifications) {
 }
 
 function connect() {
-  socket = new WebSocket(wsUrl("/ws"));
-  socket.onmessage = e => {
+  const ws = socket = new WebSocket(wsUrl("/ws"));
+  ws.onmessage = e => {
     const m = JSON.parse(e.data);
     if (m.type === "init") {
       init = m;
@@ -81,13 +85,28 @@ function connect() {
     if (m.notifications) badge(m.notifications);
     dispatch(m);
   };
-  socket.onclose = () => {
+  ws.onclose = () => {
+    if (ws !== socket) return;  // fermée volontairement
     lost = true;
     lostBanner.hidden = false;
     dispatch({ type: "closed" });
-    setTimeout(connect, 2000);
+    setTimeout(() => ws === socket && connect(), 2000);
   };
 }
+
+document.addEventListener("visibilitychange", () => {
+  clearTimeout(idleTimer);
+  if (!document.hidden) {
+    if (!socket) connect();
+    return;
+  }
+  idleTimer = setTimeout(() => {
+    const ws = socket;
+    socket = null;
+    ws.close();
+    dispatch({ type: "idle" });
+  }, IDLE);
+});
 
 // fn(message) à chaque message de /ws.
 export function subscribe(fn) {

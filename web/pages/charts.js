@@ -4,7 +4,8 @@
 // Hors direct, la période part de la date de début choisie (mise à l'heure du début affiché
 // quand on quitte le direct) ; en direct, elle finit maintenant.
 // « Direct » : les valeurs enregistrées par le datalog arrivent par le WebSocket et s'ajoutent
-// aux courbes ; la période glisse pour finir à la dernière valeur reçue.
+// aux courbes ; la période glisse pour finir à la dernière valeur reçue. Désactivé quand la
+// connexion est fermée faute de page visible.
 // La liste des graphiques arrive aussi par le WebSocket (message init, renvoyé après chaque
 // rechargement de la configuration) : un charts.toml modifié s'affiche sans recharger la page.
 
@@ -107,6 +108,10 @@ export function mount(page) {
   // montre la même chose que l'historique relu.
   function receive(m) {
     if (m.type === "init") build(m.charts);
+    if (m.type === "idle" && liveBox.checked) {
+      liveBox.checked = false;
+      liveBox.onchange();
+    }
     if (m.type !== "datalog" || !liveBox.checked) return;
     let changed = false;
     let at = 0;
