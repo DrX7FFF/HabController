@@ -272,12 +272,12 @@ class FP2(NetworkDevice):
             return
         self._connected = available
         self._synced = False
-        if available:
-            log.info("%s : connecté", self.id)
-        else:
-            log.warning("%s : connexion perdue", self.id)
-        if available and self._pairing is not None:  # l'état a pu changer pendant la coupure
-            self._spawn(self._resync(self._pairing))
+        if self._pairing is not None:  # sinon synchro initiale en cours : _serve journalise
+            if available:
+                log.info("%s : connecté", self.id)
+                self._spawn(self._resync(self._pairing))  # l'état a pu changer pendant la coupure
+            else:
+                log.warning("%s : connexion perdue", self.id)
         self._notify()
 
     def _on_config(self, _config_num: int) -> None:
