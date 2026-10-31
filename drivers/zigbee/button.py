@@ -2,6 +2,7 @@
 
 import logging
 
+from drivers.zigbee import ERRORS, MANUFACTURER, find_cluster
 from drivers.zigbee.sensor import Sensor
 
 log = logging.getLogger(__name__)
@@ -18,6 +19,15 @@ class Button(Sensor):
             for cluster in (*endpoint.in_clusters.values(), *endpoint.out_clusters.values()):
                 cluster.add_listener(self)
                 self._unsubscribe.append(lambda cluster=cluster: cluster.remove_listener(self))
+
+    async def _configure(self, zdev) -> None:
+        await super()._configure(zdev)
+        # appuis envoyés par le cluster du fabricant (ex. Philips), aux seuls destinataires liés
+        if (cluster := find_cluster(zdev, MANUFACTURER)) is not None:
+            try:
+                await cluster.bind()
+            except ERRORS as err:
+                log.warning("%s : binding de 0x%04x refusé (%s)", self.id, MANUFACTURER, err)
 
     def zha_send_event(self, action: str, args) -> None:
         """Appelé par le correctif zha-quirks de l'appareil pour chaque appui ou geste."""

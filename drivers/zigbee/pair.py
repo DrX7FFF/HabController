@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable
 
 from core import pair
+from core.devices import driver_for_model, load_driver
 from drivers import zigbee
 from drivers.zigbee import (
     ERRORS,
@@ -98,6 +99,7 @@ class Pairing(pair.Pairing):
         # juste après l'interview, l'équipement échange encore (ex. demande de mise à jour OTA)
         await asyncio.sleep(SETTLE)
         await read_fixed(device, self.ui.say)
+        await self.configure(device)
         return [
             pair.Candidate(
                 uid=device.ieee,
@@ -108,6 +110,18 @@ class Pairing(pair.Pairing):
                 args=(f'ieee="{device.ieee}"',),
             )
         ]
+
+    async def configure(self, device) -> None:
+        """Configuration par le pilote tant que l'équipement juste appairé est éveillé : sur pile,
+        il n'enverrait sinon rien au coordinateur avant d'y être lié (binding)."""
+        if known := self.paired_ids(device.ieee):
+            driver = self.declared[known[0]]
+        elif name := driver_for_model(model_keys(device), self.models):
+            driver = load_driver(name)(str(device.ieee))
+            driver.configure(str(device.ieee))
+        else:
+            return
+        await driver._configure(device)
 
     async def link(self, app, candidate: pair.Candidate, dev_id: str) -> None:
         """L'appareil a rejoint le réseau : l'adresse dans la déclaration suffit."""
