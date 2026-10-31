@@ -65,6 +65,7 @@ class Pairing:
     SECRET_ERRORS = False  # erreurs affichées sans leur texte (il pourrait contenir un code)
     CLEANUP = False  # sait retrouver et retirer les appareils inutilisés (unused, remove_unused)
     previous = ""  # équipement logique auquel l'appareil était lié, s'il en change
+    dev_id = ""  # équipement logique appairé
     declared: dict[str, Device] = {}  # équipements déclarés dans devices/
 
     def __init__(self, ui: Dialog):
@@ -125,7 +126,7 @@ class Pairing:
                     say("Aucun équipement trouvé.")
                     return False
                 candidate = await self.choose(candidates)
-                dev_id = await self.target(candidate.uid)
+                dev_id = self.dev_id = await self.target(candidate.uid)
                 path = await self.link(session, candidate, dev_id)
         except self.PROTOCOL.ERRORS as err:
             detail = "" if self.SECRET_ERRORS else f" : {err}"
@@ -151,7 +152,7 @@ class Pairing:
                 say(f"Équipement non ajouté : {err}")
                 return False
             say(f"Équipement « {dev_id} » ajouté à {file}.")
-        say("Redémarrer HabController pour l'utiliser.")
+            say("Recharger la configuration pour l'utiliser.")
         return True
 
     async def choose(self, candidates: list[Candidate]) -> Candidate:

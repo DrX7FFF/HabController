@@ -612,7 +612,8 @@ class PairingDialog:
 
 
 async def run_pairing(dialog: PairingDialog, cls, duration: int) -> None:
-    pairing = asyncio.create_task(cls(dialog).run(duration))
+    session = cls(dialog)
+    pairing = asyncio.create_task(session.run(duration))
     reader = asyncio.create_task(dialog.read_loop())
     sender = asyncio.create_task(dialog.send_loop())
     try:
@@ -625,6 +626,14 @@ async def run_pairing(dialog: PairingDialog, cls, duration: int) -> None:
             log.exception("Appairage %s : erreur inattendue", cls.LABEL)
             dialog.say("Erreur inattendue, voir le journal.")
             ok = False
+        if ok and (dev := devices.get(session.dev_id)):  # déjà en marche : relit son appairage
+            try:
+                await dev.stop()
+                await dev.start()
+                dialog.say(f"« {dev.id} » redémarré.")
+            except Exception:
+                log.exception("%s : redémarrage impossible", dev.id)
+                dialog.say(f"« {dev.id} » : redémarrage impossible, voir le journal.")
         dialog.outbox.put_nowait({"type": "end", "ok": ok})
         dialog.outbox.put_nowait(None)
         await asyncio.wait({sender})  # tout est envoyé (ou la page est partie)
