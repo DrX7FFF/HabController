@@ -1,6 +1,5 @@
 A revoir :
 Surveiller l'utilisation mémoire/CPU, cas de plantage
-Vérifier les horodate utilisé dans l'application
 
 Démarrage : temporiser de quelques secondes le déclenchement des automatisations (happy flow : équipements pas encore connectés).
 

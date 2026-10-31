@@ -20,7 +20,7 @@ from drivers.homekit import (
 
 log = logging.getLogger(__name__)
 
-DETAILS = ("name", "manufacturer", "model", "serial", "firmware", "hardware", "paired")
+DETAILS = ("name", "manufacturer", "model", "serial", "firmware", "hardware")
 RETRY_MIN = 2  # s, entre deux tentatives de connexion (doublé à chaque échec)
 RETRY_MAX = 60
 FIND_TIMEOUT = 30  # s, attente de l'accessoire sur le réseau (mDNS)

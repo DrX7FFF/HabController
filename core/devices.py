@@ -4,7 +4,6 @@ import keyword
 import logging
 import pkgutil
 import re
-import time
 import tomllib
 import unicodedata
 from pathlib import Path
@@ -133,11 +132,7 @@ def write_summary(devices: dict[str, Device], path: Path) -> int:
             unpaired += 1
             info["physical"] = "not paired"
         report[dev_id] = info
-    lines = [
-        f"# Devices at {time.strftime('%Y-%m-%d %H:%M:%S')}",
-        "# unlinked: physical devices without equipment in devices/",
-        "",
-    ]
+    lines = []
     for key, value in report.items():
         lines += yaml({key: value}, 0) + [""]
     path.write_text("\n".join(lines), encoding="utf-8")

@@ -5,7 +5,6 @@ de la bloquer (identifiants à enregistrer sur la machine : clé SSH ou credenti
 
 import asyncio
 import os
-from datetime import datetime
 from pathlib import Path
 
 TIMEOUT = 120  # s, par commande
@@ -71,12 +70,11 @@ async def pending_backup(repo: Path) -> tuple[int, int]:
 
 
 async def backup(repo: Path) -> str:
-    """Commit de toutes les modifications (message daté) puis push ; renvoie un résumé."""
+    """Commit de toutes les modifications puis push ; renvoie un résumé."""
     changes = len((await git(repo, "status", "--porcelain")).splitlines())
     if changes:
         await git(repo, "add", "--all")
-        message = f"sauvegarde du {datetime.now():%Y-%m-%d %H:%M}"
-        await git(repo, *await _identity(repo), "commit", "--quiet", "-m", message)
+        await git(repo, *await _identity(repo), "commit", "--quiet", "-m", "sauvegarde")
     ahead = await _count(repo, "@{u}..HEAD")
     if ahead:
         try:

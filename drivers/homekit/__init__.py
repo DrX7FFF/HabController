@@ -6,7 +6,6 @@ import os
 import re
 import tomllib
 from contextlib import asynccontextmanager
-from datetime import datetime
 from pathlib import Path
 
 from aiohomekit import Controller
@@ -112,7 +111,7 @@ def link_models() -> dict[str, tuple[list[str], str]]:
 
 
 def save_pairing(dev_id: str, keys: dict, info: dict | None = None) -> Path:
-    """Écrit l'appairage : `info` (champs de INFO_CHARS, et « paired ») puis les clés `keys`."""
+    """Écrit l'appairage : `info` (champs de INFO_CHARS) puis les clés `keys`."""
     info = info or {}
     lines = [
         f"# Appairage HomeKit de « {dev_id} » : lien entre l'équipement logique",
@@ -124,8 +123,6 @@ def save_pairing(dev_id: str, keys: dict, info: dict | None = None) -> Path:
         for field in INFO_CHARS.values()
         if info.get(field)
     ]
-    if isinstance(paired := info.get("paired"), datetime):
-        lines.append(f"paired = {paired.replace(microsecond=0).isoformat()}")
     lines += ["", "[hap]  # clés d'appairage d'aiohomekit : ne pas modifier"]
     lines += [f"{key} = {json.dumps(value)}" for key, value in keys.items()]
     path = pairing_file(dev_id)
@@ -193,7 +190,7 @@ async def pair_accessory(discovery, dev_id: str, pin: str) -> Path:
             info = await accessory_info(pairing)
         except ERRORS:
             info = {}  # facultatif : l'appairage reste valable sans
-        return save_pairing(dev_id, keys, {**info, "paired": datetime.now()})
+        return save_pairing(dev_id, keys, info)
     finally:
         await pairing.close()
 

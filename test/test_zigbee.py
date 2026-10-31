@@ -550,7 +550,7 @@ class SummaryTest(unittest.IsolatedAsyncioTestCase):
             self.addCleanup(patcher.stop)
 
     def lines(self):
-        return self.out.read_text(encoding="utf-8").splitlines()[3:]
+        return self.out.read_text(encoding="utf-8").splitlines()
 
     DEVICES = [
         "",

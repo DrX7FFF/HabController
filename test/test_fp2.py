@@ -444,7 +444,6 @@ class HomekitFilesTest(unittest.IsolatedAsyncioTestCase):
                 "name": "Presence-Sensor-FP2",
             },
         )
-        self.assertIn("paired", saved)
         self.assertNotIn("hardware", saved)  # absent de l'accessoire : pas de ligne vide
 
     async def test_pair_refuses_bad_pin(self):
