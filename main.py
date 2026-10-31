@@ -169,13 +169,14 @@ async def after_start() -> None:
 
 
 async def start() -> None:
-    """Abonne pages, automatisations et datalog aux équipements chargés, puis les démarre."""
+    """Abonne pages, datalog et automatisations aux équipements chargés, puis les démarre (le
+    datalog d'abord : une automatisation peut enregistrer dès son chargement)."""
     global summary
     for dev in devices.values():
         dev.subscribe(partial(on_device_change, dev.id))
         dev.subscribe_ready(partial(on_device_ready, dev))
-    start_automations()
     await start_datalog()
+    start_automations()
     with collect_errors() as errs:
         results = await asyncio.gather(
             *(d.start() for d in devices.values()), return_exceptions=True
