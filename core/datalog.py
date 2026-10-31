@@ -228,6 +228,8 @@ class Datalog:
                 log.info("datalog : %s, %d valeurs purgées", path, len(old))
 
     async def _purge_loop(self) -> None:
+        while not clock_ok():  # heure fausse : la limite de rétention le serait aussi
+            await asyncio.sleep(60)
         while True:
             try:
                 await self.purge()

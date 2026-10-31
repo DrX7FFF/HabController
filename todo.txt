@@ -1,5 +1,4 @@
 A revoir :
-désactiver l’état None des équipements (par exemple sur on) ;
 Surveiller l'utilisation mémoire/CPU, cas de plantage
 Vérifier les horodate utilisé dans l'application
 
