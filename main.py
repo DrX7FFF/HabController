@@ -551,6 +551,7 @@ async def websocket(ws: WebSocket):
 
 
 # Appareils appairés qu'aucun équipement n'utilise : liste (GET), retrait (DELETE).
+# Après un retrait, le résumé des équipements est réécrit.
 async def cleanup(protocol: str, action: str) -> list[str]:
     cls = pairings.get(protocol)
     if cls is None or not cls.CLEANUP:
@@ -571,7 +572,10 @@ async def list_unused(protocol: str) -> list[str]:
 
 @app.delete("/api/pair/{protocol}/unused")
 async def remove_unused(protocol: str) -> list[str]:
-    return await cleanup(protocol, "remove_unused")
+    removed = await cleanup(protocol, "remove_unused")
+    if removed:
+        write_summary(devices, SUMMARY)
+    return removed
 
 
 class PairingDialog:
@@ -634,6 +638,8 @@ async def run_pairing(dialog: PairingDialog, cls, duration: int) -> None:
             except Exception:
                 log.exception("%s : redémarrage impossible", dev.id)
                 dialog.say(f"« {dev.id} » : redémarrage impossible, voir le journal.")
+        if ok:
+            write_summary(devices, SUMMARY)
         dialog.outbox.put_nowait({"type": "end", "ok": ok})
         dialog.outbox.put_nowait(None)
         await asyncio.wait({sender})  # tout est envoyé (ou la page est partie)
