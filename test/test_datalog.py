@@ -149,6 +149,28 @@ class RecordFunctionTest(DatalogTestCase):
         self.assertIn("envoi impossible", logs.output[0])
         self.assertIn("envoi rétabli", logs.output[1])
 
+    async def test_nothing_recorded_before_time_sync(self):
+        sync_file = mock.Mock(**{"exists.return_value": False})
+        with mock.patch.multiple(datalog, _clock_ok=False, _clock_warned=False,
+                                 SYNC_FILE=sync_file):
+            with self.assertLogs("core.datalog", "INFO") as logs:
+                self.prise.update({"on": True})
+                self.log.record("x", 1, 1000)
+                sync_file.exists.return_value = True
+                self.prise.update({"on": True, "active_power": 10.0})  # on : refusé, donc écrit
+                await self.idle()
+                sync_file.exists.return_value = False  # vu une fois : plus contrôlé
+                self.log.record("x", 2, 2000)
+                await self.idle()
+        at = self.prise.changed_at
+        self.assertEqual(self.written(), [
+            {f"devices/prise/on/{at}": True, f"devices/prise/active_power/{at}": 10.0},
+            {"x/2000": 2},
+        ])
+        self.assertEqual(len(logs.output), 2)
+        self.assertIn("non synchronisée", logs.output[0])
+        self.assertIn("heure synchronisée", logs.output[1])
+
 
 class PurgeTest(DatalogTestCase):
     async def test_old_values_deleted_per_path(self):

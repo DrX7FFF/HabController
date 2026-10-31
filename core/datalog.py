@@ -7,12 +7,13 @@ import time
 import tomllib
 from collections.abc import Callable
 from functools import partial
+from pathlib import Path
 
 import aiohttp
 from google.auth.transport.requests import Request
 from google.oauth2.service_account import Credentials
 
-from core import CONFIG_DIR
+from core import CONFIG_DIR, settings
 from core.base import Device, spawn_task
 
 log = logging.getLogger(__name__)
@@ -26,10 +27,34 @@ UNITS = {"h": 3600, "d": 86400, "y": 365 * 86400}
 PURGE_PERIOD = 86400  # s
 CONFIG_FILE = CONFIG_DIR / "datalog.toml"  # rechargeable seul, sans toucher aux équipements
 TIMEOUT = aiohttp.ClientTimeout(total=10)
+# créé par systemd-timesyncd à la première synchronisation NTP réussie depuis le démarrage
+SYNC_FILE = Path("/run/systemd/timesync/synchronized")
 
 
 def now_ms() -> int:
     return time.time_ns() // 1_000_000
+
+
+# [global] timesyncctrl de habctrl.toml : "ignored" (par défaut) ou "timesyncfile" (rien
+# n'est enregistré tant que SYNC_FILE n'a pas été vu : heure fausse au démarrage, sans RTC)
+_timesyncctrl = settings("global").get("timesyncctrl", "ignored")
+if _timesyncctrl not in ("ignored", "timesyncfile"):
+    log.error("habctrl.toml : [global] timesyncctrl %r inconnu, ignored retenu", _timesyncctrl)
+_clock_ok = _timesyncctrl != "timesyncfile"
+_clock_warned = False
+
+
+def clock_ok() -> bool:
+    """Heure fiable : contrôle désactivé, ou SYNC_FILE vu une fois (la dérive est ignorée)."""
+    global _clock_ok, _clock_warned
+    if not _clock_ok:
+        if SYNC_FILE.exists():
+            _clock_ok = True
+            log.info("datalog : heure synchronisée, enregistrements activés")
+        elif not _clock_warned:
+            _clock_warned = True
+            log.warning("datalog : heure non synchronisée, enregistrements ignorés")
+    return _clock_ok
 
 
 def duration_ms(text: str) -> int:
@@ -101,6 +126,8 @@ class Datalog:
     # --- enregistrement -----------------------------------------------------
 
     def on_state(self, device: Device, state: dict) -> None:
+        if not clock_ok():  # avant self.last : la valeur sera enregistrée une fois à l'heure
+            return
         at = device.changed_at or now_ms()
         data = {}
         for attr, options in self.watched[device.id].items():
@@ -122,6 +149,8 @@ class Datalog:
         return value != last
 
     def record(self, path: str, value, at: int | None) -> None:
+        if not clock_ok():
+            return
         path = path.strip("/")
         self.retention.setdefault(path, self.default_retention)
         self.send({f"{path}/{now_ms() if at is None else at}": value})

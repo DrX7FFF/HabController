@@ -32,6 +32,9 @@ Habitation domotique home mad
 Emplacements modifiables : configuration avec `HABCTRL_CONFIG`, temp/ avec `[paths] temp` de `habctrl.toml`.
 Niveau d'un journal (diagnostic, pris en compte au redémarrage) : `[global] loglevels` de
 `habctrl.toml`, ex. `loglevels = { bellows = "DEBUG", zigpy = "DEBUG" }`.
+Contrôle de l'heure avant tout enregistrement du datalog : `[global] timesyncctrl` de `habctrl.toml`,
+`"ignored"` (par défaut) ou `"timesyncfile"` (rien n'est enregistré tant que systemd-timesyncd n'a pas
+créé `/run/systemd/timesync/synchronized` depuis le démarrage ; vu une fois, plus contrôlé).
 
 ## Équipements
 Chaque fichier de `devices/` déclare autant d'équipements que voulu (par pièce, par type…) :
