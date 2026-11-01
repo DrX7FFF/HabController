@@ -360,15 +360,14 @@ async def run_sync(name: str):
 
 async def update_code() -> dict:
     """Met à jour HabController (git pull, dépendances si requirements.txt a changé), puis
-    redémarre le programme si le code ou habctrl.toml a changé depuis son démarrage."""
+    redémarre le programme, même sans changement."""
     files = await git.pull(ROOT)
     if "requirements.txt" in files:
         await install_requirements()
-    if await git.head(ROOT) == boot_commit and SETTINGS.read_bytes() == boot_settings:
-        return {"text": "Déjà à jour."}
     log.info("HabController mis à jour (%d fichier(s) tiré(s))", len(files))
     asyncio.get_running_loop().call_later(0.5, restart)  # la réponse part avant l'arrêt
-    return {"text": f"{len(files)} fichier(s) mis à jour, redémarrage…", "restarting": True}
+    text = f"{len(files)} fichier(s) mis à jour" if files else "Déjà à jour"
+    return {"text": f"{text}, redémarrage…", "restarting": True}
 
 
 async def download_config() -> dict:
