@@ -1,16 +1,14 @@
 """Présence : éclairage du salon et de la cuisine selon la présence globale du FP2."""
 
-import logging
-
-from core.automation import Event, on_change
+from core.automation import *
 from devices.cuisine import cuisine
-from devices.salon import salon
-
-log = logging.getLogger(__name__)
+from devices.salon import fp2, salon
 
 
-@on_change("fp2.zone.Global")
-async def eclairage(event: Event):
+@fp2.event_zone
+async def eclairage(event: EventZone):
+    if event.zonename != "Global":
+        return
     salon.on = event.new
     cuisine.on = event.new
     log.warning("Detection = %s", event.new)

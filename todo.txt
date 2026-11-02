@@ -29,6 +29,12 @@ Alertes : équipement qui ne vit plus, pile faible.
   Administration) pour commencer, puis notification externe (mail, push…).
 
 
+Automatisations, événements @equipement.event_… (à voir plus tard) :
+- EventAction « life » : signe de vie quand un message ne change aucun attribut.
+- Filtrer les événements qu'on vient d'envoyer (commande de HabController → changement reçu).
+- event_change : un appel par message avec tous les attributs changés (structure de ev à définir).
+- Boutons : une classe par modèle avec des actions typées (Literal).
+
 ## Peut être un jour
 Mesures propriétaires unmanaged : pouvoir déclarer dans reports un numéro de fonction propriétaire pour en recevoir la valeur et l’enregistrer.
 Mesures unmanaged : compléter les pilotes concernés si besoin. Le seul cas actuel est level sur ventilateur.

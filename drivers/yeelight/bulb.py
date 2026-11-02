@@ -174,7 +174,7 @@ class YeelightBulb(Light, NetworkDevice):
             await bulb.async_turn_on(**fx)
             self._props["power"] = "on"
         if name == "on":
-            on = on_value(value, self._props.get("power") == "on")
+            on = on_value(value)
             if on:
                 await bulb.async_turn_on(**fx)
             else:

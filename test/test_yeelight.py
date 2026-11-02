@@ -43,10 +43,10 @@ class YeelightOnTest(unittest.IsolatedAsyncioTestCase):
         bulb._connected = False
         self.assertEqual(bulb.state(), {"connected": False})
 
-    async def test_set_on_and_toggle(self):
+    async def test_set_on(self):
         bulb = self.make()
         bulb._merge({"power": "off"})
-        await bulb.set("on", "toggle", 0)
+        await bulb.set("on", True, 0)
         self.assertIs(bulb.on, True)
         await bulb.set("on", False, 0)
         self.assertIs(bulb.on, False)

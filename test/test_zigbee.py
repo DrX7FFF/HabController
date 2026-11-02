@@ -214,7 +214,7 @@ class PlugStateTest(unittest.TestCase):
 
 
 class PlugCommandTest(unittest.IsolatedAsyncioTestCase):
-    async def test_on_sends_zcl_command_and_toggle_inverts(self):
+    async def test_on_sends_zcl_command(self):
         plug = Plug(IEEE)
         plug.zdev = SimpleNamespace()
         sent = []
@@ -227,7 +227,7 @@ class PlugCommandTest(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(plug, "_command", command),
         ):
             await plug.set("on", True)
-            await plug.set("on", "toggle")
+            await plug.set("on", False)
         self.assertEqual(sent, ["on", "off"])
         self.assertIs(plug._values["on"], False)
 
@@ -254,9 +254,15 @@ class SensorTest(unittest.IsolatedAsyncioTestCase):
         button = Button(IEEE)
         button.zdev = SimpleNamespace(skip_configuration=True)
         got = []
-        button.subscribe_events(lambda name, value: got.append((name, value)))
+
+        @button.event_action
+        async def action(event):
+            got.append((event.action, event.value))
+
         button.zha_send_event("double", [])
         button.zha_send_event("rotate_right", {"relative_degrees": 90})
+        await asyncio.sleep(0.01)
+        await base.clear_listeners()
         self.assertEqual(got, [("double", None), ("rotate_right", {"relative_degrees": 90})])
         self.assertTrue(button.connected)
 

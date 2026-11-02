@@ -1,6 +1,6 @@
 """Pilote détecteur de présence Zigbee."""
 
-from core.base import Attribute
+from core.base import Attribute, EventBool, EventInt, EventSource
 from drivers.zigbee.sensor import Sensor, SensorReports
 
 
@@ -13,6 +13,8 @@ class Motion(Sensor):
     DEFAULTS = {"presence": True, "illuminance": 2, "battery": 1}
     presence = Attribute[bool](readonly=True)
     illuminance = Attribute[int](readonly=True)
+    event_presence = EventSource[EventBool]()
+    event_illuminance = EventSource[EventInt]()
 
     def __init__(self, ieee: str, reports: MotionReports | None = None):
         super().__init__(ieee, reports)

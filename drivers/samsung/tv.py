@@ -6,7 +6,7 @@ import contextlib
 import logging
 import socket
 
-from core.base import Attribute, DeviceError, NetworkDevice, on_value
+from core.base import Attribute, DeviceError, EventBool, EventSource, NetworkDevice, on_value
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ class SamsungTV(NetworkDevice):
 
     WIDGET = "onoff"
     on = Attribute[bool]()  # écriture : False seulement
+    event_on = EventSource[EventBool]()
 
     def __init__(self, host: str, port: int = 55000, retry: float = 30):
         super().__init__()
@@ -125,7 +126,7 @@ class SamsungTV(NetworkDevice):
     async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
         if name != "on":
             raise ValueError(f"{self.id} ne gère pas « {name} »")
-        if on_value(value, self._connected):
+        if on_value(value):
             raise ValueError(f"{self.id} : impossible de l'allumer par le réseau")
         if self._writer is None:
             return  # déjà éteinte

@@ -3,20 +3,24 @@
 Le pilote écrit set() ; toggle(), set_temp() et set_rgb() en découlent (deux commandes : intensité
 puis réglage). Un pilote qui sait tout envoyer en un message les réécrit (ex. Yeelight)."""
 
-from core.base import Attribute, Device
+from core.base import Attribute, Device, EventBool, EventInt, EventSource, EventStr
 
 
 class Light(Device):
     WIDGET = "light"
-    on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
+    on = Attribute[bool]()
     brightness = Attribute[int]()  # 1 à 100
     color_temp = Attribute[int]()  # Kelvin
     rgb = Attribute[str]()  # "#rrggbb"
+    event_on = EventSource[EventBool]()
+    event_brightness = EventSource[EventInt]()
+    event_color_temp = EventSource[EventInt]()
+    event_rgb = EventSource[EventStr]()
 
     # Commandes groupées : en tâche de fond, comme salon.on = True.
 
     def toggle(self, transition: int | None = None) -> None:
-        self._background("toggle", lambda: self.set("on", "toggle", transition))
+        self._background("toggle", lambda: self.set("on", not self.on, transition))
 
     def set_temp(self, brightness: int, color_temp: int, transition: int | None = None) -> None:
         self._background(

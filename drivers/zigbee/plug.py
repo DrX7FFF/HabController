@@ -3,7 +3,7 @@
 import logging
 from typing import TypedDict
 
-from core.base import Attribute, on_value
+from core.base import Attribute, EventBool, EventFloat, EventSource, on_value
 from drivers.zigbee import (
     ZigbeeDevice,
     find_cluster,
@@ -61,11 +61,16 @@ class Plug(ZigbeeDevice):
     DEFAULTS = DEFAULTS
     WIDGET = "plug"
 
-    on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
+    on = Attribute[bool]()
     active_power = Attribute[float](readonly=True)
     voltage = Attribute[float](readonly=True)
     current = Attribute[float](readonly=True)
     energy = Attribute[float](readonly=True)
+    event_on = EventSource[EventBool]()
+    event_active_power = EventSource[EventFloat]()
+    event_voltage = EventSource[EventFloat]()
+    event_current = EventSource[EventFloat]()
+    event_energy = EventSource[EventFloat]()
 
     def __init__(
         self, ieee: str, poll: float | None = None, reports: PlugReports | None = None
@@ -130,10 +135,13 @@ class Plug(ZigbeeDevice):
 
     # --- commandes ----------------------------------------------------------
 
+    def toggle(self) -> None:
+        self._background("toggle", lambda: self.set("on", not self.on))
+
     async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
         if name != "on":
             raise ValueError(f"{self.id} ne gère pas « {name} »")
-        on = on_value(value, self._values.get("on") is True)
+        on = on_value(value)
         cluster = find_cluster(self.zdev, ON_OFF) if self.zdev is not None else None
         await self._command(cluster, "on" if on else "off")  # commandes ZCL « on » / « off »
         self._values["on"] = on

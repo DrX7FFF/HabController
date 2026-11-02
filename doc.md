@@ -44,59 +44,68 @@ la page Commandes signale leur nombre dans son bandeau.
 
 ## Automatisations
 
-Fonctions déclenchées par les changements d'état des équipements. Un fichier par sujet dans
+Fonctions déclenchées par les événements des équipements. Un fichier par sujet dans
 `automations/`, chargé au démarrage. Les équipements s'importent depuis le fichier de
 `devices/` qui les déclare :
 
 ```python
-import logging
-
-from core.automation import Event, on_change
-from devices.salon import capteur, salon
+from core.automation import *             # types d'événement, Timer, log
+from devices.salon import capteur, fp2, salon
 from devices.cuisine import cuisine
+from devices.devices import bouton
 
-log = logging.getLogger(__name__)  # journal des scripts : temp/automations.log
-
-@on_change("capteur.presence")            # « équipement.attribut » ; « capteur » = tout l'état
-async def eclairage(event: Event):        # event.old, event.new, event.changed, event.time
-    if capteur.connected and capteur.presence:
-        salon.on = True                   # écriture : commande envoyée en tâche de fond
+@capteur.event_presence
+async def eclairage(event: EventBool):   # event.device, event.time, event.old, event.new
+    if event.new and capteur.connected:
+        salon.on = True                     # écriture : commande envoyée en tâche de fond
         cuisine.on = True
+
+@fp2.event_zone
+async def zone(event: EventZone):          # + event.zonename : nom de zonemapping (ou numéro)
+    if event.zonename == "Global" and event.new:
+        ...
+
+@bouton.event_action
+async def appui(event: EventAction):             # event.action : nom du correctif zha-quirks
+    if event.action == "on_press":          # event.value : valeur éventuelle (angle du cube…)
+        salon.toggle()
 ```
 
+- **Événements** : chaque pilote déclare les siens. Après `@salon.event_`, l'éditeur propose ceux
+  de l'équipement, et le type de `event` est vérifié s'il est annoté. Un attribut donne
+  `EventBool`, `EventInt`, `EventFloat` ou `EventStr` selon son type, `event_zone` donne
+  `EventZone`, `event_action` donne `EventAction` ; tous les équipements ont `event_connected`.
+- **Déclenchement** : un appel par attribut changé, à la première valeur reçue (`event.old`
+  vaut `None`) puis à chaque valeur différente de la précédente. Un équipement injoignable ne
+  déclenche que `event_connected` ; ses attributs gardent leur dernière valeur, rien ne se
+  déclenche s'ils reviennent identiques. Un changement envoyé par HabController lui-même
+  déclenche aussi l'événement.
+- Les événements d'un même équipement sont traités un par un, dans l'ordre d'arrivée : une
+  fonction qui attend longtemps retarde les suivants (utiliser un `Timer`). Une erreur dans une
+  automatisation n'arrête pas les autres.
+- Une même fonction peut être décorée sur plusieurs équipements (`event.device`).
+- Un `event_` d'attribut qui ne se déclenchera jamais (attribut non suivi dans `reports`, absent
+  de l'appareil) est signalé dans le journal une fois les appareils rattachés ; l'automatisation
+  est gardée.
 - **Lecture** : un attribut vaut `None` si l'équipement est injoignable (l'attribut disparaît
   de son état).
 - **Écriture** : `salon.on = True` ne bloque pas et ne lève rien si l'équipement est
   injoignable (c'est journalisé) ; les commandes d'un même équipement partent dans l'ordre.
   Pour attendre la réponse, ou passer une transition : `ok = await salon.send("on", True, 2)`,
   qui renvoie `False` si la commande n'a pas pu partir.
-- `to=` ne déclenche que vers une valeur donnée : `@on_change("capteur.presence", to=True)`.
-- **Événements ponctuels** (boutons) : `@on_event("bouton.double")` à chaque double appui, ou
-  `@on_event("bouton")` pour tous ; `event.attr` est le nom de l'événement, `event.new` sa
-  valeur éventuelle (ex. angle de rotation du cube), `event.old` toujours `None`.
-- Un attribut absent de l'état (équipement injoignable) n'est pas un changement : on garde la
-  dernière valeur connue, et rien ne se déclenche tant que la valeur revient identique.
-- Les événements d'une même fonction sont traités dans l'ordre ; une erreur dans une
-  automatisation n'arrête pas les autres.
-- Un équipement inconnu dans un `@on_change` est signalé au démarrage.
-- Un attribut qui ne sera jamais reçu (inconnu du pilote, non suivi dans `reports`, absent de
-  l'appareil, zone absente du `zonemapping` du FP2) est signalé une fois les appareils
-  rattachés ; l'automatisation est gardée.
 - **Minuteur** : `Timer(délai_s, action)` appelle `action()` (fonction simple ou async) à la
   fin du délai. `start()` (re)lance le décompte depuis zéro, même s'il tourne déjà : un seul
   minuteur, quel que soit le nombre de départs ; `cancel()` l'arrête ; `running` indique s'il
   tourne. Annulé au rechargement.
 
 ```python
-from core.automation import Timer
-
 def eteindre():
     salon.on = False
 
 extinction = Timer(5 * 60, eteindre)
 
-@on_change("capteur.presence")
-async def eclairage(event: Event):
+@capteur.event_presence
+async def eclairage(event: EventBool):
     if event.new:
         extinction.cancel()
         salon.on = True
@@ -104,16 +113,16 @@ async def eclairage(event: Event):
         extinction.start()                # extinction 5 min après le dernier départ
 ```
 - Un fichier qui échoue au chargement (erreur de syntaxe, import faux…) est déchargé en entier,
-  y compris les automatisations déclarées avant l'erreur ; l'erreur est journalisée et les
-  autres fichiers se chargent normalement.
+  y compris les abonnements faits avant l'erreur ; l'erreur est journalisée et les autres
+  fichiers se chargent normalement.
 
 ## Journaux
 
 - Système (pilotes, connexions, serveur, moteur d'automatisation) : console + `temp/system.log`.
 - Scripts (`automations/*.py`) : `temp/automations.log` seulement, jamais dans la console.
 
-Un script se journalise avec `log = logging.getLogger(__name__)` : son nom
-(`automations.<script>`) suffit à l'envoyer dans le bon fichier.
+Un script se journalise avec `log` (fourni par `from core.automation import *`) : chaque ligne
+indique le fichier du script, ex. `presence : porte ouverte : True`.
 
 ## Datalog
 
@@ -150,8 +159,9 @@ active_power = { hysteresis = 5, retention = "1y" }
 - L'hystérésis ne s'applique qu'aux nombres : une valeur n'est enregistrée que si elle s'écarte
   d'au moins `hysteresis` de la dernière enregistrée.
 - Un équipement injoignable n'enregistre rien.
-- Un attribut qui ne sera jamais reçu (même contrôle que pour `@on_change`) est signalé une
-  fois les appareils rattachés.
+- Un attribut qui ne sera jamais reçu (inconnu du pilote, non suivi dans `reports`, absent de
+  l'appareil, zone absente du `zonemapping` du FP2) est signalé une fois les appareils
+  rattachés.
 - Envoi immédiat en tâche de fond ; sans réseau, la valeur est perdue (journalisé).
 - Une fois par jour, les valeurs plus vieilles que leur rétention sont supprimées.
 - Datalog non configuré : pas d'historique, les graphiques signalent l'erreur.
@@ -258,7 +268,7 @@ l'autre.
 
 | Attribut     | Type                      | Lecture | Commande                    |
 |--------------|---------------------------|---------|-----------------------------|
-| `on`         | bool                      | ✓       | `True`, `False`, `"toggle"` |
+| `on`         | bool                      | ✓       | `True`, `False`             |
 | `brightness` | int, 1 à 100 (%)          | ✓       | ✓                           |
 | `color_temp` | int, Kelvin (~1700–6500)  | ✓       | ✓                           |
 | `rgb`        | str, `"#rrggbb"`          | ✓       | ✓                           |
@@ -303,11 +313,13 @@ prise_salon = Plug(ieee="a4:c1:38:d6:d7:c6:db:f6")
 
 | Attribut       | Type             | Lecture | Commande                    |
 |----------------|------------------|---------|-----------------------------|
-| `on`           | bool             | ✓       | `True`, `False`, `"toggle"` |
+| `on`           | bool             | ✓       | `True`, `False`             |
 | `active_power` | float, W         | ✓       | —                           |
 | `voltage`      | float, V         | ✓       | —                           |
 | `current`      | float, A         | ✓       | —                           |
 | `energy`       | float, kWh cumul | ✓       | —                           |
+
+`toggle()` inverse allumé / éteint.
 
 Les mesures sont envoyées spontanément par la prise, et n'apparaissent que si elles sont
 suivies et que le modèle les fournit (clusters 0x0b04, 0x0702). Une lecture toutes les 5 min
@@ -365,7 +377,7 @@ personne » (Xiaomi) est remis à faux par son correctif zha-quirks après un d�
 bouton_lit = Button(ieee="00:15:8d:00:04:01:94:be")
 ```
 
-Seulement `battery` dans l'état. Chaque appui est un événement, nommé par le correctif
+Seulement `battery` dans l'état. Chaque appui déclenche `event_action`, nommé par le correctif
 zha-quirks de l'appareil, avec sa valeur éventuelle :
 
 | Appareil       | Événements                                          |
@@ -376,9 +388,10 @@ zha-quirks de l'appareil, avec sa valeur éventuelle :
 | Hue Dimmer     | `on_press`, `off_long_press`…                       |
 
 ```python
-@on_event("bouton_lit.double")       # à chaque double appui ; @on_event("bouton_lit") : tous
-async def lumiere(event):            # event.attr : nom, event.new : valeur (ex. angle du cube)
-    salon.on = "toggle"
+@bouton_lit.event_action
+async def lumiere(event: EventAction):    # event.action : nom, event.value : valeur (ex. angle du cube)
+    if event.action == "double":
+        salon.toggle()
 ```
 
 ### Capteur de présence Aqara FP2 — `homekit.fp2`
@@ -387,17 +400,17 @@ async def lumiere(event):            # event.attr : nom, event.new : valeur (ex.
 fp2 = FP2(zonemapping={0: "Global", 1: "salon"})
 ```
 
-| Attribut                          | Type            | Lecture | Commande |
-|-----------------------------------|-----------------|---------|----------|
-| `zone.<alias>` ou `zone[<index>]` | bool (présence) | ✓       | —        |
-| `illuminance`                     | float, lux      | ✓       | —        |
+| Attribut                            | Type            | Lecture | Commande |
+|-------------------------------------|-----------------|---------|----------|
+| `zones.<alias>` ou `zones[<index>]` | bool (présence) | ✓       | —        |
+| `illuminance`                       | float, lux      | ✓       | —        |
 
 Chaque zone est repérée par son « Sensor Index » (caractéristique Aqara), comme dans
 node-red-contrib-fp2 ; l'index 0 est la présence globale. `zonemapping` donne un alias aux
-index : `fp2.zone.salon` ou `fp2.zone[1]` (l'index est traduit en alias s'il en a un) ; sans
-alias : `fp2.zone[3]`. Déclencheur : `@on_change("fp2.zone.<alias>")` ; l'index n'est
-utilisable que pour une zone sans alias (`@on_change("fp2.zone.3")`), car l'état ne contient
-qu'une clé par zone. Capteur : toute commande est refusée.
+index : `fp2.zones.salon` ou `fp2.zones[1]` (l'index est traduit en alias s'il en a un) ; sans
+alias : `fp2.zones[3]`. Nom dans l'état et le datalog : `zone.<alias>`. Déclencheur :
+`@fp2.event_zone`, `event.zonename` est l'alias de la zone, ou son index (`"3"`) si elle n'en a
+pas. Capteur : toute commande est refusée.
 
 ### TV Samsung d'avant 2016 — `samsung.tv`
 
@@ -424,7 +437,9 @@ ruban = WLED(host="192.168.1.120")   # port=80, retry=10
 
 | Attribut | Type | Lecture | Commande                    |
 |----------|------|---------|-----------------------------|
-| `on`     | bool | ✓       | `True`, `False`, `"toggle"` |
+| `on`     | bool | ✓       | `True`, `False`             |
+
+`toggle()` inverse allumé / éteint.
 
 Connexion WebSocket permanente (`/ws`) : le WLED envoie son état à chaque changement, même
 venu d'ailleurs (appli, bouton). Coupée, une nouvelle tentative a lieu toutes les `retry`
