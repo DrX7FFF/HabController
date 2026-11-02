@@ -54,6 +54,12 @@ class Event(Generic[T]):
     new: T
 
 
+EventBool = Event[bool]
+EventInt = Event[int]
+EventFloat = Event[float]
+EventStr = Event[str]
+
+
 @dataclass(frozen=True)
 class EventZone:
     """Présence d'une zone changée (détecteur à zones)."""
@@ -78,7 +84,7 @@ class EventAction:
 Listener = Callable[[E], Awaitable[None]]
 
 
-class Evt(Generic[E]):
+class EventSource(Generic[E]):
     """Événement d'un équipement, déclaré par son pilote : `@equipement.event_x` abonne une
     fonction async(event: E). Clé : le nom sans « event_ » (attribut d'état, « zone » ou « action »)."""
 
@@ -89,7 +95,7 @@ class Evt(Generic[E]):
         self.key = name.removeprefix("event_")
 
     @overload
-    def __get__(self, obj: None, owner: type) -> "Evt[E]": ...
+    def __get__(self, obj: None, owner: type) -> "EventSource[E]": ...
     @overload
     def __get__(self, obj: "Device", owner: type) -> Callable[[Listener[E]], Listener[E]]: ...
     def __get__(self, obj, owner=None) -> Any:
@@ -164,7 +170,7 @@ class Device:
 
     WIDGET = ""  # widget du tableau de bord : sensor, plug, onoff ou light ; "" : aucun
     connected = Attribute[bool](readonly=True)
-    event_connected = Evt[Event[bool]]()
+    event_connected = EventSource[EventBool]()
 
     def __init__(self):
         self.id = ""  # affecté par configure() : le chargeur le déduit du nom de la variable
@@ -174,7 +180,7 @@ class Device:
         self._last_notified: dict | None = None
         self.changed_at: int | None = None  # ms depuis l'époque Unix, dernier changement d'état
         self.last_seen: int | None = None  # ms, dernière mise à jour reçue (même identique)
-        self._evt_listeners: dict[str, list[Callable]] = {}  # clé d'Evt -> fonctions abonnées
+        self._evt_listeners: dict[str, list[Callable]] = {}  # clé d'EventSource -> fonctions abonnées
         self._evt_last: dict = {}  # dernière valeur vue par attribut, gardée hors connexion
         self._evt_lock = asyncio.Lock()  # fonctions abonnées : une à la fois, dans l'ordre
 
@@ -227,7 +233,7 @@ class Device:
                 self._fire(*self._change(key, old, value, now))
 
     def _change(self, key: str, old: Any, new: Any, when: int) -> tuple[str, Any]:
-        """Événement d'un attribut changé : (clé d'Evt, event)."""
+        """Événement d'un attribut changé : (clé d'EventSource, event)."""
         return key, Event(self, when, old, new)
 
     def _listen(self, key: str, func: Listener) -> Listener:

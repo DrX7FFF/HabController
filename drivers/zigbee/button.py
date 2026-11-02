@@ -2,7 +2,7 @@
 
 import logging
 
-from core.base import EventAction, Evt
+from core.base import EventAction, EventSource
 
 from drivers.zigbee import ERRORS, MANUFACTURER, find_cluster
 from drivers.zigbee.sensor import Sensor
@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 
 
 class Button(Sensor):
-    event_action = Evt[EventAction]()  # action : nom donné par le correctif zha-quirks du modèle
+    event_action = EventSource[EventAction]()  # action : nom donné par le correctif zha-quirks du modèle
 
     def _attach(self, app) -> None:
         super()._attach(app)

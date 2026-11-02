@@ -8,7 +8,7 @@ import math
 from collections.abc import Mapping
 from typing import ClassVar, TypedDict
 
-from core.base import Attribute, Event, Evt
+from core.base import Attribute, EventInt, EventSource
 from drivers.zigbee import ZigbeeDevice, find_cluster, raw_change, setup_reporting, tracked
 
 POWER = 0x0001
@@ -63,7 +63,7 @@ class Sensor(ZigbeeDevice):
     # valeurs suivies par défaut, propres à chaque variante
     DEFAULTS: ClassVar[Mapping[str, object]] = {"battery": 1}
     battery = Attribute[int](readonly=True)
-    event_battery = Evt[Event[int]]()
+    event_battery = EventSource[EventInt]()
 
     def __init__(self, ieee: str, reports: SensorReports | None = None):
         super().__init__(ieee)

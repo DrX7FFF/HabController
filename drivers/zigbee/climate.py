@@ -1,6 +1,6 @@
 """Pilote capteur Zigbee de température, humidité et pression."""
 
-from core.base import Attribute, Event, Evt
+from core.base import Attribute, EventFloat, EventSource
 from drivers.zigbee.sensor import Sensor, SensorReports
 
 
@@ -15,9 +15,9 @@ class Climate(Sensor):
     temperature = Attribute[float](readonly=True)
     humidity = Attribute[float](readonly=True)
     pressure = Attribute[float](readonly=True)
-    event_temperature = Evt[Event[float]]()
-    event_humidity = Evt[Event[float]]()
-    event_pressure = Evt[Event[float]]()
+    event_temperature = EventSource[EventFloat]()
+    event_humidity = EventSource[EventFloat]()
+    event_pressure = EventSource[EventFloat]()
 
     def __init__(self, ieee: str, reports: ClimateReports | None = None):
         super().__init__(ieee, reports)

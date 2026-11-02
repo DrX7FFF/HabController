@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
 
-from core.base import Attribute, Event, Evt, NetworkDevice, EventZone
+from core.base import Attribute, EventFloat, EventSource, EventZone, NetworkDevice
 from drivers.homekit import (
     ERRORS,
     PairingError,
@@ -86,8 +86,8 @@ class FP2(NetworkDevice):
 
     WIDGET = "sensor"
     illuminance = Attribute[float](readonly=True)
-    event_illuminance = Evt[Event[float]]()
-    event_zone = Evt[EventZone]()
+    event_illuminance = EventSource[EventFloat]()
+    event_zone = EventSource[EventZone]()
 
     @staticmethod
     def config_args() -> list[str]:

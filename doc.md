@@ -51,7 +51,7 @@ Fonctions déclenchées par les événements des équipements. Un fichier par su
 ```python
 import logging
 
-from core.base import EventAction, Event, EventZone
+from core.base import EventAction, EventBool, EventZone
 from devices.salon import capteur, fp2, salon
 from devices.cuisine import cuisine
 from devices.devices import bouton
@@ -59,7 +59,7 @@ from devices.devices import bouton
 log = logging.getLogger(__name__)  # journal des scripts : temp/automations.log
 
 @capteur.event_presence
-async def eclairage(event: Event[bool]):   # event.device, event.time, event.old, event.new
+async def eclairage(event: EventBool):   # event.device, event.time, event.old, event.new
     if event.new and capteur.connected:
         salon.on = True                     # écriture : commande envoyée en tâche de fond
         cuisine.on = True
@@ -77,8 +77,8 @@ async def appui(event: EventAction):             # event.action : nom du correct
 
 - **Événements** : chaque pilote déclare les siens. Après `@salon.event_`, l'éditeur propose ceux
   de l'équipement, et le type de `event` est vérifié s'il est annoté. Un attribut donne
-  `Event[<type de l'attribut>]`, `event_zone` donne `EventZone`, `event_action` donne `EventAction` ;
-  tous les équipements ont `event_connected`.
+  `EventBool`, `EventInt`, `EventFloat` ou `EventStr` selon son type, `event_zone` donne
+  `EventZone`, `event_action` donne `EventAction` ; tous les équipements ont `event_connected`.
 - **Déclenchement** : un appel par attribut changé, à la première valeur reçue (`event.old`
   vaut `None`) puis à chaque valeur différente de la précédente. Un équipement injoignable ne
   déclenche que `event_connected` ; ses attributs gardent leur dernière valeur, rien ne se
@@ -108,7 +108,7 @@ def eteindre():
 extinction = Timer(5 * 60, eteindre)
 
 @capteur.event_presence
-async def eclairage(event: Event[bool]):
+async def eclairage(event: EventBool):
     if event.new:
         extinction.cancel()
         salon.on = True

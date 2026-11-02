@@ -6,7 +6,7 @@ import contextlib
 import logging
 import socket
 
-from core.base import Attribute, Event, DeviceError, Evt, NetworkDevice, on_value
+from core.base import Attribute, DeviceError, EventBool, EventSource, NetworkDevice, on_value
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class SamsungTV(NetworkDevice):
 
     WIDGET = "onoff"
     on = Attribute[bool]()  # écriture : False seulement
-    event_on = Evt[Event[bool]]()
+    event_on = EventSource[EventBool]()
 
     def __init__(self, host: str, port: int = 55000, retry: float = 30):
         super().__init__()

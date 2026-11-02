@@ -158,7 +158,7 @@ class AttributeTest(AutomationTestCase):
             await bulb.send("on", "oups")
 
     async def test_script_style_from_the_docs(self):
-        fp = EvtDevice("fp2", {"connected": True, "illuminance": 10.0, "n": 0})
+        fp = EventDevice("fp2", {"connected": True, "illuminance": 10.0, "n": 0})
         salon, cuisine = FakeBulb("salon"), FakeBulb("cuisine")
 
         @fp.event_n
@@ -233,7 +233,7 @@ class TimerTest(AutomationTestCase):
 
 class LoadTest(AutomationTestCase):
     async def test_failing_file_unloaded(self):
-        bulb = EvtDevice("lampe")
+        bulb = EventDevice("lampe")
 
         def fake_import(module):  # chaque fichier s'abonne ; « b » échoue ensuite
             async def rule(event):
@@ -340,21 +340,21 @@ class PresenceRuleTest(AutomationTestCase):
         self.assertEqual(self.commands["cuisine"][-1], ("on", True))
 
 
-class EvtDevice(FakeDevice):
-    event_n = base.Evt[base.Event[int]]()
+class EventDevice(FakeDevice):
+    event_n = base.EventSource[base.EventInt]()
 
 
-class EvtBulb(FakeBulb):
-    event_on = base.Evt[base.Event[bool]]()
-    event_bright = base.Evt[base.Event[int]]()
-    event_action = base.Evt[base.EventAction]()
+class EventBulb(FakeBulb):
+    event_on = base.EventSource[base.EventBool]()
+    event_bright = base.EventSource[base.EventInt]()
+    event_action = base.EventSource[base.EventAction]()
 
 
-class EvtTest(AutomationTestCase):
+class EventTest(AutomationTestCase):
     """Événements par attribut : @equipement.event_x."""
 
     async def test_first_value_then_changes_only(self):
-        bulb, seen = EvtBulb("lampe"), []
+        bulb, seen = EventBulb("lampe"), []
 
         @bulb.event_on
         async def on(event):
@@ -367,7 +367,7 @@ class EvtTest(AutomationTestCase):
         self.assertEqual(seen, [(bulb, None, True), (bulb, True, False)])
 
     async def test_one_call_per_changed_attribute(self):
-        bulb, seen = EvtBulb("lampe"), []
+        bulb, seen = EventBulb("lampe"), []
 
         @bulb.event_on
         async def on(event):
@@ -382,7 +382,7 @@ class EvtTest(AutomationTestCase):
         self.assertEqual(seen, [("on", True), ("bright", 50)])
 
     async def test_connected_event(self):
-        bulb, seen = EvtBulb("lampe"), []
+        bulb, seen = EventBulb("lampe"), []
 
         @bulb.event_connected
         async def connected(event):
@@ -394,7 +394,7 @@ class EvtTest(AutomationTestCase):
         self.assertEqual(seen, [True, False])
 
     async def test_value_kept_while_disconnected(self):
-        bulb, seen = EvtBulb("lampe"), []
+        bulb, seen = EventBulb("lampe"), []
 
         @bulb.event_on
         async def on(event):
@@ -408,7 +408,7 @@ class EvtTest(AutomationTestCase):
         self.assertEqual(seen, [True])
 
     async def test_action(self):
-        bulb, seen = EvtBulb("bouton"), []
+        bulb, seen = EventBulb("bouton"), []
 
         @bulb.event_action
         async def action(event):
@@ -421,7 +421,7 @@ class EvtTest(AutomationTestCase):
         self.assertEqual(seen, [("single", None, first), ("rotate", 45, bulb.last_seen)])
 
     async def test_device_events_run_in_order(self):
-        bulb, seen = EvtBulb("lampe"), []
+        bulb, seen = EventBulb("lampe"), []
 
         @bulb.event_bright
         async def slow(event):
@@ -439,7 +439,7 @@ class EvtTest(AutomationTestCase):
         self.assertEqual(seen, [1, True, 2])
 
     async def test_device_error_is_logged(self):
-        bulb = EvtBulb("lampe")
+        bulb = EventBulb("lampe")
 
         @bulb.event_on
         async def fails(event):
@@ -477,7 +477,7 @@ class EvtTest(AutomationTestCase):
         )
 
     async def test_unload_removes_listeners(self):
-        bulb, seen = EvtBulb("lampe"), []
+        bulb, seen = EventBulb("lampe"), []
 
         @bulb.event_on
         async def on(event):
@@ -490,7 +490,7 @@ class EvtTest(AutomationTestCase):
         self.assertEqual(bulb._evt_listeners, {"on": []})
 
     async def test_unreachable_device_never_stops_the_script(self):
-        fp = EvtDevice("fp2", {"n": 0})
+        fp = EventDevice("fp2", {"n": 0})
         salon, cuisine = FakeDevice("salon"), FakeDevice("cuisine")
         results = []
 
@@ -508,7 +508,7 @@ class EvtTest(AutomationTestCase):
         self.assertEqual(cuisine.commands, [("on", 1)])
 
     async def test_invalid_command_is_logged(self):
-        fp, bulb = EvtDevice("fp2"), FakeDevice("salon")
+        fp, bulb = EventDevice("fp2"), FakeDevice("salon")
         bulb.fail = ValueError("on attend True/False")
 
         @fp.event_n
@@ -521,7 +521,7 @@ class EvtTest(AutomationTestCase):
         self.assertIn("ValueError", logs.output[0])
 
     async def test_unexpected_error_is_logged_with_traceback(self):
-        fp = EvtDevice("fp2")
+        fp = EventDevice("fp2")
 
         @fp.event_n
         async def handler(event):
@@ -534,7 +534,7 @@ class EvtTest(AutomationTestCase):
         self.assertIn("KeyError", logs.output[0])
 
     async def test_unload_cancels_running_and_keeps_device_commands(self):
-        fp, bulb = EvtDevice("fp2"), FakeBulb("salon")
+        fp, bulb = EventDevice("fp2"), FakeBulb("salon")
         bulb.delays = [0.05]
         started = asyncio.Event()
 
@@ -551,7 +551,7 @@ class EvtTest(AutomationTestCase):
         self.assertEqual(bulb.commands, [("on", True)])
 
     def test_sync_function_refused(self):
-        bulb = EvtBulb("lampe")
+        bulb = EventBulb("lampe")
         with self.assertRaises(TypeError):
             bulb.event_on(lambda event: None)  # type: ignore[arg-type]
 

@@ -3,7 +3,7 @@
 Le pilote écrit set() ; toggle(), set_temp() et set_rgb() en découlent (deux commandes : intensité
 puis réglage). Un pilote qui sait tout envoyer en un message les réécrit (ex. Yeelight)."""
 
-from core.base import Attribute, Event, Device, Evt
+from core.base import Attribute, Device, EventBool, EventInt, EventSource, EventStr
 
 
 class Light(Device):
@@ -12,10 +12,10 @@ class Light(Device):
     brightness = Attribute[int]()  # 1 à 100
     color_temp = Attribute[int]()  # Kelvin
     rgb = Attribute[str]()  # "#rrggbb"
-    event_on = Evt[Event[bool]]()
-    event_brightness = Evt[Event[int]]()
-    event_color_temp = Evt[Event[int]]()
-    event_rgb = Evt[Event[str]]()
+    event_on = EventSource[EventBool]()
+    event_brightness = EventSource[EventInt]()
+    event_color_temp = EventSource[EventInt]()
+    event_rgb = EventSource[EventStr]()
 
     # Commandes groupées : en tâche de fond, comme salon.on = True.
 
