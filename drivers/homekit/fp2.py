@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
 
-from core.base import Attribute, NetworkDevice
+from core.base import Attribute, Change, Evt, NetworkDevice, ZoneChange
 from drivers.homekit import (
     ERRORS,
     PairingError,
@@ -86,6 +86,8 @@ class FP2(NetworkDevice):
 
     WIDGET = "sensor"
     illuminance = Attribute[float](readonly=True)
+    evt_illuminance = Evt[Change[float]]()
+    evt_zone = Evt[ZoneChange]()
 
     @staticmethod
     def config_args() -> list[str]:
@@ -114,6 +116,12 @@ class FP2(NetworkDevice):
     @property
     def zone(self) -> "Zones":
         return Zones(self)
+
+    def _change(self, key: str, old, new, when: int):
+        prefix, _, zone = key.partition(".")
+        if prefix == "zone":
+            return "zone", ZoneChange(self, when, zone, old, new)
+        return super()._change(key, old, new, when)
 
     # --- cycle de vie -------------------------------------------------------
 

@@ -9,7 +9,7 @@ from functools import partial
 from typing import Any, TypeVar
 
 from core import CONFIG_DIR
-from core.base import Device, DeviceError, spawn_task
+from core.base import Device, DeviceError, clear_listeners, spawn_task
 
 log = logging.getLogger(__name__)
 __all__ = ["Event", "Timer", "on_change", "on_event"]
@@ -235,6 +235,7 @@ async def unload_automations() -> None:
         device.unsubscribe(callback)
     _bindings.clear()
     _handlers.clear()
+    await clear_listeners()
     while running := [task for task in _running if not task.done()]:  # voir base.cancel_tasks
         for task in running:
             task.cancel()

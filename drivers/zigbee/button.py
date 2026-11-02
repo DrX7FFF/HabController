@@ -2,6 +2,8 @@
 
 import logging
 
+from core.base import Action, Evt
+
 from drivers.zigbee import ERRORS, MANUFACTURER, find_cluster
 from drivers.zigbee.sensor import Sensor
 
@@ -9,6 +11,8 @@ log = logging.getLogger(__name__)
 
 
 class Button(Sensor):
+    evt_action = Evt[Action]()  # action : nom donné par le correctif zha-quirks du modèle
+
     def _attach(self, app) -> None:
         super()._attach(app)
         if self.zdev is None:

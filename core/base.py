@@ -1,13 +1,19 @@
 import asyncio
+import inspect
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from functools import partial
 from typing import Any, Generic, TypeVar, overload
 
 log = logging.getLogger(__name__)
 T = TypeVar("T")
+E = TypeVar("E")
 
 tasks: set[asyncio.Task] = set()  # tâches de fond (commandes, automatisations), annulées à l'arrêt
+_listeners: list[tuple["Device", str, Callable]] = []  # abonnements evt_, retirés par clear_listeners
+_listener_tasks: set[asyncio.Task] = set()  # fonctions abonnées en cours
 
 
 def _done(task: asyncio.Task) -> None:
@@ -36,6 +42,71 @@ async def cancel_tasks() -> None:
 
 class DeviceError(Exception):
     """Équipement injoignable ou commande refusée."""
+
+
+@dataclass(frozen=True)
+class Change(Generic[T]):
+    """Attribut changé : première valeur reçue (old None) ou valeur différente de la précédente."""
+
+    device: "Device"
+    time: int  # ms depuis l'époque Unix
+    old: T | None
+    new: T
+
+
+@dataclass(frozen=True)
+class ZoneChange:
+    """Présence d'une zone changée (détecteur à zones)."""
+
+    device: "Device"
+    time: int  # ms depuis l'époque Unix
+    zone: str
+    old: bool | None
+    new: bool
+
+
+@dataclass(frozen=True)
+class Action:
+    """Action ponctuelle de l'équipement (appui de bouton…), avec sa valeur éventuelle."""
+
+    device: "Device"
+    time: int  # ms depuis l'époque Unix
+    action: str
+    value: Any
+
+
+Listener = Callable[[E], Awaitable[None]]
+
+
+class Evt(Generic[E]):
+    """Événement d'un équipement, déclaré par son pilote : `@equipement.evt_x` abonne une
+    fonction async(ev: E). Clé : le nom sans « evt_ » (attribut d'état, « zone » ou « action »)."""
+
+    def __init__(self):
+        self.key = ""
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.key = name.removeprefix("evt_")
+
+    @overload
+    def __get__(self, obj: None, owner: type) -> "Evt[E]": ...
+    @overload
+    def __get__(self, obj: "Device", owner: type) -> Callable[[Listener[E]], Listener[E]]: ...
+    def __get__(self, obj, owner=None) -> Any:
+        if obj is None:
+            return self
+        return partial(obj._listen, self.key)
+
+
+async def clear_listeners() -> None:
+    """Retire tous les abonnements evt_ et annule les fonctions abonnées en cours."""
+    for device, key, func in _listeners:
+        device._evt_listeners[key].remove(func)
+    _listeners.clear()
+    while running := [task for task in _listener_tasks if not task.done()]:
+        for task in running:
+            task.cancel()
+        await asyncio.gather(*running, return_exceptions=True)
 
 
 def on_value(value: bool | str | int, current: bool | None) -> bool:
@@ -86,6 +157,7 @@ class Device:
 
     WIDGET = ""  # widget du tableau de bord : sensor, plug, onoff ou light ; "" : aucun
     connected = Attribute[bool](readonly=True)
+    evt_connected = Evt[Change[bool]]()
 
     def __init__(self):
         self.id = ""  # affecté par configure() : le chargeur le déduit du nom de la variable
@@ -96,6 +168,9 @@ class Device:
         self._last_notified: dict | None = None
         self.changed_at: int | None = None  # ms depuis l'époque Unix, dernier changement d'état
         self.last_seen: int | None = None  # ms, dernière mise à jour reçue (même identique)
+        self._evt_listeners: dict[str, list[Callable]] = {}  # clé d'Evt -> fonctions abonnées
+        self._evt_last: dict = {}  # dernière valeur vue par attribut, gardée hors connexion
+        self._evt_lock = asyncio.Lock()  # fonctions abonnées : une à la fois, dans l'ordre
 
     def configure(self, dev_id: str) -> None:
         """Appelé par le chargeur, avant start() : identifiant."""
@@ -127,6 +202,7 @@ class Device:
         self.last_seen = time.time_ns() // 1_000_000
         for callback in self._event_listeners:
             callback(name, value)
+        self._fire("action", Action(self, self.last_seen, name, value))
 
     def _notify(self) -> None:
         """À appeler après toute mise à jour de l'état ; ne diffuse que les vrais changements.
@@ -143,6 +219,37 @@ class Device:
             self.changed_at = now
             for callback in self._listeners:
                 callback(state)
+            for key, value in state.items():
+                if key in self._evt_last and self._evt_last[key] == value:
+                    continue
+                old = self._evt_last.get(key)
+                self._evt_last[key] = value
+                self._fire(*self._change(key, old, value, now))
+
+    def _change(self, key: str, old: Any, new: Any, when: int) -> tuple[str, Any]:
+        """Événement d'un attribut changé : (clé d'Evt, ev)."""
+        return key, Change(self, when, old, new)
+
+    def _listen(self, key: str, func: Listener) -> Listener:
+        if not inspect.iscoroutinefunction(func):
+            raise TypeError(f"{func.__name__} doit être une fonction async")
+        self._evt_listeners.setdefault(key, []).append(func)
+        _listeners.append((self, key, func))
+        return func
+
+    def _fire(self, key: str, event: Any) -> None:
+        for func in self._evt_listeners.get(key, ()):
+            name = f"{func.__module__.rpartition('.')[2]}.{func.__name__}"
+            task = spawn_task(self._run_listener(func, event, name), name)
+            _listener_tasks.add(task)
+            task.add_done_callback(_listener_tasks.discard)
+
+    async def _run_listener(self, func: Listener, event: Any, name: str) -> None:
+        async with self._evt_lock:  # les tâches démarrent dans l'ordre de création
+            try:
+                await func(event)
+            except (DeviceError, ValueError) as err:
+                log.warning("%s : %s : %s", name, type(err).__name__, err)
 
     def _ready_changed(self) -> None:
         """À appeler quand ready() change."""

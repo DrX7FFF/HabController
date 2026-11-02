@@ -8,7 +8,7 @@ import math
 from collections.abc import Mapping
 from typing import ClassVar, TypedDict
 
-from core.base import Attribute
+from core.base import Attribute, Change, Evt
 from drivers.zigbee import ZigbeeDevice, find_cluster, raw_change, setup_reporting, tracked
 
 POWER = 0x0001
@@ -63,6 +63,7 @@ class Sensor(ZigbeeDevice):
     # valeurs suivies par défaut, propres à chaque variante
     DEFAULTS: ClassVar[Mapping[str, object]] = {"battery": 1}
     battery = Attribute[int](readonly=True)
+    evt_battery = Evt[Change[int]]()
 
     def __init__(self, ieee: str, reports: SensorReports | None = None):
         super().__init__(ieee)

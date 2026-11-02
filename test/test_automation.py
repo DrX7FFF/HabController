@@ -580,5 +580,155 @@ class PresenceRuleTest(AutomationTestCase):
         self.assertEqual(self.commands["cuisine"][-1], ("on", True))
 
 
+class EvtBulb(FakeBulb):
+    evt_on = base.Evt[base.Change[bool]]()
+    evt_bright = base.Evt[base.Change[int]]()
+    evt_action = base.Evt[base.Action]()
+
+
+class EvtTest(AutomationTestCase):
+    """Événements par attribut : @equipement.evt_x."""
+
+    async def test_first_value_then_changes_only(self):
+        bulb, seen = EvtBulb("lampe"), []
+
+        @bulb.evt_on
+        async def on(ev):
+            seen.append((ev.device, ev.old, ev.new))
+
+        bulb.update(on=True, bright=10)
+        bulb.update(on=True, bright=20)  # on identique : filtré
+        bulb.update(on=False)
+        await self.idle()
+        self.assertEqual(seen, [(bulb, None, True), (bulb, True, False)])
+
+    async def test_one_call_per_changed_attribute(self):
+        bulb, seen = EvtBulb("lampe"), []
+
+        @bulb.evt_on
+        async def on(ev):
+            seen.append(("on", ev.new))
+
+        @bulb.evt_bright
+        async def bright(ev):
+            seen.append(("bright", ev.new))
+
+        bulb.update(on=True, bright=50)
+        await self.idle()
+        self.assertEqual(seen, [("on", True), ("bright", 50)])
+
+    async def test_connected_event(self):
+        bulb, seen = EvtBulb("lampe"), []
+
+        @bulb.evt_connected
+        async def connected(ev):
+            seen.append(ev.new)
+
+        bulb.update(connected=True)
+        bulb.update(connected=False)
+        await self.idle()
+        self.assertEqual(seen, [True, False])
+
+    async def test_value_kept_while_disconnected(self):
+        bulb, seen = EvtBulb("lampe"), []
+
+        @bulb.evt_on
+        async def on(ev):
+            seen.append(ev.new)
+
+        bulb.update(on=True)
+        bulb._state = {}  # injoignable : l'attribut disparaît de l'état
+        bulb._notify()
+        bulb.update(on=True)  # même valeur au retour : filtrée
+        await self.idle()
+        self.assertEqual(seen, [True])
+
+    async def test_action(self):
+        bulb, seen = EvtBulb("bouton"), []
+
+        @bulb.evt_action
+        async def action(ev):
+            seen.append((ev.action, ev.value, ev.time == bulb.last_seen))
+
+        bulb._emit("single")
+        bulb._emit("rotate", 45)
+        await self.idle()
+        self.assertEqual(seen, [("single", None, True), ("rotate", 45, True)])
+
+    async def test_device_events_run_in_order(self):
+        bulb, seen = EvtBulb("lampe"), []
+
+        @bulb.evt_bright
+        async def slow(ev):
+            await asyncio.sleep(0.02 if ev.new == 1 else 0)
+            seen.append(ev.new)
+
+        @bulb.evt_on
+        async def fast(ev):
+            seen.append(ev.new)
+
+        bulb.update(bright=1)
+        bulb.update(on=True)
+        bulb.update(bright=2)
+        await self.idle()
+        self.assertEqual(seen, [1, True, 2])
+
+    async def test_device_error_is_logged(self):
+        bulb = EvtBulb("lampe")
+
+        @bulb.evt_on
+        async def fails(ev):
+            raise DeviceError("injoignable")
+
+        with self.assertLogs("core.base", "WARNING"):
+            bulb.update(on=True)
+            await self.idle()
+
+    async def test_zone(self):
+        device, seen = make_fp2(zonemapping={0: "Global"}), []
+
+        @device.evt_zone
+        async def zone(ev):
+            seen.append((ev.zone, ev.old, ev.new))
+
+        @device.evt_illuminance
+        async def lux(ev):
+            seen.append(("lux", ev.old, ev.new))
+
+        device._connected = device._synced = True
+        device._values = {"zone.Global": True, "illuminance": 12.0}
+        device._notify()
+        device._values = {"zone.Global": False, "zone.3": True, "illuminance": 12.0}
+        device._notify()
+        await self.idle()
+        self.assertEqual(
+            seen,
+            [
+                ("Global", None, True),
+                ("lux", None, 12.0),
+                ("Global", True, False),
+                ("3", None, True),
+            ],
+        )
+
+    async def test_unload_removes_listeners(self):
+        bulb, seen = EvtBulb("lampe"), []
+
+        @bulb.evt_on
+        async def on(ev):
+            seen.append(ev.new)
+
+        await automation.unload_automations()
+        bulb.update(on=True)
+        await self.idle()
+        self.assertEqual(seen, [])
+        self.assertEqual(bulb._evt_listeners, {"on": []})
+
+    def test_sync_function_refused(self):
+        bulb = EvtBulb("lampe")
+        with self.assertRaises(TypeError):
+            bulb.evt_on(lambda ev: None)  # type: ignore[arg-type]
+
+
 if __name__ == "__main__":
     unittest.main()
