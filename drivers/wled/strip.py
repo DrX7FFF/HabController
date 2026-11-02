@@ -1,7 +1,6 @@
 """Pilote WLED : API JSON par WebSocket (/ws), l'état est poussé à chaque changement."""
 
 import asyncio
-import contextlib
 import json
 import logging
 
@@ -29,7 +28,6 @@ class WLED(NetworkDevice):
         self._retry = retry
         self._ws: ClientConnection | None = None
         self._on: bool | None = None
-        self._task: asyncio.Task | None = None
 
     def physical(self) -> str:
         return f"WLED {self._host}"
@@ -38,13 +36,7 @@ class WLED(NetworkDevice):
         return {"host": self._host}
 
     async def start(self) -> None:
-        self._task = asyncio.create_task(self._run())
-
-    async def stop(self) -> None:
-        if self._task:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
+        self._spawn(self._run())
 
     # --- connexion ----------------------------------------------------------
 
@@ -52,19 +44,17 @@ class WLED(NetworkDevice):
         # Le WLED envoie son état complet à la connexion puis à chaque changement ; les pings
         # de websockets détectent une coupure.
         while True:
+            reason = ""
             try:
                 async with connect(f"ws://{self._host}:{self._port}/ws", open_timeout=5) as ws:
                     self._ws = ws
-                    self._connected = True
-                    log.info("%s : connecté", self.id)
+                    self._set_connected(True)
                     async for message in ws:
                         self._on_message(message)
             except ERRORS as err:
-                if self._connected:
-                    log.warning("%s : déconnecté (%s)", self.id, err)
+                reason = str(err)
             self._ws = None
-            self._connected = self._synced = False
-            self._notify()
+            self._set_connected(False, reason=reason)
             await asyncio.sleep(self._retry)
 
     def _on_message(self, message: str | bytes) -> None:
@@ -87,8 +77,8 @@ class WLED(NetworkDevice):
         if name != "on":
             raise ValueError(f"{self.id} ne gère pas « {name} »")
         on = on_value(value)
-        if self._ws is None or not self._synced:
-            raise DeviceError(f"{self.id} : injoignable")
+        self._check_reachable()
+        assert self._ws is not None  # connecté
         try:
             await self._ws.send(json.dumps({"on": on}))
         except ERRORS as err:

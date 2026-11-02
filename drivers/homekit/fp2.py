@@ -111,7 +111,6 @@ class FP2(NetworkDevice):
         self._values: dict[str, bool | float] = {}  # dernières valeurs connues, par attribut
         self._pairing = None  # défini une fois la première lecture faite
         self._backoff = RETRY_MIN
-        self._tasks: set[asyncio.Task] = set()
 
     @property
     def zones(self) -> "Zones":
@@ -149,21 +148,6 @@ class FP2(NetworkDevice):
         if self.physical():  # sinon reste injoignable, signalé par equipements.yaml
             self._spawn(self._run())
 
-    async def stop(self) -> None:
-        for task in self._tasks:
-            task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
-
-    def _spawn(self, coro) -> None:
-        task = asyncio.get_running_loop().create_task(coro)
-        self._tasks.add(task)
-        task.add_done_callback(self._task_done)
-
-    def _task_done(self, task: asyncio.Task) -> None:
-        self._tasks.discard(task)
-        if not task.cancelled() and (err := task.exception()):
-            log.error("%s : erreur inattendue", self.id, exc_info=err)
-
     async def _run(self) -> None:
         """Se connecte (adresse résolue par mDNS à chaque essai) et réessaie tant qu'il le faut."""
         while True:
@@ -182,7 +166,7 @@ class FP2(NetworkDevice):
                     err,
                     self._backoff,
                 )
-            self._reset()
+            self._set_connected(False)
             await asyncio.sleep(self._backoff)
             self._backoff = min(self._backoff * 2, RETRY_MAX)
 
@@ -197,7 +181,6 @@ class FP2(NetworkDevice):
             await self._sync(pairing)
             self._backoff = RETRY_MIN
             self._pairing = pairing
-            log.info("%s : connecté", self.id)
             # La bibliothèque se reconnecte seule et nous prévient, mais ne voit pas une connexion
             # morte sans fermeture TCP : lecture au rythme qu'elle préconise, un échec relance tout.
             while True:
@@ -209,11 +192,6 @@ class FP2(NetworkDevice):
             for stop in stops:
                 stop()
             self._pairing = None
-
-    def _reset(self) -> None:
-        self._connected = False
-        self._synced = False
-        self._notify()
 
     # --- état ---------------------------------------------------------------
 
@@ -240,9 +218,7 @@ class FP2(NetworkDevice):
             )
         self._mapping = mapping
         self._values = values
-        self._connected = pairing.is_available
-        self._synced = True
-        self._notify()
+        self._set_connected(pairing.is_available, synced=True)
 
     async def _read(self, pairing) -> None:
         if self._mapping.entities:
@@ -278,15 +254,9 @@ class FP2(NetworkDevice):
     def _on_availability(self, available: bool) -> None:
         if available == self._connected:
             return
-        self._connected = available
-        self._synced = False
-        if self._pairing is not None:  # sinon synchro initiale en cours : _serve journalise
-            if available:
-                log.info("%s : connecté", self.id)
-                self._spawn(self._resync(self._pairing))  # l'état a pu changer pendant la coupure
-            else:
-                log.warning("%s : déconnecté", self.id)
-        self._notify()
+        self._set_connected(available)
+        if available and self._pairing is not None:  # sinon synchro initiale en cours
+            self._spawn(self._resync(self._pairing))  # l'état a pu changer pendant la coupure
 
     def _on_config(self, _config_num: int) -> None:
         """L'accessoire a changé de configuration (zones modifiées dans l'appli Aqara)."""

@@ -2,7 +2,6 @@
 
 import asyncio
 import base64
-import contextlib
 import logging
 import socket
 
@@ -55,7 +54,6 @@ class SamsungTV(NetworkDevice):
         self._port = port
         self._retry = retry
         self._writer: asyncio.StreamWriter | None = None
-        self._task: asyncio.Task | None = None
 
     def physical(self) -> str:
         return f"Samsung {self._host}"
@@ -64,13 +62,7 @@ class SamsungTV(NetworkDevice):
         return {"host": self._host}
 
     async def start(self) -> None:
-        self._task = asyncio.create_task(self._run())
-
-    async def stop(self) -> None:
-        if self._task:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
+        self._spawn(self._run())
 
     # --- connexion ----------------------------------------------------------
 
@@ -90,9 +82,9 @@ class SamsungTV(NetworkDevice):
             finally:
                 self._writer = None
                 writer.close()
-                if self._connected:
+                if self._connected:  # TV éteinte : fonctionnement normal, pas un avertissement
                     log.info("%s : déconnecté", self.id)
-                self._set_connected(False)
+                self._set_connected(False, silent=True)
             await asyncio.sleep(self._retry)
 
     async def _serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -103,17 +95,12 @@ class SamsungTV(NetworkDevice):
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
         writer.write(auth_packet())
         await writer.drain()
-        log.info("%s : connecté", self.id)
         self._writer = writer
-        self._set_connected(True)
+        self._set_connected(True, synced=True)
         while True:  # réponses de la TV, jusqu'à la fermeture de la connexion
             response = await read_response(reader)
             if response == ACCESS_DENIED:
                 log.error("%s : « %s » refusé par la TV (réglages de la TV)", self.id, APP)
-
-    def _set_connected(self, connected: bool) -> None:
-        self._connected = self._synced = connected
-        self._notify()
 
     def _get_connected_state(self) -> dict:
         return {"on": True}

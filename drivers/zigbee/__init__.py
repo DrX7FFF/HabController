@@ -518,7 +518,6 @@ class ZigbeeDevice(NetworkDevice):
         self.poll = self.POLL if poll is None else poll
         self.zdev = None  # objet zigpy de l'équipement, tant que la clé est ouverte
         self._unsubscribe: list = []
-        self._tasks: set[asyncio.Task] = set()
         self._ota_image = None  # firmware plus récent trouvé par zigpy, à installer à la demande
 
     # --- cycle de vie -------------------------------------------------------
@@ -608,17 +607,7 @@ class ZigbeeDevice(NetworkDevice):
         updates.withdraw(self.id)
         await coordinator.unregister(self)
         self._detach()
-
-    def _spawn(self, coro) -> asyncio.Task:
-        task = asyncio.get_running_loop().create_task(coro)
-        self._tasks.add(task)
-        task.add_done_callback(self._task_done)
-        return task
-
-    def _task_done(self, task: asyncio.Task) -> None:
-        self._tasks.discard(task)
-        if not task.cancelled() and (err := task.exception()):
-            log.error("%s : erreur inattendue", self.id, exc_info=err)
+        await super().stop()
 
     def _attach(self, app: ZigpyApplication) -> None:
         """Clé ouverte ou équipement réinterviewé : écoute et lecture de l'objet zigpy courant."""
@@ -659,7 +648,7 @@ class ZigbeeDevice(NetworkDevice):
             task.cancel()
         self.zdev = None
         self._ready_changed()
-        self._set_connected(False)
+        self._set_connected(False, silent=True)  # clé fermée (journalisé par le coordinateur) ou arrêt
 
     async def _poll_loop(self, zdev) -> None:
         configured = False
@@ -670,21 +659,10 @@ class ZigbeeDevice(NetworkDevice):
                     configured = True
                 await self._read(zdev)
             except ERRORS as err:
-                if self._connected:
-                    log.warning("%s : déconnecté (%s)", self.id, type(err).__name__)
-                self._set_connected(False)
+                self._set_connected(False, reason=type(err).__name__)
             else:
-                if not self._connected:
-                    log.info("%s : connecté", self.id)
-                self._synced = True
-                self._set_connected(True)
+                self._set_connected(True, synced=True)
             await asyncio.sleep(self.poll)
-
-    def _set_connected(self, connected: bool) -> None:
-        self._connected = connected
-        if not connected:
-            self._synced = False
-        self._notify()
 
     # --- à fournir par le pilote --------------------------------------------
 
@@ -743,8 +721,7 @@ class ZigbeeDevice(NetworkDevice):
     def _received(self) -> None:
         """Message reçu : un équipement sur pile devient joignable (et se configure)."""
         if not self.poll and not self._connected and self.zdev is not None:
-            log.info("%s : connecté", self.id)
-            self._connected = self._synced = True
+            self._set_connected(True, synced=True)
             self._spawn(self._configure_awake(self.zdev))
 
     async def _configure_awake(self, zdev) -> None:
@@ -757,7 +734,8 @@ class ZigbeeDevice(NetworkDevice):
 
     async def _command(self, cluster, command: str, *args) -> None:
         """Envoie une commande ZCL ; DeviceError si l'équipement ne répond pas ou la refuse."""
-        if cluster is None or not (self._connected and self._synced):
+        self._check_reachable()
+        if cluster is None:
             raise DeviceError(f"{self.id} : injoignable")
         try:
             result = await getattr(cluster, command)(*args)
