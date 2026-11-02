@@ -98,6 +98,13 @@ class Evt(Generic[E]):
         return partial(obj._listen, self.key)
 
 
+def remove_listeners(module: str) -> None:
+    """Retire les abonnements evt_ faits par les fonctions de `module`."""
+    for device, key, func in [item for item in _listeners if item[2].__module__ == module]:
+        device._evt_listeners[key].remove(func)
+        _listeners.remove((device, key, func))
+
+
 async def clear_listeners() -> None:
     """Retire tous les abonnements evt_ et annule les fonctions abonnées en cours."""
     for device, key, func in _listeners:
@@ -162,7 +169,6 @@ class Device:
     def __init__(self):
         self.id = ""  # affecté par configure() : le chargeur le déduit du nom de la variable
         self._listeners: list[Callable[[dict], None]] = []
-        self._event_listeners: list[Callable[[str, Any], None]] = []
         self._ready_listeners: list[Callable[[], None]] = []
         self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre
         self._last_notified: dict | None = None
@@ -180,19 +186,15 @@ class Device:
         """callback(state) est appelé à chaque changement d'état de l'équipement."""
         self._listeners.append(callback)
 
-    def subscribe_events(self, callback: Callable[[str, Any], None]) -> None:
-        """callback(nom, valeur) est appelé à chaque événement de l'équipement (appui…)."""
-        self._event_listeners.append(callback)
-
     def subscribe_ready(self, callback: Callable[[], None]) -> None:
         """callback() est appelé quand l'équipement devient prêt ou cesse de l'être (voir
         ready)."""
         self._ready_listeners.append(callback)
 
     def unsubscribe(self, callback: Callable) -> None:
-        """Retire un abonnement de subscribe(), subscribe_events() ou subscribe_ready()
+        """Retire un abonnement de subscribe() ou subscribe_ready()
         (rechargement partiel)."""
-        for listeners in (self._listeners, self._event_listeners, self._ready_listeners):
+        for listeners in (self._listeners, self._ready_listeners):
             if callback in listeners:
                 listeners.remove(callback)
 
@@ -200,8 +202,6 @@ class Device:
         """Événement ponctuel (bouton : single, double, hold…) : rien dans l'état, transmis tel
         quel avec sa valeur éventuelle (ex. angle de rotation)."""
         self.last_seen = time.time_ns() // 1_000_000
-        for callback in self._event_listeners:
-            callback(name, value)
         self._fire("action", Action(self, self.last_seen, name, value))
 
     def _notify(self) -> None:

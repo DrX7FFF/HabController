@@ -44,44 +44,56 @@ la page Commandes signale leur nombre dans son bandeau.
 
 ## Automatisations
 
-Fonctions déclenchées par les changements d'état des équipements. Un fichier par sujet dans
+Fonctions déclenchées par les événements des équipements. Un fichier par sujet dans
 `automations/`, chargé au démarrage. Les équipements s'importent depuis le fichier de
 `devices/` qui les déclare :
 
 ```python
 import logging
 
-from core.automation import Event, on_change
-from devices.salon import capteur, salon
+from core.base import Action, Change, ZoneChange
+from devices.salon import capteur, fp2, salon
 from devices.cuisine import cuisine
+from devices.devices import bouton
 
 log = logging.getLogger(__name__)  # journal des scripts : temp/automations.log
 
-@on_change("capteur.presence")            # « équipement.attribut » ; « capteur » = tout l'état
-async def eclairage(event: Event):        # event.old, event.new, event.changed, event.time
-    if capteur.connected and capteur.presence:
-        salon.on = True                   # écriture : commande envoyée en tâche de fond
+@capteur.evt_presence
+async def eclairage(event: Change[bool]):   # event.device, event.time, event.old, event.new
+    if event.new and capteur.connected:
+        salon.on = True                     # écriture : commande envoyée en tâche de fond
         cuisine.on = True
+
+@fp2.evt_zone
+async def zone(event: ZoneChange):          # + event.zone : nom de zonemapping (ou numéro)
+    if event.zone == "Global" and event.new:
+        ...
+
+@bouton.evt_action
+async def appui(event: Action):             # event.action : nom du correctif zha-quirks
+    if event.action == "on_press":          # event.value : valeur éventuelle (angle du cube…)
+        salon.on = "toggle"
 ```
 
+- **Événements** : chaque pilote déclare les siens. Après `@salon.evt_`, l'éditeur propose ceux
+  de l'équipement, et le type de `event` est vérifié s'il est annoté. Un attribut donne
+  `Change[<type de l'attribut>]`, `evt_zone` donne `ZoneChange`, `evt_action` donne `Action` ;
+  tous les équipements ont `evt_connected`.
+- **Déclenchement** : un appel par attribut changé, à la première valeur reçue (`event.old`
+  vaut `None`) puis à chaque valeur différente de la précédente. Un équipement injoignable ne
+  déclenche que `evt_connected` ; ses attributs gardent leur dernière valeur, rien ne se
+  déclenche s'ils reviennent identiques. Un changement envoyé par HabController lui-même
+  déclenche aussi l'événement.
+- Les événements d'un même équipement sont traités un par un, dans l'ordre d'arrivée : une
+  fonction qui attend longtemps retarde les suivants (utiliser un `Timer`). Une erreur dans une
+  automatisation n'arrête pas les autres.
+- Une même fonction peut être décorée sur plusieurs équipements (`event.device`).
 - **Lecture** : un attribut vaut `None` si l'équipement est injoignable (l'attribut disparaît
   de son état).
 - **Écriture** : `salon.on = True` ne bloque pas et ne lève rien si l'équipement est
   injoignable (c'est journalisé) ; les commandes d'un même équipement partent dans l'ordre.
   Pour attendre la réponse, ou passer une transition : `ok = await salon.send("on", True, 2)`,
   qui renvoie `False` si la commande n'a pas pu partir.
-- `to=` ne déclenche que vers une valeur donnée : `@on_change("capteur.presence", to=True)`.
-- **Événements ponctuels** (boutons) : `@on_event("bouton.double")` à chaque double appui, ou
-  `@on_event("bouton")` pour tous ; `event.attr` est le nom de l'événement, `event.new` sa
-  valeur éventuelle (ex. angle de rotation du cube), `event.old` toujours `None`.
-- Un attribut absent de l'état (équipement injoignable) n'est pas un changement : on garde la
-  dernière valeur connue, et rien ne se déclenche tant que la valeur revient identique.
-- Les événements d'une même fonction sont traités dans l'ordre ; une erreur dans une
-  automatisation n'arrête pas les autres.
-- Un équipement inconnu dans un `@on_change` est signalé au démarrage.
-- Un attribut qui ne sera jamais reçu (inconnu du pilote, non suivi dans `reports`, absent de
-  l'appareil, zone absente du `zonemapping` du FP2) est signalé une fois les appareils
-  rattachés ; l'automatisation est gardée.
 - **Minuteur** : `Timer(délai_s, action)` appelle `action()` (fonction simple ou async) à la
   fin du délai. `start()` (re)lance le décompte depuis zéro, même s'il tourne déjà : un seul
   minuteur, quel que soit le nombre de départs ; `cancel()` l'arrête ; `running` indique s'il
@@ -95,8 +107,8 @@ def eteindre():
 
 extinction = Timer(5 * 60, eteindre)
 
-@on_change("capteur.presence")
-async def eclairage(event: Event):
+@capteur.evt_presence
+async def eclairage(event: Change[bool]):
     if event.new:
         extinction.cancel()
         salon.on = True
@@ -104,43 +116,8 @@ async def eclairage(event: Event):
         extinction.start()                # extinction 5 min après le dernier départ
 ```
 - Un fichier qui échoue au chargement (erreur de syntaxe, import faux…) est déchargé en entier,
-  y compris les automatisations déclarées avant l'erreur ; l'erreur est journalisée et les
-  autres fichiers se chargent normalement.
-
-### Événements par équipement : `@equipement.evt_…`
-
-Chaque pilote déclare ses événements (`evt_on`, `evt_brightness`, `evt_battery`,
-`evt_connected`…) : après `@salon.evt_`, l'éditeur propose ceux de l'équipement, et le type de
-`event` est vérifié. Ils coexistent avec `@on_change` / `@on_event`.
-
-```python
-from core.base import Action, Change, ZoneChange
-from devices.salon import fp2, salon_light
-from devices.devices import main_4buttons
-
-@salon_light.evt_brightness
-async def intensite(event: Change[int]):     # event.device, event.time, event.old, event.new
-    if event.new > 70:
-        ...
-
-@fp2.evt_zone
-async def zone(event: ZoneChange):           # + event.zone : nom de zonemapping (ou numéro)
-    if event.zone == "Global" and event.new:
-        ...
-
-@main_4buttons.evt_action
-async def bouton(event: Action):             # event.action : nom du correctif zha-quirks, event.value
-    if event.action == "on_press":
-        ...
-```
-
-- Un appel par attribut changé : première valeur reçue (`event.old` vaut `None`), puis seulement
-  une valeur différente de la précédente. Un équipement injoignable ne déclenche que
-  `evt_connected` ; ses attributs gardent leur dernière valeur, rien ne se déclenche s'ils
-  reviennent identiques.
-- Un changement envoyé par HabController lui-même déclenche aussi l'événement.
-- Les événements d'un même équipement sont traités un par un, dans l'ordre d'arrivée.
-- Une même fonction peut être décorée sur plusieurs équipements (`event.device`).
+  y compris les abonnements faits avant l'erreur ; l'erreur est journalisée et les autres
+  fichiers se chargent normalement.
 
 ## Journaux
 
@@ -185,8 +162,9 @@ active_power = { hysteresis = 5, retention = "1y" }
 - L'hystérésis ne s'applique qu'aux nombres : une valeur n'est enregistrée que si elle s'écarte
   d'au moins `hysteresis` de la dernière enregistrée.
 - Un équipement injoignable n'enregistre rien.
-- Un attribut qui ne sera jamais reçu (même contrôle que pour `@on_change`) est signalé une
-  fois les appareils rattachés.
+- Un attribut qui ne sera jamais reçu (inconnu du pilote, non suivi dans `reports`, absent de
+  l'appareil, zone absente du `zonemapping` du FP2) est signalé une fois les appareils
+  rattachés.
 - Envoi immédiat en tâche de fond ; sans réseau, la valeur est perdue (journalisé).
 - Une fois par jour, les valeurs plus vieilles que leur rétention sont supprimées.
 - Datalog non configuré : pas d'historique, les graphiques signalent l'erreur.
@@ -400,7 +378,7 @@ personne » (Xiaomi) est remis à faux par son correctif zha-quirks après un d�
 bouton_lit = Button(ieee="00:15:8d:00:04:01:94:be")
 ```
 
-Seulement `battery` dans l'état. Chaque appui est un événement, nommé par le correctif
+Seulement `battery` dans l'état. Chaque appui déclenche `evt_action`, nommé par le correctif
 zha-quirks de l'appareil, avec sa valeur éventuelle :
 
 | Appareil       | Événements                                          |
@@ -411,9 +389,10 @@ zha-quirks de l'appareil, avec sa valeur éventuelle :
 | Hue Dimmer     | `on_press`, `off_long_press`…                       |
 
 ```python
-@on_event("bouton_lit.double")       # à chaque double appui ; @on_event("bouton_lit") : tous
-async def lumiere(event):            # event.attr : nom, event.new : valeur (ex. angle du cube)
-    salon.on = "toggle"
+@bouton_lit.evt_action
+async def lumiere(event: Action):    # event.action : nom, event.value : valeur (ex. angle du cube)
+    if event.action == "double":
+        salon.on = "toggle"
 ```
 
 ### Capteur de présence Aqara FP2 — `homekit.fp2`
@@ -430,9 +409,8 @@ fp2 = FP2(zonemapping={0: "Global", 1: "salon"})
 Chaque zone est repérée par son « Sensor Index » (caractéristique Aqara), comme dans
 node-red-contrib-fp2 ; l'index 0 est la présence globale. `zonemapping` donne un alias aux
 index : `fp2.zone.salon` ou `fp2.zone[1]` (l'index est traduit en alias s'il en a un) ; sans
-alias : `fp2.zone[3]`. Déclencheur : `@on_change("fp2.zone.<alias>")` ; l'index n'est
-utilisable que pour une zone sans alias (`@on_change("fp2.zone.3")`), car l'état ne contient
-qu'une clé par zone. Capteur : toute commande est refusée.
+alias : `fp2.zone[3]`. Déclencheur : `@fp2.evt_zone`, `event.zone` est l'alias de la zone,
+ou son index (`"3"`) si elle n'en a pas. Capteur : toute commande est refusée.
 
 ### TV Samsung d'avant 2016 — `samsung.tv`
 

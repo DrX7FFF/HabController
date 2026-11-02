@@ -53,9 +53,6 @@ class FakeBulb(FakeDevice):
 
 
 class AutomationTestCase(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        automation._handlers.clear()
-
     async def asyncTearDown(self):
         await automation.unload_automations()
         await base.cancel_tasks()
@@ -67,69 +64,7 @@ class AutomationTestCase(unittest.IsolatedAsyncioTestCase):
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
-class OnEventTest(AutomationTestCase):
-    async def test_each_event_triggers(self):
-        bouton = FakeDevice("bouton", {"connected": True})
-        got = []
-
-        @automation.on_event("bouton.double")
-        async def double(event):
-            got.append(("double", event.new))
-
-        @automation.on_event("bouton")
-        async def tous(event):
-            got.append(("tous", event.attr))
-
-        automation.bind({"bouton": bouton})
-        bouton._emit("double")
-        bouton._emit("double")  # même événement : déclenche encore
-        bouton._emit("rotate_right", {"relative_degrees": 90})
-        await self.idle()
-        self.assertEqual(
-            sorted(got),
-            sorted([("double", None)] * 2 + [("tous", "double")] * 2 + [("tous", "rotate_right")]),
-        )
-
-
-class OnChangeTest(AutomationTestCase):
-    async def test_attribute_event(self):
-        fp = FakeDevice("fp2", {"connected": False})
-        events = []
-
-        @automation.on_change("fp2.presence_0")
-        async def handler(event):
-            events.append(event)
-
-        automation.bind({"fp2": fp})
-        fp.update(connected=True, presence_0=False)  # premier état connu
-        await self.idle()
-        fp.update(presence_0=True)
-        await self.idle()
-        fp.update(presence_0=True)  # inchangé : rien
-        fp.update(connected=False)  # autre attribut : rien pour ce handler
-        await self.idle()
-        self.assertEqual(
-            [(e.old, e.new) for e in events],
-            [(None, False), (False, True)],
-        )
-        self.assertEqual(events[1].changed, {"presence_0"})
-        self.assertEqual((events[1].device, events[1].attr), ("fp2", "presence_0"))
-
-    async def test_event_carries_device_timestamp(self):
-        fp = FakeDevice("fp2", {"n": 0})
-        events = []
-
-        @automation.on_change("fp2.n")
-        async def handler(event):
-            events.append(event)
-
-        automation.bind({"fp2": fp})
-        before = time.time_ns() // 1_000_000
-        fp.update(n=1)
-        await self.idle()
-        self.assertEqual(events[0].time, fp.changed_at)
-        self.assertGreaterEqual(events[0].time, before)
-
+class DeviceTest(AutomationTestCase):
     async def test_last_seen_updated_by_same_value(self):
         fp = FakeDevice("fp2", {"connected": True, "n": 1})
         fp.update(n=1)
@@ -142,151 +77,6 @@ class OnChangeTest(AutomationTestCase):
         fp.update(connected=False)  # injoignable : rien de reçu
         self.assertEqual(fp.last_seen, 0)
 
-    async def test_to_filter_accepts_false(self):
-        fp = FakeDevice("fp2", {"presence_0": True})
-        events = []
-
-        @automation.on_change("fp2.presence_0", to=False)
-        async def handler(event):
-            events.append(event.new)
-
-        automation.bind({"fp2": fp})
-        fp.update(presence_0=False)
-        fp.update(presence_0=True)
-        await self.idle()
-        self.assertEqual(events, [False])
-
-    async def test_whole_device_handler(self):
-        fp = FakeDevice("fp2", {"a": 1})
-        events = []
-
-        @automation.on_change("fp2")
-        async def handler(event):
-            events.append(event)
-
-        automation.bind({"fp2": fp})
-        fp.update(a=2, b=3)
-        await self.idle()
-        self.assertEqual(len(events), 1)
-        self.assertEqual(
-            (events[0].attr, events[0].old, events[0].new), (None, {"a": 1}, {"a": 2, "b": 3})
-        )
-        self.assertEqual(events[0].changed, {"a", "b"})
-
-    async def test_unreachable_is_not_a_change(self):
-        fp = FakeDevice("fp2", {"connected": True, "presence_0": True})
-        events = []
-
-        @automation.on_change("fp2.presence_0")
-        async def handler(event):
-            events.append((event.old, event.new))
-
-        automation.bind({"fp2": fp})
-        fp._state = {"connected": False}  # coupure : l'attribut disparaît
-        fp._notify()
-        fp.update(connected=True, presence_0=True)  # retour, même valeur : rien
-        await self.idle()
-        self.assertEqual(events, [])
-        fp._state = {"connected": False}
-        fp._notify()
-        fp.update(connected=True, presence_0=False)  # a changé pendant la coupure
-        await self.idle()
-        self.assertEqual(events, [(True, False)])
-
-    async def test_events_run_in_order(self):
-        fp = FakeDevice("fp2", {"n": 0})
-        done = []
-
-        @automation.on_change("fp2.n")
-        async def handler(event):
-            await asyncio.sleep(0.05 if event.new == 1 else 0)  # le premier est le plus lent
-            done.append(event.new)
-
-        automation.bind({"fp2": fp})
-        fp.update(n=1)
-        fp.update(n=2)
-        await self.idle()
-        self.assertEqual(done, [1, 2])
-
-    async def test_unreachable_device_never_stops_the_script(self):
-        fp = FakeDevice("fp2", {"n": 0})
-        salon, cuisine = FakeDevice("salon"), FakeDevice("cuisine")
-        results = []
-
-        @automation.on_change("fp2.n")
-        async def handler(event):
-            results.append(await salon.send("on", event.new))
-            results.append(await cuisine.send("on", event.new))
-
-        automation.bind({"fp2": fp, "salon": salon, "cuisine": cuisine})
-        salon.fail = DeviceError("injoignable")
-        with self.assertLogs("core.base", "WARNING") as logs:
-            fp.update(n=1)
-            await self.idle()
-        self.assertIn("injoignable", logs.output[0])
-        self.assertEqual(results, [False, True])  # la suite du script a bien tourné
-        self.assertEqual(cuisine.commands, [("on", 1)])
-        salon.fail = None
-        fp.update(n=2)
-        await self.idle()
-        self.assertEqual(salon.commands, [("on", 2)])
-
-    async def test_invalid_command_is_not_swallowed(self):
-        fp = FakeDevice("fp2", {"n": 0})
-        bulb = FakeDevice("salon")
-        bulb.fail = ValueError("on attend True/False")
-
-        @automation.on_change("fp2.n")
-        async def handler(event):
-            await bulb.set("on", "oups")
-
-        automation.bind({"fp2": fp, "salon": bulb})
-        with self.assertLogs("core.automation", "WARNING") as logs:
-            fp.update(n=1)
-            await self.idle()
-        self.assertIn("ValueError", logs.output[0])
-
-    async def test_unexpected_error_is_logged_with_traceback(self):
-        fp = FakeDevice("fp2", {"n": 0})
-
-        @automation.on_change("fp2.n")
-        async def handler(event):
-            return {}["absent"]
-
-        automation.bind({"fp2": fp})
-        with self.assertLogs("core.base", "ERROR") as logs:
-            fp.update(n=1)
-            await self.idle()
-        self.assertIn("erreur inattendue", logs.output[0])
-        self.assertIn("KeyError", logs.output[0])
-
-    async def test_unknown_device_is_reported_and_skipped(self):
-        @automation.on_change("fantome.x")
-        async def handler(event):
-            raise AssertionError("ne doit pas être appelée")
-
-        with self.assertLogs("core.automation", "ERROR") as logs:
-            automation.bind({})
-        self.assertIn("fantome", logs.output[0])
-
-    async def test_unknown_measure_is_reported_and_kept(self):
-        @automation.on_change("lampe.brigt")
-        async def typo(event):
-            pass
-
-        @automation.on_change("lampe.bright")
-        @automation.on_event("lampe.single")
-        async def known(event):
-            pass
-
-        devs = {"lampe": FakeBulb("lampe")}
-        automation.bind(devs)
-        with self.assertLogs("core.automation", "WARNING") as logs:
-            automation.check(devs)
-        self.assertEqual(len(logs.output), 1)
-        self.assertIn("lampe.brigt : mesure inconnue", logs.output[0])
-        self.assertEqual(len(automation._bindings), 2)
-
     async def test_stop_with_finished_tasks_not_yet_removed(self):
         async def quick():
             pass
@@ -296,39 +86,6 @@ class OnChangeTest(AutomationTestCase):
         self.assertTrue(all(task.done() for task in base.tasks))
         self.assertTrue(base.tasks)
         await base.cancel_tasks()  # ne doit pas tourner à vide
-
-    async def test_unload_unbinds_and_keeps_device_commands(self):
-        fp = FakeDevice("fp2", {"connected": True, "presence": False})
-        bulb = FakeBulb("salon")
-        bulb.delays = [0.05]
-        started = asyncio.Event()
-        events = []
-
-        @automation.on_change("fp2.presence")
-        async def slow(event):
-            events.append(event.new)
-            bulb.on = True  # commande de l'équipement : va à son terme
-            started.set()
-            await asyncio.sleep(10)  # automatisation en cours : annulée
-
-        automation.bind({"fp2": fp})
-        fp.update(presence=True)
-        await started.wait()
-        await automation.unload_automations()
-        self.assertEqual((fp._listeners, fp._event_listeners), ([], []))
-        fp.update(presence=False)  # plus abonnée : rien
-        await self.idle()
-        self.assertEqual(events, [True])
-        self.assertEqual(bulb.commands, [("on", True)])
-
-    def test_invalid_declarations(self):
-        with self.assertRaises(ValueError):
-            automation.on_change(".presence")
-        with self.assertRaises(TypeError):
-
-            @automation.on_change("fp2.x")
-            def not_async(event):
-                pass
 
 
 class AttributeTest(AutomationTestCase):
@@ -401,23 +158,22 @@ class AttributeTest(AutomationTestCase):
             await bulb.send("on", "oups")
 
     async def test_script_style_from_the_docs(self):
-        fp = FakeDevice("fp2", {"connected": True, "illuminance": 10.0, "zone.Global": False})
+        fp = EvtDevice("fp2", {"connected": True, "illuminance": 10.0, "n": 0})
         salon, cuisine = FakeBulb("salon"), FakeBulb("cuisine")
 
-        @automation.on_change("fp2.zone.Global", to=True)
+        @fp.evt_n
         async def eclairage(event):
-            if fp.state().get("illuminance", 100) < 50:
+            if event.new and fp.state().get("illuminance", 100) < 50:
                 salon.on = True
                 cuisine.on = True
 
-        automation.bind({"fp2": fp})
-        fp.update(**{"zone.Global": True})
+        fp.update(n=1)
         await self.idle()
         self.assertEqual((salon.commands, cuisine.commands), ([("on", True)], [("on", True)]))
         fp._state = {"connected": False}  # injoignable : ne plante pas, ne fait rien
         fp._notify()
-        fp.update(**{"connected": True, "illuminance": 80.0, "zone.Global": False})
-        fp.update(**{"zone.Global": True})
+        fp.update(connected=True, illuminance=80.0, n=0)
+        fp.update(n=1)
         await self.idle()
         self.assertEqual(len(salon.commands), 1)  # assez de lumière : pas de nouvelle commande
 
@@ -477,12 +233,14 @@ class TimerTest(AutomationTestCase):
 
 class LoadTest(AutomationTestCase):
     async def test_failing_file_unloaded(self):
-        def fake_import(module):  # chaque fichier déclare une règle ; « b » échoue ensuite
+        bulb = EvtDevice("lampe")
+
+        def fake_import(module):  # chaque fichier s'abonne ; « b » échoue ensuite
             async def rule(event):
                 pass
 
             rule.__module__ = module
-            automation.on_change("lampe.on")(rule)
+            bulb.evt_n(rule)
             if module == "automations.b":
                 raise NameError("erreur dans le script")
 
@@ -494,9 +252,10 @@ class LoadTest(AutomationTestCase):
                 mock.patch.object(automation.importlib, "import_module", fake_import),
                 self.assertLogs("core.automation", "ERROR") as logs,
             ):
-                automation.load_automations({"lampe": FakeBulb("lampe")})
+                automation.load_automations()
         self.assertEqual(
-            [h.func.__module__ for h in automation._handlers], ["automations.a", "automations.c"]
+            [func.__module__ for func in bulb._evt_listeners["n"]],
+            ["automations.a", "automations.c"],
         )
         self.assertIn("b.py : fichier ignoré", logs.output[0])
 
@@ -510,7 +269,9 @@ class PresenceRuleTest(AutomationTestCase):
     async def asyncSetUp(self):
         # Import neuf à chaque test : la règle n'est enregistrée qu'une fois (un import suivi d'un
         # reload l'enregistrait deux fois au premier test, d'où des commandes en double).
-        sys.modules.pop("automations.presence", None)
+        # Équipements neufs aussi : ils gardent les dernières valeurs vues.
+        for module in ("automations.presence", "devices.salon", "devices.cuisine"):
+            sys.modules.pop(module, None)
         presence = importlib.import_module("automations.presence")
 
         self.salon, self.cuisine = presence.salon, presence.cuisine  # vraies ampoules, sans réseau
@@ -519,12 +280,11 @@ class PresenceRuleTest(AutomationTestCase):
         self.commands = {"salon": [], "cuisine": []}
         self.fail: dict[str, Exception] = {}
         for dev in (self.salon, self.cuisine):
-            dev._lock = asyncio.Lock()  # ampoules partagées entre les tests : un verrou par boucle
             patcher = mock.patch.object(dev, "set", self.fake_set(dev))
             patcher.start()
             self.addCleanup(patcher.stop)
-        self.fp = make_fp2(zonemapping={0: "Global"})
-        automation.bind({"fp2": self.fp})
+        self.fp = presence.fp2
+        self.fp.configure("fp2")
         self.pairing = FakePairing()
         task = asyncio.create_task(self.fp._serve(self.pairing))
         self.addAsyncCleanup(self.cancel, task)
@@ -580,6 +340,10 @@ class PresenceRuleTest(AutomationTestCase):
         self.assertEqual(self.commands["cuisine"][-1], ("on", True))
 
 
+class EvtDevice(FakeDevice):
+    evt_n = base.Evt[base.Change[int]]()
+
+
 class EvtBulb(FakeBulb):
     evt_on = base.Evt[base.Change[bool]]()
     evt_bright = base.Evt[base.Change[int]]()
@@ -593,8 +357,8 @@ class EvtTest(AutomationTestCase):
         bulb, seen = EvtBulb("lampe"), []
 
         @bulb.evt_on
-        async def on(ev):
-            seen.append((ev.device, ev.old, ev.new))
+        async def on(event):
+            seen.append((event.device, event.old, event.new))
 
         bulb.update(on=True, bright=10)
         bulb.update(on=True, bright=20)  # on identique : filtré
@@ -606,12 +370,12 @@ class EvtTest(AutomationTestCase):
         bulb, seen = EvtBulb("lampe"), []
 
         @bulb.evt_on
-        async def on(ev):
-            seen.append(("on", ev.new))
+        async def on(event):
+            seen.append(("on", event.new))
 
         @bulb.evt_bright
-        async def bright(ev):
-            seen.append(("bright", ev.new))
+        async def bright(event):
+            seen.append(("bright", event.new))
 
         bulb.update(on=True, bright=50)
         await self.idle()
@@ -621,8 +385,8 @@ class EvtTest(AutomationTestCase):
         bulb, seen = EvtBulb("lampe"), []
 
         @bulb.evt_connected
-        async def connected(ev):
-            seen.append(ev.new)
+        async def connected(event):
+            seen.append(event.new)
 
         bulb.update(connected=True)
         bulb.update(connected=False)
@@ -633,8 +397,8 @@ class EvtTest(AutomationTestCase):
         bulb, seen = EvtBulb("lampe"), []
 
         @bulb.evt_on
-        async def on(ev):
-            seen.append(ev.new)
+        async def on(event):
+            seen.append(event.new)
 
         bulb.update(on=True)
         bulb._state = {}  # injoignable : l'attribut disparaît de l'état
@@ -647,8 +411,8 @@ class EvtTest(AutomationTestCase):
         bulb, seen = EvtBulb("bouton"), []
 
         @bulb.evt_action
-        async def action(ev):
-            seen.append((ev.action, ev.value, ev.time == bulb.last_seen))
+        async def action(event):
+            seen.append((event.action, event.value, event.time == bulb.last_seen))
 
         bulb._emit("single")
         bulb._emit("rotate", 45)
@@ -659,13 +423,13 @@ class EvtTest(AutomationTestCase):
         bulb, seen = EvtBulb("lampe"), []
 
         @bulb.evt_bright
-        async def slow(ev):
-            await asyncio.sleep(0.02 if ev.new == 1 else 0)
-            seen.append(ev.new)
+        async def slow(event):
+            await asyncio.sleep(0.02 if event.new == 1 else 0)
+            seen.append(event.new)
 
         @bulb.evt_on
-        async def fast(ev):
-            seen.append(ev.new)
+        async def fast(event):
+            seen.append(event.new)
 
         bulb.update(bright=1)
         bulb.update(on=True)
@@ -677,7 +441,7 @@ class EvtTest(AutomationTestCase):
         bulb = EvtBulb("lampe")
 
         @bulb.evt_on
-        async def fails(ev):
+        async def fails(event):
             raise DeviceError("injoignable")
 
         with self.assertLogs("core.base", "WARNING"):
@@ -688,12 +452,12 @@ class EvtTest(AutomationTestCase):
         device, seen = make_fp2(zonemapping={0: "Global"}), []
 
         @device.evt_zone
-        async def zone(ev):
-            seen.append((ev.zone, ev.old, ev.new))
+        async def zone(event):
+            seen.append((event.zone, event.old, event.new))
 
         @device.evt_illuminance
-        async def lux(ev):
-            seen.append(("lux", ev.old, ev.new))
+        async def lux(event):
+            seen.append(("lux", event.old, event.new))
 
         device._connected = device._synced = True
         device._values = {"zone.Global": True, "illuminance": 12.0}
@@ -715,8 +479,8 @@ class EvtTest(AutomationTestCase):
         bulb, seen = EvtBulb("lampe"), []
 
         @bulb.evt_on
-        async def on(ev):
-            seen.append(ev.new)
+        async def on(event):
+            seen.append(event.new)
 
         await automation.unload_automations()
         bulb.update(on=True)
@@ -724,10 +488,71 @@ class EvtTest(AutomationTestCase):
         self.assertEqual(seen, [])
         self.assertEqual(bulb._evt_listeners, {"on": []})
 
+    async def test_unreachable_device_never_stops_the_script(self):
+        fp = EvtDevice("fp2", {"n": 0})
+        salon, cuisine = FakeDevice("salon"), FakeDevice("cuisine")
+        results = []
+
+        @fp.evt_n
+        async def handler(event):
+            results.append(await salon.send("on", event.new))
+            results.append(await cuisine.send("on", event.new))
+
+        salon.fail = DeviceError("injoignable")
+        with self.assertLogs("core.base", "WARNING") as logs:
+            fp.update(n=1)
+            await self.idle()
+        self.assertIn("injoignable", logs.output[0])
+        self.assertEqual(results, [False, True])  # la suite du script a bien tourné
+        self.assertEqual(cuisine.commands, [("on", 1)])
+
+    async def test_invalid_command_is_logged(self):
+        fp, bulb = EvtDevice("fp2"), FakeDevice("salon")
+        bulb.fail = ValueError("on attend True/False")
+
+        @fp.evt_n
+        async def handler(event):
+            await bulb.set("on", "oups")
+
+        with self.assertLogs("core.base", "WARNING") as logs:
+            fp.update(n=1)
+            await self.idle()
+        self.assertIn("ValueError", logs.output[0])
+
+    async def test_unexpected_error_is_logged_with_traceback(self):
+        fp = EvtDevice("fp2")
+
+        @fp.evt_n
+        async def handler(event):
+            return {}["absent"]
+
+        with self.assertLogs("core.base", "ERROR") as logs:
+            fp.update(n=1)
+            await self.idle()
+        self.assertIn("erreur inattendue", logs.output[0])
+        self.assertIn("KeyError", logs.output[0])
+
+    async def test_unload_cancels_running_and_keeps_device_commands(self):
+        fp, bulb = EvtDevice("fp2"), FakeBulb("salon")
+        bulb.delays = [0.05]
+        started = asyncio.Event()
+
+        @fp.evt_n
+        async def slow(event):
+            bulb.on = True  # commande de l'équipement : va à son terme
+            started.set()
+            await asyncio.sleep(10)  # automatisation en cours : annulée
+
+        fp.update(n=1)
+        await started.wait()
+        await automation.unload_automations()
+        await self.idle()
+        self.assertEqual(bulb.commands, [("on", True)])
+
     def test_sync_function_refused(self):
         bulb = EvtBulb("lampe")
         with self.assertRaises(TypeError):
-            bulb.evt_on(lambda ev: None)  # type: ignore[arg-type]
+            bulb.evt_on(lambda event: None)  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":

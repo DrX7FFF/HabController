@@ -2,15 +2,17 @@
 
 import logging
 
-from core.automation import Event, on_change
+from core.base import ZoneChange
 from devices.cuisine import cuisine
-from devices.salon import salon
+from devices.salon import fp2, salon
 
 log = logging.getLogger(__name__)
 
 
-@on_change("fp2.zone.Global")
-async def eclairage(event: Event):
+@fp2.evt_zone
+async def eclairage(event: ZoneChange):
+    if event.zone != "Global":
+        return
     salon.on = event.new
     cuisine.on = event.new
     log.warning("Detection = %s", event.new)

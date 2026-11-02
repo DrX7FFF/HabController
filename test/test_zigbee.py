@@ -254,9 +254,15 @@ class SensorTest(unittest.IsolatedAsyncioTestCase):
         button = Button(IEEE)
         button.zdev = SimpleNamespace(skip_configuration=True)
         got = []
-        button.subscribe_events(lambda name, value: got.append((name, value)))
+
+        @button.evt_action
+        async def action(event):
+            got.append((event.action, event.value))
+
         button.zha_send_event("double", [])
         button.zha_send_event("rotate_right", {"relative_degrees": 90})
+        await asyncio.sleep(0.01)
+        await base.clear_listeners()
         self.assertEqual(got, [("double", None), ("rotate_right", {"relative_degrees": 90})])
         self.assertTrue(button.connected)
 

@@ -15,7 +15,6 @@ from fastapi.websockets import WebSocketState
 from pydantic import BaseModel, ValidationError
 
 from core import CONFIG_DIR, ROOT, TEMP_DIR, datalog, git, pair, sync
-from core.automation import check as check_automations
 from core.automation import load_automations, unload_automations
 from core.base import DeviceError, cancel_tasks, spawn_task
 from core.charts import downsample, load_charts
@@ -131,7 +130,7 @@ def on_device_ready(dev) -> None:
 def start_automations() -> None:
     """Charge automations/ et les abonne aux équipements chargés."""
     with collect_errors() as errs:
-        load_automations(devices)
+        load_automations()
     errors["automations"] = errs
 
 
@@ -165,7 +164,6 @@ async def check_when_ready(check) -> None:
 async def after_start() -> None:
     """Une fois les appareils connus : résumé des équipements, puis contrôle des mesures."""
     await summarize(devices, SUMMARY)
-    check_automations(devices)
     check_datalog()
 
 
@@ -244,7 +242,6 @@ async def reload_automations() -> None:
     await unload_automations()
     forget_modules(("automations",))
     start_automations()
-    spawn_task(check_when_ready(partial(check_automations, devices)), "contrôle des automatisations")
 
 
 async def reload_datalog() -> None:
