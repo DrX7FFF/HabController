@@ -353,6 +353,20 @@ class PresenceRuleTest(AutomationTestCase):
         self.assertEqual(self.commands["cuisine"][-1], ("on", True))
 
 
+class DriverEventsTest(unittest.TestCase):
+    def test_each_attribute_has_its_event(self):
+        import drivers.all
+
+        for name in drivers.all.__all__:
+            cls = getattr(drivers.all, name)
+            for attr in dir(cls):
+                if isinstance(getattr(cls, attr), Attribute):
+                    with self.subTest(driver=name, attribute=attr):
+                        self.assertIsInstance(
+                            getattr(cls, f"event_{attr}", None), base.EventSource
+                        )
+
+
 class EventDevice(FakeDevice):
     event_n = base.EventSource[base.EventInt]()
 
