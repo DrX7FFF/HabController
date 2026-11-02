@@ -3,7 +3,7 @@
 import logging
 from typing import TypedDict
 
-from core.base import Attribute, Change, Evt, on_value
+from core.base import Attribute, Event, Evt, on_value
 from drivers.zigbee import (
     ZigbeeDevice,
     find_cluster,
@@ -66,11 +66,11 @@ class Plug(ZigbeeDevice):
     voltage = Attribute[float](readonly=True)
     current = Attribute[float](readonly=True)
     energy = Attribute[float](readonly=True)
-    evt_on = Evt[Change[bool]]()
-    evt_active_power = Evt[Change[float]]()
-    evt_voltage = Evt[Change[float]]()
-    evt_current = Evt[Change[float]]()
-    evt_energy = Evt[Change[float]]()
+    event_on = Evt[Event[bool]]()
+    event_active_power = Evt[Event[float]]()
+    event_voltage = Evt[Event[float]]()
+    event_current = Evt[Event[float]]()
+    event_energy = Evt[Event[float]]()
 
     def __init__(
         self, ieee: str, poll: float | None = None, reports: PlugReports | None = None

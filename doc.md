@@ -51,37 +51,37 @@ Fonctions déclenchées par les événements des équipements. Un fichier par su
 ```python
 import logging
 
-from core.base import Action, Change, ZoneChange
+from core.base import EventAction, Event, EventZone
 from devices.salon import capteur, fp2, salon
 from devices.cuisine import cuisine
 from devices.devices import bouton
 
 log = logging.getLogger(__name__)  # journal des scripts : temp/automations.log
 
-@capteur.evt_presence
-async def eclairage(event: Change[bool]):   # event.device, event.time, event.old, event.new
+@capteur.event_presence
+async def eclairage(event: Event[bool]):   # event.device, event.time, event.old, event.new
     if event.new and capteur.connected:
         salon.on = True                     # écriture : commande envoyée en tâche de fond
         cuisine.on = True
 
-@fp2.evt_zone
-async def zone(event: ZoneChange):          # + event.zone : nom de zonemapping (ou numéro)
+@fp2.event_zone
+async def zone(event: EventZone):          # + event.zone : nom de zonemapping (ou numéro)
     if event.zone == "Global" and event.new:
         ...
 
-@bouton.evt_action
-async def appui(event: Action):             # event.action : nom du correctif zha-quirks
+@bouton.event_action
+async def appui(event: EventAction):             # event.action : nom du correctif zha-quirks
     if event.action == "on_press":          # event.value : valeur éventuelle (angle du cube…)
         salon.on = "toggle"
 ```
 
-- **Événements** : chaque pilote déclare les siens. Après `@salon.evt_`, l'éditeur propose ceux
+- **Événements** : chaque pilote déclare les siens. Après `@salon.event_`, l'éditeur propose ceux
   de l'équipement, et le type de `event` est vérifié s'il est annoté. Un attribut donne
-  `Change[<type de l'attribut>]`, `evt_zone` donne `ZoneChange`, `evt_action` donne `Action` ;
-  tous les équipements ont `evt_connected`.
+  `Event[<type de l'attribut>]`, `event_zone` donne `EventZone`, `event_action` donne `EventAction` ;
+  tous les équipements ont `event_connected`.
 - **Déclenchement** : un appel par attribut changé, à la première valeur reçue (`event.old`
   vaut `None`) puis à chaque valeur différente de la précédente. Un équipement injoignable ne
-  déclenche que `evt_connected` ; ses attributs gardent leur dernière valeur, rien ne se
+  déclenche que `event_connected` ; ses attributs gardent leur dernière valeur, rien ne se
   déclenche s'ils reviennent identiques. Un changement envoyé par HabController lui-même
   déclenche aussi l'événement.
 - Les événements d'un même équipement sont traités un par un, dans l'ordre d'arrivée : une
@@ -107,8 +107,8 @@ def eteindre():
 
 extinction = Timer(5 * 60, eteindre)
 
-@capteur.evt_presence
-async def eclairage(event: Change[bool]):
+@capteur.event_presence
+async def eclairage(event: Event[bool]):
     if event.new:
         extinction.cancel()
         salon.on = True
@@ -378,7 +378,7 @@ personne » (Xiaomi) est remis à faux par son correctif zha-quirks après un d�
 bouton_lit = Button(ieee="00:15:8d:00:04:01:94:be")
 ```
 
-Seulement `battery` dans l'état. Chaque appui déclenche `evt_action`, nommé par le correctif
+Seulement `battery` dans l'état. Chaque appui déclenche `event_action`, nommé par le correctif
 zha-quirks de l'appareil, avec sa valeur éventuelle :
 
 | Appareil       | Événements                                          |
@@ -389,8 +389,8 @@ zha-quirks de l'appareil, avec sa valeur éventuelle :
 | Hue Dimmer     | `on_press`, `off_long_press`…                       |
 
 ```python
-@bouton_lit.evt_action
-async def lumiere(event: Action):    # event.action : nom, event.value : valeur (ex. angle du cube)
+@bouton_lit.event_action
+async def lumiere(event: EventAction):    # event.action : nom, event.value : valeur (ex. angle du cube)
     if event.action == "double":
         salon.on = "toggle"
 ```
@@ -409,7 +409,7 @@ fp2 = FP2(zonemapping={0: "Global", 1: "salon"})
 Chaque zone est repérée par son « Sensor Index » (caractéristique Aqara), comme dans
 node-red-contrib-fp2 ; l'index 0 est la présence globale. `zonemapping` donne un alias aux
 index : `fp2.zone.salon` ou `fp2.zone[1]` (l'index est traduit en alias s'il en a un) ; sans
-alias : `fp2.zone[3]`. Déclencheur : `@fp2.evt_zone`, `event.zone` est l'alias de la zone,
+alias : `fp2.zone[3]`. Déclencheur : `@fp2.event_zone`, `event.zone` est l'alias de la zone,
 ou son index (`"3"`) si elle n'en a pas. Capteur : toute commande est refusée.
 
 ### TV Samsung d'avant 2016 — `samsung.tv`

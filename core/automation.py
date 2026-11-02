@@ -1,5 +1,5 @@
 """Moteur des automatisations de Config/automations : chargement et minuteurs. Les
-automatisations s'abonnent aux événements des équipements (@equipement.evt_…, core.base)."""
+automatisations s'abonnent aux événements des équipements (@equipement.event_…, core.base)."""
 
 import asyncio
 import importlib

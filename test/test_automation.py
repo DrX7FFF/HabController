@@ -161,7 +161,7 @@ class AttributeTest(AutomationTestCase):
         fp = EvtDevice("fp2", {"connected": True, "illuminance": 10.0, "n": 0})
         salon, cuisine = FakeBulb("salon"), FakeBulb("cuisine")
 
-        @fp.evt_n
+        @fp.event_n
         async def eclairage(event):
             if event.new and fp.state().get("illuminance", 100) < 50:
                 salon.on = True
@@ -240,7 +240,7 @@ class LoadTest(AutomationTestCase):
                 pass
 
             rule.__module__ = module
-            bulb.evt_n(rule)
+            bulb.event_n(rule)
             if module == "automations.b":
                 raise NameError("erreur dans le script")
 
@@ -341,22 +341,22 @@ class PresenceRuleTest(AutomationTestCase):
 
 
 class EvtDevice(FakeDevice):
-    evt_n = base.Evt[base.Change[int]]()
+    event_n = base.Evt[base.Event[int]]()
 
 
 class EvtBulb(FakeBulb):
-    evt_on = base.Evt[base.Change[bool]]()
-    evt_bright = base.Evt[base.Change[int]]()
-    evt_action = base.Evt[base.Action]()
+    event_on = base.Evt[base.Event[bool]]()
+    event_bright = base.Evt[base.Event[int]]()
+    event_action = base.Evt[base.EventAction]()
 
 
 class EvtTest(AutomationTestCase):
-    """Événements par attribut : @equipement.evt_x."""
+    """Événements par attribut : @equipement.event_x."""
 
     async def test_first_value_then_changes_only(self):
         bulb, seen = EvtBulb("lampe"), []
 
-        @bulb.evt_on
+        @bulb.event_on
         async def on(event):
             seen.append((event.device, event.old, event.new))
 
@@ -369,11 +369,11 @@ class EvtTest(AutomationTestCase):
     async def test_one_call_per_changed_attribute(self):
         bulb, seen = EvtBulb("lampe"), []
 
-        @bulb.evt_on
+        @bulb.event_on
         async def on(event):
             seen.append(("on", event.new))
 
-        @bulb.evt_bright
+        @bulb.event_bright
         async def bright(event):
             seen.append(("bright", event.new))
 
@@ -384,7 +384,7 @@ class EvtTest(AutomationTestCase):
     async def test_connected_event(self):
         bulb, seen = EvtBulb("lampe"), []
 
-        @bulb.evt_connected
+        @bulb.event_connected
         async def connected(event):
             seen.append(event.new)
 
@@ -396,7 +396,7 @@ class EvtTest(AutomationTestCase):
     async def test_value_kept_while_disconnected(self):
         bulb, seen = EvtBulb("lampe"), []
 
-        @bulb.evt_on
+        @bulb.event_on
         async def on(event):
             seen.append(event.new)
 
@@ -410,24 +410,25 @@ class EvtTest(AutomationTestCase):
     async def test_action(self):
         bulb, seen = EvtBulb("bouton"), []
 
-        @bulb.evt_action
+        @bulb.event_action
         async def action(event):
-            seen.append((event.action, event.value, event.time == bulb.last_seen))
+            seen.append((event.action, event.value, event.time))
 
         bulb._emit("single")
+        first = bulb.last_seen
         bulb._emit("rotate", 45)
         await self.idle()
-        self.assertEqual(seen, [("single", None, True), ("rotate", 45, True)])
+        self.assertEqual(seen, [("single", None, first), ("rotate", 45, bulb.last_seen)])
 
     async def test_device_events_run_in_order(self):
         bulb, seen = EvtBulb("lampe"), []
 
-        @bulb.evt_bright
+        @bulb.event_bright
         async def slow(event):
             await asyncio.sleep(0.02 if event.new == 1 else 0)
             seen.append(event.new)
 
-        @bulb.evt_on
+        @bulb.event_on
         async def fast(event):
             seen.append(event.new)
 
@@ -440,7 +441,7 @@ class EvtTest(AutomationTestCase):
     async def test_device_error_is_logged(self):
         bulb = EvtBulb("lampe")
 
-        @bulb.evt_on
+        @bulb.event_on
         async def fails(event):
             raise DeviceError("injoignable")
 
@@ -451,11 +452,11 @@ class EvtTest(AutomationTestCase):
     async def test_zone(self):
         device, seen = make_fp2(zonemapping={0: "Global"}), []
 
-        @device.evt_zone
+        @device.event_zone
         async def zone(event):
             seen.append((event.zone, event.old, event.new))
 
-        @device.evt_illuminance
+        @device.event_illuminance
         async def lux(event):
             seen.append(("lux", event.old, event.new))
 
@@ -478,7 +479,7 @@ class EvtTest(AutomationTestCase):
     async def test_unload_removes_listeners(self):
         bulb, seen = EvtBulb("lampe"), []
 
-        @bulb.evt_on
+        @bulb.event_on
         async def on(event):
             seen.append(event.new)
 
@@ -493,7 +494,7 @@ class EvtTest(AutomationTestCase):
         salon, cuisine = FakeDevice("salon"), FakeDevice("cuisine")
         results = []
 
-        @fp.evt_n
+        @fp.event_n
         async def handler(event):
             results.append(await salon.send("on", event.new))
             results.append(await cuisine.send("on", event.new))
@@ -510,7 +511,7 @@ class EvtTest(AutomationTestCase):
         fp, bulb = EvtDevice("fp2"), FakeDevice("salon")
         bulb.fail = ValueError("on attend True/False")
 
-        @fp.evt_n
+        @fp.event_n
         async def handler(event):
             await bulb.set("on", "oups")
 
@@ -522,7 +523,7 @@ class EvtTest(AutomationTestCase):
     async def test_unexpected_error_is_logged_with_traceback(self):
         fp = EvtDevice("fp2")
 
-        @fp.evt_n
+        @fp.event_n
         async def handler(event):
             return {}["absent"]
 
@@ -537,7 +538,7 @@ class EvtTest(AutomationTestCase):
         bulb.delays = [0.05]
         started = asyncio.Event()
 
-        @fp.evt_n
+        @fp.event_n
         async def slow(event):
             bulb.on = True  # commande de l'équipement : va à son terme
             started.set()
@@ -552,7 +553,7 @@ class EvtTest(AutomationTestCase):
     def test_sync_function_refused(self):
         bulb = EvtBulb("lampe")
         with self.assertRaises(TypeError):
-            bulb.evt_on(lambda event: None)  # type: ignore[arg-type]
+            bulb.event_on(lambda event: None)  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":

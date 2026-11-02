@@ -8,7 +8,7 @@ import logging
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import WebSocketException
 
-from core.base import Attribute, Change, DeviceError, Evt, NetworkDevice, on_value
+from core.base import Attribute, Event, DeviceError, Evt, NetworkDevice, on_value
 
 log = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class WLED(NetworkDevice):
 
     WIDGET = "onoff"
     on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
-    evt_on = Evt[Change[bool]]()
+    event_on = Evt[Event[bool]]()
 
     def __init__(self, host: str, port: int = 80, retry: float = 10):
         super().__init__()

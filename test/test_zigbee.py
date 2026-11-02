@@ -255,7 +255,7 @@ class SensorTest(unittest.IsolatedAsyncioTestCase):
         button.zdev = SimpleNamespace(skip_configuration=True)
         got = []
 
-        @button.evt_action
+        @button.event_action
         async def action(event):
             got.append((event.action, event.value))
 

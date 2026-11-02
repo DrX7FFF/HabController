@@ -12,7 +12,7 @@ T = TypeVar("T")
 E = TypeVar("E")
 
 tasks: set[asyncio.Task] = set()  # tâches de fond (commandes, automatisations), annulées à l'arrêt
-_listeners: list[tuple["Device", str, Callable]] = []  # abonnements evt_, retirés par clear_listeners
+_listeners: list[tuple["Device", str, Callable]] = []  # abonnements event_, retirés par clear_listeners
 _listener_tasks: set[asyncio.Task] = set()  # fonctions abonnées en cours
 
 
@@ -45,7 +45,7 @@ class DeviceError(Exception):
 
 
 @dataclass(frozen=True)
-class Change(Generic[T]):
+class Event(Generic[T]):
     """Attribut changé : première valeur reçue (old None) ou valeur différente de la précédente."""
 
     device: "Device"
@@ -55,7 +55,7 @@ class Change(Generic[T]):
 
 
 @dataclass(frozen=True)
-class ZoneChange:
+class EventZone:
     """Présence d'une zone changée (détecteur à zones)."""
 
     device: "Device"
@@ -66,7 +66,7 @@ class ZoneChange:
 
 
 @dataclass(frozen=True)
-class Action:
+class EventAction:
     """Action ponctuelle de l'équipement (appui de bouton…), avec sa valeur éventuelle."""
 
     device: "Device"
@@ -79,14 +79,14 @@ Listener = Callable[[E], Awaitable[None]]
 
 
 class Evt(Generic[E]):
-    """Événement d'un équipement, déclaré par son pilote : `@equipement.evt_x` abonne une
-    fonction async(event: E). Clé : le nom sans « evt_ » (attribut d'état, « zone » ou « action »)."""
+    """Événement d'un équipement, déclaré par son pilote : `@equipement.event_x` abonne une
+    fonction async(event: E). Clé : le nom sans « event_ » (attribut d'état, « zone » ou « action »)."""
 
     def __init__(self):
         self.key = ""
 
     def __set_name__(self, owner: type, name: str) -> None:
-        self.key = name.removeprefix("evt_")
+        self.key = name.removeprefix("event_")
 
     @overload
     def __get__(self, obj: None, owner: type) -> "Evt[E]": ...
@@ -99,14 +99,14 @@ class Evt(Generic[E]):
 
 
 def remove_listeners(module: str) -> None:
-    """Retire les abonnements evt_ faits par les fonctions de `module`."""
+    """Retire les abonnements event_ faits par les fonctions de `module`."""
     for device, key, func in [item for item in _listeners if item[2].__module__ == module]:
         device._evt_listeners[key].remove(func)
         _listeners.remove((device, key, func))
 
 
 async def clear_listeners() -> None:
-    """Retire tous les abonnements evt_ et annule les fonctions abonnées en cours."""
+    """Retire tous les abonnements event_ et annule les fonctions abonnées en cours."""
     for device, key, func in _listeners:
         device._evt_listeners[key].remove(func)
     _listeners.clear()
@@ -164,7 +164,7 @@ class Device:
 
     WIDGET = ""  # widget du tableau de bord : sensor, plug, onoff ou light ; "" : aucun
     connected = Attribute[bool](readonly=True)
-    evt_connected = Evt[Change[bool]]()
+    event_connected = Evt[Event[bool]]()
 
     def __init__(self):
         self.id = ""  # affecté par configure() : le chargeur le déduit du nom de la variable
@@ -202,7 +202,7 @@ class Device:
         """Événement ponctuel (bouton : single, double, hold…) : rien dans l'état, transmis tel
         quel avec sa valeur éventuelle (ex. angle de rotation)."""
         self.last_seen = time.time_ns() // 1_000_000
-        self._fire("action", Action(self, self.last_seen, name, value))
+        self._fire("action", EventAction(self, self.last_seen, name, value))
 
     def _notify(self) -> None:
         """À appeler après toute mise à jour de l'état ; ne diffuse que les vrais changements.
@@ -228,7 +228,7 @@ class Device:
 
     def _change(self, key: str, old: Any, new: Any, when: int) -> tuple[str, Any]:
         """Événement d'un attribut changé : (clé d'Evt, event)."""
-        return key, Change(self, when, old, new)
+        return key, Event(self, when, old, new)
 
     def _listen(self, key: str, func: Listener) -> Listener:
         if not inspect.iscoroutinefunction(func):
