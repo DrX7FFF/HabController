@@ -250,11 +250,16 @@ def describe(device) -> list[str]:
     return lines
 
 
-def find_cluster(zdev, cluster_id: int):
-    """Premier cluster serveur `cluster_id` de l'équipement, ou None."""
-    for ep_id, endpoint in zdev.endpoints.items():
-        if ep_id != 0 and cluster_id in endpoint.in_clusters:
-            return endpoint.in_clusters[cluster_id]
+def find_cluster(zdev, cluster_id: int, output: bool = False):
+    """Premier cluster serveur `cluster_id` de l'équipement, ou None ; output : à défaut, un
+    cluster de sortie (correctif qui y range une mesure, ex. porte Xiaomi, 0x0006)."""
+    endpoints = [ep for ep_id, ep in zdev.endpoints.items() if ep_id != 0]
+    groups = [ep.in_clusters for ep in endpoints]
+    if output:
+        groups += [ep.out_clusters for ep in endpoints]
+    for clusters in groups:
+        if cluster_id in clusters:
+            return clusters[cluster_id]
     return None
 
 
