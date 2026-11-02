@@ -111,7 +111,7 @@ async def eclairage(event: Event):
 
 Chaque pilote déclare ses événements (`evt_on`, `evt_brightness`, `evt_battery`,
 `evt_connected`…) : après `@salon.evt_`, l'éditeur propose ceux de l'équipement, et le type de
-`ev` est vérifié. Ils coexistent avec `@on_change` / `@on_event`.
+`event` est vérifié. Ils coexistent avec `@on_change` / `@on_event`.
 
 ```python
 from core.base import Action, Change, ZoneChange
@@ -119,28 +119,28 @@ from devices.salon import fp2, salon_light
 from devices.devices import main_4buttons
 
 @salon_light.evt_brightness
-async def intensite(ev: Change[int]):     # ev.device, ev.time, ev.old, ev.new
-    if ev.new > 70:
+async def intensite(event: Change[int]):     # event.device, event.time, event.old, event.new
+    if event.new > 70:
         ...
 
 @fp2.evt_zone
-async def zone(ev: ZoneChange):           # + ev.zone : nom de zonemapping (ou numéro)
-    if ev.zone == "Global" and ev.new:
+async def zone(event: ZoneChange):           # + event.zone : nom de zonemapping (ou numéro)
+    if event.zone == "Global" and event.new:
         ...
 
 @main_4buttons.evt_action
-async def bouton(ev: Action):             # ev.action : nom du correctif zha-quirks, ev.value
-    if ev.action == "on_press":
+async def bouton(event: Action):             # event.action : nom du correctif zha-quirks, event.value
+    if event.action == "on_press":
         ...
 ```
 
-- Un appel par attribut changé : première valeur reçue (`ev.old` vaut `None`), puis seulement
+- Un appel par attribut changé : première valeur reçue (`event.old` vaut `None`), puis seulement
   une valeur différente de la précédente. Un équipement injoignable ne déclenche que
   `evt_connected` ; ses attributs gardent leur dernière valeur, rien ne se déclenche s'ils
   reviennent identiques.
 - Un changement envoyé par HabController lui-même déclenche aussi l'événement.
 - Les événements d'un même équipement sont traités un par un, dans l'ordre d'arrivée.
-- Une même fonction peut être décorée sur plusieurs équipements (`ev.device`).
+- Une même fonction peut être décorée sur plusieurs équipements (`event.device`).
 
 ## Journaux
 

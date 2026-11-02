@@ -80,7 +80,7 @@ Listener = Callable[[E], Awaitable[None]]
 
 class Evt(Generic[E]):
     """Événement d'un équipement, déclaré par son pilote : `@equipement.evt_x` abonne une
-    fonction async(ev: E). Clé : le nom sans « evt_ » (attribut d'état, « zone » ou « action »)."""
+    fonction async(event: E). Clé : le nom sans « evt_ » (attribut d'état, « zone » ou « action »)."""
 
     def __init__(self):
         self.key = ""
@@ -227,7 +227,7 @@ class Device:
                 self._fire(*self._change(key, old, value, now))
 
     def _change(self, key: str, old: Any, new: Any, when: int) -> tuple[str, Any]:
-        """Événement d'un attribut changé : (clé d'Evt, ev)."""
+        """Événement d'un attribut changé : (clé d'Evt, event)."""
         return key, Change(self, when, old, new)
 
     def _listen(self, key: str, func: Listener) -> Listener:
