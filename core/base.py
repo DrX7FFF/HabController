@@ -104,6 +104,11 @@ class EventSource(Generic[E]):
         return partial(obj._listen, self.key)
 
 
+def listeners() -> list[tuple["Device", str, Callable]]:
+    """Abonnements evt_ en cours : (équipement, clé d'EventSource, fonction)."""
+    return list(_listeners)
+
+
 def remove_listeners(module: str) -> None:
     """Retire les abonnements event_ faits par les fonctions de `module`."""
     for device, key, func in [item for item in _listeners if item[2].__module__ == module]:

@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from core import CONFIG_DIR
-from core.base import DeviceError, clear_listeners, remove_listeners, spawn_task
+from core.base import DeviceError, clear_listeners, listeners, remove_listeners, spawn_task
 
 log = logging.getLogger(__name__)
 __all__ = ["Timer"]
@@ -56,6 +56,19 @@ class Timer:
                 await result
         except (DeviceError, ValueError) as err:
             log.warning("%s : %s : %s", self.name, type(err).__name__, err)
+
+
+def check() -> None:
+    """Signale les event_ d'attribut qui ne se déclencheront jamais (voir Device.check_measure) ;
+    event_zone et event_action ne sont pas contrôlés."""
+    for device, key, func in listeners():
+        if key in ("zone", "action"):
+            continue
+        if reason := device.check_measure(key):
+            log.warning(
+                "%s.%s : %s.event_%s : %s, jamais déclenchée",
+                func.__module__.rpartition(".")[2], func.__name__, device.id, key, reason,
+            )
 
 
 def load_automations() -> None:

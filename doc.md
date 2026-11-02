@@ -88,6 +88,9 @@ async def appui(event: EventAction):             # event.action : nom du correct
   fonction qui attend longtemps retarde les suivants (utiliser un `Timer`). Une erreur dans une
   automatisation n'arrête pas les autres.
 - Une même fonction peut être décorée sur plusieurs équipements (`event.device`).
+- Un `event_` d'attribut qui ne se déclenchera jamais (attribut non suivi dans `reports`, absent
+  de l'appareil) est signalé dans le journal une fois les appareils rattachés ; l'automatisation
+  est gardée.
 - **Lecture** : un attribut vaut `None` si l'équipement est injoignable (l'attribut disparaît
   de son état).
 - **Écriture** : `salon.on = True` ne bloque pas et ne lève rien si l'équipement est

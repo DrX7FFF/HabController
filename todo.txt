@@ -30,8 +30,6 @@ Alertes : équipement qui ne vit plus, pile faible.
 
 
 Automatisations, événements @equipement.event_… (à voir plus tard) :
-- Signaler au démarrage un event_ sur une mesure jamais reçue (non suivie dans reports, absente de
-  l'appareil), comme le faisait check() pour l'ancien @on_change.
 - EventAction « life » : signe de vie quand un message ne change aucun attribut.
 - Filtrer les événements qu'on vient d'envoyer (commande de HabController → changement reçu).
 - event_change : un appel par message avec tous les attributs changés (structure de ev à définir).

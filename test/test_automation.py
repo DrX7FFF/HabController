@@ -577,6 +577,21 @@ class EventTest(AutomationTestCase):
         await self.idle()
         self.assertEqual(bulb.commands, [("on", True)])
 
+    async def test_check_reports_untracked_measure(self):
+        bulb = EventBulb("lampe")
+        bulb.measures = lambda: {"on": "disabled", "bright": "tracked"}
+
+        @bulb.event_on
+        @bulb.event_bright
+        @bulb.event_action
+        async def rule(event):
+            pass
+
+        with self.assertLogs("core.automation", "WARNING") as logs:
+            automation.check()
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("lampe.event_on : non suivie (reports), jamais déclenchée", logs.output[0])
+
     def test_sync_function_refused(self):
         bulb = EventBulb("lampe")
         with self.assertRaises(TypeError):
