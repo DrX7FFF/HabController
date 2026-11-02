@@ -177,11 +177,11 @@ class Device:
         self._listeners: list[Callable[[dict], None]] = []
         self._ready_listeners: list[Callable[[], None]] = []
         self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre
-        self._last_notified: dict | None = None
+        self._last: dict = {}  # dernière valeur vue par attribut, gardée hors connexion
+        self._keys: set[str] | None = None  # attributs présents dans le dernier état diffusé
         self.changed_at: int | None = None  # ms depuis l'époque Unix, dernier changement d'état
         self.last_seen: int | None = None  # ms, dernière mise à jour reçue (même identique)
         self._evt_listeners: dict[str, list[Callable]] = {}  # clé d'EventSource -> fonctions abonnées
-        self._evt_last: dict = {}  # dernière valeur vue par attribut, gardée hors connexion
         self._evt_lock = asyncio.Lock()  # fonctions abonnées : une à la fois, dans l'ordre
 
     def configure(self, dev_id: str) -> None:
@@ -213,6 +213,8 @@ class Device:
     def _notify(self) -> None:
         """À appeler après toute mise à jour de l'état ; ne diffuse que les vrais changements.
 
+        Une seule comparaison, par attribut : les attributs changés déclenchent leur événement,
+        et l'état est diffusé s'il y en a, ou si un attribut est apparu ou a disparu (connexion).
         Le changement est horodaté (changed_at) avant d'être diffusé. last_seen est mis à jour à
         chaque appel tant que l'équipement est joignable (une perte de connexion n'est pas reçue).
         """
@@ -220,17 +222,20 @@ class Device:
         now = time.time_ns() // 1_000_000
         if state.get("connected"):
             self.last_seen = now
-        if state != self._last_notified:
-            self._last_notified = state
-            self.changed_at = now
-            for callback in self._listeners:
-                callback(state)
-            for key, value in state.items():
-                if key in self._evt_last and self._evt_last[key] == value:
-                    continue
-                old = self._evt_last.get(key)
-                self._evt_last[key] = value
-                self._fire(*self._change(key, old, value, now))
+        changes = [
+            (key, self._last.get(key), value)
+            for key, value in state.items()
+            if key not in self._last or self._last[key] != value
+        ]
+        if not changes and set(state) == self._keys:
+            return
+        self._last.update(state)
+        self._keys = set(state)
+        self.changed_at = now
+        for callback in self._listeners:
+            callback(state)
+        for key, old, value in changes:
+            self._fire(*self._change(key, old, value, now))
 
     def _change(self, key: str, old: Any, new: Any, when: int) -> tuple[str, Any]:
         """Événement d'un attribut changé : (clé d'EventSource, event)."""

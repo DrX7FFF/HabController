@@ -77,6 +77,19 @@ class DeviceTest(AutomationTestCase):
         fp.update(connected=False)  # injoignable : rien de reçu
         self.assertEqual(fp.last_seen, 0)
 
+    async def test_state_broadcast_only_on_change(self):
+        fp, states = FakeDevice("fp2"), []
+        fp.subscribe(states.append)
+        fp.update(connected=True, n=1)
+        fp.update(n=1)  # rien de changé : pas diffusé
+        fp._state = {"connected": False}  # n disparaît : diffusé
+        fp._notify()
+        fp.update(connected=True, n=1)  # n revient identique : diffusé
+        self.assertEqual(
+            states,
+            [{"connected": True, "n": 1}, {"connected": False}, {"connected": True, "n": 1}],
+        )
+
     async def test_stop_with_finished_tasks_not_yet_removed(self):
         async def quick():
             pass
