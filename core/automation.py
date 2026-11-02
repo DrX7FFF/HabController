@@ -1,5 +1,7 @@
 """Moteur des automatisations de Config/automations : chargement et minuteurs. Les
-automatisations s'abonnent aux événements des équipements (@equipement.event_…, core.base)."""
+automatisations s'abonnent aux événements des équipements (@equipement.event_…, core.base).
+
+Un script n'importe que ce module : `from core.automation import *` (voir __all__)."""
 
 import asyncio
 import importlib
@@ -8,10 +10,34 @@ from collections.abc import Callable
 from typing import Any
 
 from core import CONFIG_DIR
-from core.base import DeviceError, clear_listeners, listeners, remove_listeners, spawn_task
+from core.base import (
+    DeviceError,
+    Event,
+    EventAction,
+    EventBool,
+    EventFloat,
+    EventInt,
+    EventStr,
+    EventZone,
+    clear_listeners,
+    listeners,
+    remove_listeners,
+    spawn_task,
+)
 
-log = logging.getLogger(__name__)
-__all__ = ["Timer"]
+_log = logging.getLogger(__name__)  # moteur : system.log
+log = logging.getLogger("automations")  # scripts : automations.log, avec le nom du fichier
+__all__ = [
+    "Event",
+    "EventAction",
+    "EventBool",
+    "EventFloat",
+    "EventInt",
+    "EventStr",
+    "EventZone",
+    "Timer",
+    "log",
+]
 
 AUTOMATIONS_DIR = CONFIG_DIR / "automations"
 _running: set[asyncio.Task] = set()  # minuteurs en cours, annulés à unload
@@ -55,7 +81,7 @@ class Timer:
             if asyncio.iscoroutine(result):
                 await result
         except (DeviceError, ValueError) as err:
-            log.warning("%s : %s : %s", self.name, type(err).__name__, err)
+            _log.warning("%s : %s : %s", self.name, type(err).__name__, err)
 
 
 def check() -> None:
@@ -65,7 +91,7 @@ def check() -> None:
         if key in ("zone", "action"):
             continue
         if reason := device.check_measure(key):
-            log.warning(
+            _log.warning(
                 "%s.%s : %s.event_%s : %s, jamais déclenchée",
                 func.__module__.rpartition(".")[2], func.__name__, device.id, key, reason,
             )
@@ -82,7 +108,7 @@ def load_automations() -> None:
             importlib.import_module(module)
         except Exception:
             remove_listeners(module)
-            log.exception("automations/%s : fichier ignoré", path.name)
+            _log.exception("automations/%s : fichier ignoré", path.name)
 
 
 async def unload_automations() -> None:

@@ -49,14 +49,10 @@ Fonctions déclenchées par les événements des équipements. Un fichier par su
 `devices/` qui les déclare :
 
 ```python
-import logging
-
-from core.base import EventAction, EventBool, EventZone
+from core.automation import *             # types d'événement, Timer, log
 from devices.salon import capteur, fp2, salon
 from devices.cuisine import cuisine
 from devices.devices import bouton
-
-log = logging.getLogger(__name__)  # journal des scripts : temp/automations.log
 
 @capteur.event_presence
 async def eclairage(event: EventBool):   # event.device, event.time, event.old, event.new
@@ -103,8 +99,6 @@ async def appui(event: EventAction):             # event.action : nom du correct
   tourne. Annulé au rechargement.
 
 ```python
-from core.automation import Timer
-
 def eteindre():
     salon.on = False
 
@@ -127,8 +121,8 @@ async def eclairage(event: EventBool):
 - Système (pilotes, connexions, serveur, moteur d'automatisation) : console + `temp/system.log`.
 - Scripts (`automations/*.py`) : `temp/automations.log` seulement, jamais dans la console.
 
-Un script se journalise avec `log = logging.getLogger(__name__)` : son nom
-(`automations.<script>`) suffit à l'envoyer dans le bon fichier.
+Un script se journalise avec `log` (fourni par `from core.automation import *`) : chaque ligne
+indique le fichier du script, ex. `presence : porte ouverte : True`.
 
 ## Datalog
 

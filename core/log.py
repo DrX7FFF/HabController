@@ -8,6 +8,7 @@ from logging.handlers import RotatingFileHandler
 from core import TEMP_DIR, settings
 
 FORMAT = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s : %(message)s")
+SCRIPTS_FORMAT = logging.Formatter("%(asctime)s %(levelname)-7s %(module)s : %(message)s")
 
 
 def _file_handler(name: str) -> RotatingFileHandler:
@@ -55,7 +56,9 @@ def setup() -> None:
     scripts = logging.getLogger("automations")
     scripts.setLevel(logging.DEBUG)
     scripts.propagate = False  # ne remonte ni dans la console ni dans system.log
-    scripts.addHandler(_file_handler("automations.log"))
+    handler = _file_handler("automations.log")
+    handler.setFormatter(SCRIPTS_FORMAT)  # le fichier du script plutôt que le nom du journal
+    scripts.addHandler(handler)
     logging.getLogger("habctrl").info("------------- Démarrage -------------")
 
 
