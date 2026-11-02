@@ -214,7 +214,7 @@ class PlugStateTest(unittest.TestCase):
 
 
 class PlugCommandTest(unittest.IsolatedAsyncioTestCase):
-    async def test_on_sends_zcl_command_and_toggle_inverts(self):
+    async def test_on_sends_zcl_command(self):
         plug = Plug(IEEE)
         plug.zdev = SimpleNamespace()
         sent = []
@@ -227,7 +227,7 @@ class PlugCommandTest(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(plug, "_command", command),
         ):
             await plug.set("on", True)
-            await plug.set("on", "toggle")
+            await plug.set("on", False)
         self.assertEqual(sent, ["on", "off"])
         self.assertIs(plug._values["on"], False)
 

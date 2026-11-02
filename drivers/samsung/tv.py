@@ -126,7 +126,7 @@ class SamsungTV(NetworkDevice):
     async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
         if name != "on":
             raise ValueError(f"{self.id} ne gère pas « {name} »")
-        if on_value(value, self._connected):
+        if on_value(value):
             raise ValueError(f"{self.id} : impossible de l'allumer par le réseau")
         if self._writer is None:
             return  # déjà éteinte

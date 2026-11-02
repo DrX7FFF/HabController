@@ -8,7 +8,7 @@ from core.base import Attribute, Device, EventBool, EventInt, EventSource, Event
 
 class Light(Device):
     WIDGET = "light"
-    on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
+    on = Attribute[bool]()
     brightness = Attribute[int]()  # 1 à 100
     color_temp = Attribute[int]()  # Kelvin
     rgb = Attribute[str]()  # "#rrggbb"
@@ -20,7 +20,7 @@ class Light(Device):
     # Commandes groupées : en tâche de fond, comme salon.on = True.
 
     def toggle(self, transition: int | None = None) -> None:
-        self._background("toggle", lambda: self.set("on", "toggle", transition))
+        self._background("toggle", lambda: self.set("on", not self.on, transition))
 
     def set_temp(self, brightness: int, color_temp: int, transition: int | None = None) -> None:
         self._background(

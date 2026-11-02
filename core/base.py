@@ -127,13 +127,11 @@ async def clear_listeners() -> None:
         await asyncio.gather(*running, return_exceptions=True)
 
 
-def on_value(value: bool | str | int, current: bool | None) -> bool:
-    """Valeur demandée pour l'attribut `on` : True, False, ou "toggle" (inverse l'état connu)."""
-    if value == "toggle":
-        return not current
+def on_value(value: bool | str | int) -> bool:
+    """Valeur demandée pour l'attribut `on` : True ou False."""
     if isinstance(value, bool):
         return value
-    raise ValueError("on attend True, False ou « toggle »")
+    raise ValueError("on attend True ou False")
 
 
 class Attribute(Generic[T]):

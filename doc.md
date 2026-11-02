@@ -68,7 +68,7 @@ async def zone(event: EventZone):          # + event.zonename : nom de zonemappi
 @bouton.event_action
 async def appui(event: EventAction):             # event.action : nom du correctif zha-quirks
     if event.action == "on_press":          # event.value : valeur éventuelle (angle du cube…)
-        salon.on = "toggle"
+        salon.toggle()
 ```
 
 - **Événements** : chaque pilote déclare les siens. Après `@salon.event_`, l'éditeur propose ceux
@@ -268,7 +268,7 @@ l'autre.
 
 | Attribut     | Type                      | Lecture | Commande                    |
 |--------------|---------------------------|---------|-----------------------------|
-| `on`         | bool                      | ✓       | `True`, `False`, `"toggle"` |
+| `on`         | bool                      | ✓       | `True`, `False`             |
 | `brightness` | int, 1 à 100 (%)          | ✓       | ✓                           |
 | `color_temp` | int, Kelvin (~1700–6500)  | ✓       | ✓                           |
 | `rgb`        | str, `"#rrggbb"`          | ✓       | ✓                           |
@@ -313,11 +313,13 @@ prise_salon = Plug(ieee="a4:c1:38:d6:d7:c6:db:f6")
 
 | Attribut       | Type             | Lecture | Commande                    |
 |----------------|------------------|---------|-----------------------------|
-| `on`           | bool             | ✓       | `True`, `False`, `"toggle"` |
+| `on`           | bool             | ✓       | `True`, `False`             |
 | `active_power` | float, W         | ✓       | —                           |
 | `voltage`      | float, V         | ✓       | —                           |
 | `current`      | float, A         | ✓       | —                           |
 | `energy`       | float, kWh cumul | ✓       | —                           |
+
+`toggle()` inverse allumé / éteint.
 
 Les mesures sont envoyées spontanément par la prise, et n'apparaissent que si elles sont
 suivies et que le modèle les fournit (clusters 0x0b04, 0x0702). Une lecture toutes les 5 min
@@ -389,7 +391,7 @@ zha-quirks de l'appareil, avec sa valeur éventuelle :
 @bouton_lit.event_action
 async def lumiere(event: EventAction):    # event.action : nom, event.value : valeur (ex. angle du cube)
     if event.action == "double":
-        salon.on = "toggle"
+        salon.toggle()
 ```
 
 ### Capteur de présence Aqara FP2 — `homekit.fp2`
@@ -435,7 +437,9 @@ ruban = WLED(host="192.168.1.120")   # port=80, retry=10
 
 | Attribut | Type | Lecture | Commande                    |
 |----------|------|---------|-----------------------------|
-| `on`     | bool | ✓       | `True`, `False`, `"toggle"` |
+| `on`     | bool | ✓       | `True`, `False`             |
+
+`toggle()` inverse allumé / éteint.
 
 Connexion WebSocket permanente (`/ws`) : le WLED envoie son état à chaque changement, même
 venu d'ailleurs (appli, bouton). Coupée, une nouvelle tentative a lieu toutes les `retry`

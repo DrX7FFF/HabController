@@ -167,7 +167,7 @@ class Light(core.light.Light, ZigbeeDevice):
             await self._command(find_cluster(self.zdev, ON_OFF), "on")
             self._raw["on_off"] = 1
         if name == "on":
-            on = on_value(value, self._raw.get("on_off") == 1)
+            on = on_value(value)
             await self._command(cluster, "on" if on else "off")
             self._raw["on_off"] = int(on)
         elif name == "brightness":

@@ -19,7 +19,7 @@ class WLED(NetworkDevice):
     """Contrôleur WLED : connexion permanente, l'état vient de ses messages."""
 
     WIDGET = "onoff"
-    on = Attribute[bool]()  # True / False ; "toggle" accepté en écriture
+    on = Attribute[bool]()
     event_on = EventSource[EventBool]()
 
     def __init__(self, host: str, port: int = 80, retry: float = 10):
@@ -80,10 +80,13 @@ class WLED(NetworkDevice):
 
     # --- commandes ----------------------------------------------------------
 
+    def toggle(self) -> None:
+        self._background("toggle", lambda: self.set("on", not self.on))
+
     async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
         if name != "on":
             raise ValueError(f"{self.id} ne gère pas « {name} »")
-        on = on_value(value, self._on)
+        on = on_value(value)
         if self._ws is None or not self._synced:
             raise DeviceError(f"{self.id} : injoignable")
         try:

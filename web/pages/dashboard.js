@@ -57,8 +57,10 @@ function values(rows, measures) {
 
 function power(dev) {
   const button = el("button");
-  button.onclick = () => command(dev, "on", "toggle");
+  let on = false;
+  button.onclick = () => command(dev, "on", !on);
   return { el: button, set: s => {
+    on = s.on === true;
     button.className = onKey(s);
     button.textContent = labels[onKey(s)];
   } };
