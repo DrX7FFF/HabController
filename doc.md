@@ -65,8 +65,8 @@ async def eclairage(event: EventBool):   # event.device, event.time, event.old, 
         cuisine.on = True
 
 @fp2.event_zone
-async def zone(event: EventZone):          # + event.zone : nom de zonemapping (ou numéro)
-    if event.zone == "Global" and event.new:
+async def zone(event: EventZone):          # + event.zonename : nom de zonemapping (ou numéro)
+    if event.zonename == "Global" and event.new:
         ...
 
 @bouton.event_action
@@ -401,16 +401,17 @@ async def lumiere(event: EventAction):    # event.action : nom, event.value : va
 fp2 = FP2(zonemapping={0: "Global", 1: "salon"})
 ```
 
-| Attribut                          | Type            | Lecture | Commande |
-|-----------------------------------|-----------------|---------|----------|
-| `zone.<alias>` ou `zone[<index>]` | bool (présence) | ✓       | —        |
-| `illuminance`                     | float, lux      | ✓       | —        |
+| Attribut                            | Type            | Lecture | Commande |
+|-------------------------------------|-----------------|---------|----------|
+| `zones.<alias>` ou `zones[<index>]` | bool (présence) | ✓       | —        |
+| `illuminance`                       | float, lux      | ✓       | —        |
 
 Chaque zone est repérée par son « Sensor Index » (caractéristique Aqara), comme dans
 node-red-contrib-fp2 ; l'index 0 est la présence globale. `zonemapping` donne un alias aux
-index : `fp2.zone.salon` ou `fp2.zone[1]` (l'index est traduit en alias s'il en a un) ; sans
-alias : `fp2.zone[3]`. Déclencheur : `@fp2.event_zone`, `event.zone` est l'alias de la zone,
-ou son index (`"3"`) si elle n'en a pas. Capteur : toute commande est refusée.
+index : `fp2.zones.salon` ou `fp2.zones[1]` (l'index est traduit en alias s'il en a un) ; sans
+alias : `fp2.zones[3]`. Nom dans l'état et le datalog : `zone.<alias>`. Déclencheur :
+`@fp2.event_zone`, `event.zonename` est l'alias de la zone, ou son index (`"3"`) si elle n'en a
+pas. Capteur : toute commande est refusée.
 
 ### TV Samsung d'avant 2016 — `samsung.tv`
 

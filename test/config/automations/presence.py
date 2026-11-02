@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 
 @fp2.event_zone
 async def eclairage(event: EventZone):
-    if event.zone != "Global":
+    if event.zonename != "Global":
         return
     salon.on = event.new
     cuisine.on = event.new

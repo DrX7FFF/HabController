@@ -98,13 +98,13 @@ class AttributeTest(AutomationTestCase):
         fp._values = {"illuminance": 42.5, "zone.cuisine": True, "zone.3": False}
         self.assertEqual(fp.illuminance, 42.5)
         self.assertTrue(fp.connected)
-        self.assertTrue(fp.zone.cuisine)
-        self.assertFalse(fp.zone[3])
+        self.assertTrue(fp.zones.cuisine)
+        self.assertFalse(fp.zones[3])
         fp._connected = False  # injoignable : les attributs disparaissent
         fp._synced = False
         self.assertIsNone(fp.illuminance)
         self.assertFalse(fp.connected)
-        self.assertIsNone(fp.zone.nexistepas)
+        self.assertIsNone(fp.zones.nexistepas)
         fp._connected = True
         fp._synced = True
         fp._values["illuminance"] = 10.0
@@ -454,7 +454,7 @@ class EventTest(AutomationTestCase):
 
         @device.event_zone
         async def zone(event):
-            seen.append((event.zone, event.old, event.new))
+            seen.append((event.zonename, event.old, event.new))
 
         @device.event_illuminance
         async def lux(event):

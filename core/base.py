@@ -66,7 +66,7 @@ class EventZone:
 
     device: "Device"
     time: int  # ms depuis l'époque Unix
-    zone: str
+    zonename: str
     old: bool | None
     new: bool
 

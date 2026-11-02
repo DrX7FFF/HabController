@@ -114,7 +114,7 @@ class FP2(NetworkDevice):
         self._tasks: set[asyncio.Task] = set()
 
     @property
-    def zone(self) -> "Zones":
+    def zones(self) -> "Zones":
         return Zones(self)
 
     def _change(self, key: str, old, new, when: int):
