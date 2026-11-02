@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import logging
 
 from yeelight import BulbException, Flow, RGBTransition, SceneClass, TemperatureTransition
@@ -45,8 +44,6 @@ class YeelightBulb(Light, NetworkDevice):
         self._port = port
         self._bulb: AsyncBulb | None = None
         self._props: dict = {}  # dernières valeurs connues, noms du protocole Yeelight
-        self._task: asyncio.Task | None = None
-        self._refresh_task: asyncio.Task | None = None
 
     # --- cycle de vie -------------------------------------------------------
 
@@ -59,14 +56,10 @@ class YeelightBulb(Light, NetworkDevice):
     async def start(self) -> None:
         # AsyncBulb a besoin de la boucle d'événements en cours : création ici, pas dans __init__.
         self._bulb = AsyncBulb(self._host, self._port, auto_on=False)
-        self._task = asyncio.create_task(self._connect())
+        self._spawn(self._connect())
 
     async def stop(self) -> None:
-        for task in (self._task, self._refresh_task):
-            if task:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+        await super().stop()
         if self._bulb:
             await self._bulb.async_stop_listening()
 
@@ -88,14 +81,9 @@ class YeelightBulb(Light, NetworkDevice):
         # Chaque notification porte aussi KEY_CONNECTED=True : on ne réagit qu'aux changements.
         connected = props.get(KEY_CONNECTED, self._connected)
         if connected != self._connected:
-            self._connected = connected
-            self._synced = False
+            self._set_connected(connected)
             if connected:
-                log.info("%s : connecté", self.id)
-                # l'état a pu changer pendant la coupure
-                self._refresh_task = asyncio.get_running_loop().create_task(self._refresh())
-            else:
-                log.warning("%s : déconnecté", self.id)
+                self._spawn(self._refresh())  # l'état a pu changer pendant la coupure
         self._merge(props)
         self._notify()
 
@@ -151,10 +139,6 @@ class YeelightBulb(Light, NetworkDevice):
 
     def _duration(self, transition: int | None) -> int:
         return self.transition if transition is None else transition
-
-    def _check_reachable(self) -> None:
-        if not (self._connected and self._synced):
-            raise DeviceError(f"{self.id} : injoignable")
 
     async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
         if name not in SETTABLE:

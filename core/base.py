@@ -351,6 +351,43 @@ class NetworkDevice(Device):
         super().__init__()
         self._connected = False
         self._synced = False  # état lu au moins une fois depuis la connexion courante
+        self._tasks: set[asyncio.Task] = set()  # tâches du pilote, annulées par stop()
+
+    async def stop(self) -> None:
+        for task in self._tasks:
+            task.cancel()
+        await asyncio.gather(*self._tasks, return_exceptions=True)
+
+    def _spawn(self, coro) -> asyncio.Task:
+        """Tâche du pilote (connexion, lecture…) : annulée par stop(), erreur journalisée."""
+        task = asyncio.get_running_loop().create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._task_done)
+        return task
+
+    def _task_done(self, task: asyncio.Task) -> None:
+        self._tasks.discard(task)
+        if not task.cancelled() and (err := task.exception()):
+            log.error("%s : erreur inattendue", self.id, exc_info=err)
+
+    def _set_connected(
+        self, connected: bool, synced: bool = False, reason: str = "", silent: bool = False
+    ) -> None:
+        """Connexion établie ou perdue : journalisée si elle change (sauf `silent`), état
+        diffusé. `synced` : état déjà lu (sinon à lire ensuite) ; `reason` : cause de la perte."""
+        if connected != self._connected and not silent:
+            if connected:
+                log.info("%s : connecté", self.id)
+            else:
+                log.warning("%s : déconnecté%s", self.id, f" ({reason})" if reason else "")
+        self._connected = connected
+        self._synced = connected and synced
+        self._notify()
+
+    def _check_reachable(self) -> None:
+        """DeviceError si l'équipement n'est pas connecté et synchronisé."""
+        if not (self._connected and self._synced):
+            raise DeviceError(f"{self.id} : injoignable")
 
     def state(self) -> dict:
         """Retourne l'état : {"connected": False} si injoignable, sinon {"connected": True, ...}."""
