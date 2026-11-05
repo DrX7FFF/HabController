@@ -19,7 +19,7 @@ const BOOL_SHARE = 0.25;  // part de la hauteur réservée aux bandes, sous les 
 
 const timeFmt = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" });
 const dayFmt = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric", month: "numeric" });
-const fullFmt = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" });
+const fullFmt = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "medium" });
 const numFmt = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 });
 
 const groups = new Map();  // groupe -> graphiques uPlot

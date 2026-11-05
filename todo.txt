@@ -7,6 +7,9 @@ Synthèse en page web (le fichier temp/equipements.yaml existe) : équipements l
 
 Refaire l'appairage du FP2 (Administration, HomeKit) : l'en-tête de pairing/homekit/fp2.toml cite encore devices/fp2.py.
 
+Graphiques : en direct, la courbe ne s'actualise qu'à la réception d'une nouvelle valeur (l'état
+en cours ne se prolonge pas jusqu'à maintenant).
+
 Zigbee, à faire devant les appareils (réinitialiser chacun puis Administration, Zigbee) :
 - TVBackLight (TS011F) : appairer, rien à coder.
 - Boutons (b1acn01 x2, bouton rond lumi.sensor_switch, Cube, Hue Dimmer RWL021) : relever les noms
@@ -28,6 +31,18 @@ Alertes : équipement qui ne vit plus, pile faible.
 - Canal : journal + notification du système (core/notifications.py : pastille sur l'onglet
   Administration) pour commencer, puis notification externe (mail, push…).
 
+
+Mode HabVide (HabConfig, automations/presence.py : porte d'entrée, alloff()) :
+- Filtrer les fausses détections (robot aspirateur) qui font sortir de HabVide.
+- Surveillance en HabVide : signaler un équipement qui se rallume ; après une coupure de courant,
+  vérifier toutes les 30 min que tout est éteint.
+- Événement « datalog actif » auquel une automatisation peut s'abonner, pour s'exécuter dès que
+  le datalog est prêt (ex. enregistrer HabVide au démarrage : les automatisations sont chargées
+  avant le datalog, un record() fait au chargement est ignoré).
+  En même temps : événement « démarrage » (système ou rechargement des automatisations), pour
+  initialiser les états depuis les équipements (ex. presence.py : présence et luminosité du FP2).
+- Persistance entre deux redémarrages : l'état HabVide (et les autres états des automatisations)
+  est perdu au redémarrage.
 
 Automatisations, événements @equipement.event_… (à voir plus tard) :
 - EventAction « life » : signe de vie quand un message ne change aucun attribut.

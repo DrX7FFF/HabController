@@ -1,5 +1,6 @@
 """Toutes les classes de pilotes, à importer d'une ligne : `from drivers.all import Plug, Light`."""
 
+from drivers.esp32matrix.display import RGBMatrix
 from drivers.homekit.fp2 import FP2
 from drivers.samsung.tv import SamsungTV
 from drivers.wled.strip import WLED
@@ -14,6 +15,7 @@ from drivers.zigbee.sensor import Sensor
 
 __all__ = [
     "FP2",
+    "RGBMatrix",
     "SamsungTV",
     "WLED",
     "YeelightBulb",

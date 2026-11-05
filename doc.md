@@ -178,7 +178,7 @@ title = "Filament Temp&Hum"   # par défaut : l'id de l'équipement
 
 Le widget suit le type de l'équipement : capteur (capteurs Zigbee, FP2), prise (marche/arrêt
 et mesures), lampe (marche/arrêt, puis intensité, température et couleur si suivies), marche/
-arrêt (TV, WLED). Un widget affiche toutes les mesures suivies de l'équipement (`tracked`), vides
+arrêt (TV, WLED, afficheur RGB). Un widget affiche toutes les mesures suivies de l'équipement (`tracked`), vides
 tant qu'aucune valeur n'est reçue ; une mesure non suivie (`disabled`) ou absente de l'appareil
 n'apparaît pas. Tant que l'équipement n'est pas prêt (appareil Zigbee pas encore rattaché), le
 bloc n'a que son titre.
@@ -444,3 +444,21 @@ ruban = WLED(host="192.168.1.120")   # port=80, retry=10
 Connexion WebSocket permanente (`/ws`) : le WLED envoie son état à chaque changement, même
 venu d'ailleurs (appli, bouton). Coupée, une nouvelle tentative a lieu toutes les `retry`
 secondes.
+
+### Afficheur RGB — `esp32matrix.display`
+
+```python
+matrice = RGBMatrix(host="192.168.1.130")   # port=5000, retry=10, ping=10
+```
+
+| Attribut | Type | Lecture | Commande                    |
+|----------|------|---------|-----------------------------|
+| `on`     | bool | ✓       | `True`, `False`             |
+
+`toggle()` inverse allumé / éteint. Éteint : écran noir et animations suspendues, l'ESP32 reste
+joignable.
+
+Connexion TCP permanente (une commande texte par ligne, projet ESP32RGBMatrix) : l'afficheur
+envoie `state on=0|1` à la connexion puis à chaque changement, même venu de sa console série.
+Sans message pendant `ping` secondes, un `ping` est envoyé ; sans réponse, la connexion est
+coupée. Coupée, une nouvelle tentative a lieu toutes les `retry` secondes.
