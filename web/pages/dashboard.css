@@ -11,3 +11,6 @@
                             margin: 0; font-size: 1.1rem; }
 .page-dashboard .measures dt { color: var(--muted); }
 .page-dashboard .measures dd { margin: 0; font-weight: 600; text-align: right; }
+.page-dashboard .player { display: grid; gap: .5rem; justify-items: center; }
+.page-dashboard .player .pattern { font-size: 1.1rem; font-weight: 600; }
+.page-dashboard .player div { display: flex; gap: .5rem; }

@@ -451,14 +451,16 @@ secondes.
 matrice = RGBMatrix(host="192.168.1.130")   # port=5000, retry=10, ping=10
 ```
 
-| Attribut | Type | Lecture | Commande                    |
-|----------|------|---------|-----------------------------|
-| `on`     | bool | ✓       | `True`, `False`             |
+| Attribut  | Type | Lecture | Commande                    |
+|-----------|------|---------|-----------------------------|
+| `on`      | bool | ✓       | `True`, `False`             |
+| `auto`    | bool | ✓       | `True` (lecture), `False` (pause : reste sur l'animation) |
+| `pattern` | str  | ✓       | `"next"`, `"prev"`          |
 
 `toggle()` inverse allumé / éteint. Éteint : écran noir et animations suspendues, l'ESP32 reste
-joignable.
+joignable. Widget `matrix` : marche/arrêt, nom de l'animation, précédente / pause / suivante.
 
 Connexion TCP permanente (une commande texte par ligne, projet ESP32RGBMatrix) : l'afficheur
-envoie `state on=0|1` à la connexion puis à chaque changement, même venu de sa console série.
+envoie `state on=0|1 auto=0|1 pattern="Nom"` à la connexion puis à chaque changement, même venu de sa console série.
 Sans message pendant `ping` secondes, un `ping` est envoyé ; sans réponse, la connexion est
 coupée. Coupée, une nouvelle tentative a lieu toutes les `retry` secondes.

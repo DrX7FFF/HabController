@@ -66,11 +66,30 @@ function power(dev) {
   } };
 }
 
+// Afficheur RGB : nom de l'animation, précédente / pause-lecture / suivante.
+function matrix(dev) {
+  const name = el("div", { className: "pattern" });
+  const prev = el("button", { textContent: "⏮", title: "Précédente" });
+  const play = el("button", { title: "Pause / lecture" });
+  const next = el("button", { textContent: "⏭", title: "Suivante" });
+  let auto = true;
+  prev.onclick = () => command(dev, "pattern", "prev");
+  next.onclick = () => command(dev, "pattern", "next");
+  play.onclick = () => command(dev, "auto", !auto);
+  return { el: el("div", { className: "player" }, name, el("div", {}, prev, play, next)),
+    set: s => {
+      auto = s.auto !== false;
+      name.textContent = s.pattern ?? "";
+      play.textContent = auto ? "⏸" : "▶";
+    } };
+}
+
 // Widget de chaque type d'équipement : ses parties, d'après l'état de surveillance des mesures.
 const WIDGETS = {
   sensor: (dev, m) => [values(SENSOR, m)],
   plug: (dev, m) => [power(dev), values(PLUG, m)],
   onoff: dev => [power(dev)],
+  matrix: dev => [power(dev), matrix(dev)],
   light: (dev, m) => [
     power(dev),
     m.brightness === "tracked" && slider(dev, "brightness", "Intensité", 1, 100),
