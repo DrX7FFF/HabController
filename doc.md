@@ -189,9 +189,9 @@ bloc n'a que son titre.
 
 ```toml
 [[charts]]
-title = "Prise salon"
+title = "Room device"
 series = [
-  { path = "devices/prise_salon/active_power", label = "Puissance", unit = "W" },
+  { path = "devices/room_device/active_power", label = "Puissance", unit = "W" },
   { path = "devices/prise_salon/on", label = "Allumée", type = "bool" },
 ]
 ```

@@ -188,7 +188,7 @@ class Pairing:
     async def ask_id(self) -> str:
         """Identifiant saisi, redemandé tant qu'il est invalide."""
         while True:
-            dev_id = id_from_name(await self.ui.ask("Identifiant de l'équipement (ex. prise_salon)"))
+            dev_id = id_from_name(await self.ui.ask("Identifiant de l'équipement"))
             try:
                 check_id(dev_id)
             except ValueError as err:

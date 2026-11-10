@@ -169,7 +169,7 @@ def yaml(data: dict, indent: int) -> list[str]:
 
 
 def id_from_name(name: str) -> str:
-    """Identifiant déduit d'un texte libre : « Prise salon » → prise_salon."""
+    """Identifiant déduit d'un texte libre : « Room device » → room_device."""
     ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
     return re.sub(r"\W+", "_", ascii_name.lower()).strip("_")
 
