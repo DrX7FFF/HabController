@@ -71,6 +71,7 @@ def read_chart(chart: dict) -> dict:
                 "label": s.get("label", path.rsplit("/", 1)[-1]),
                 "unit": s.get("unit", ""),
                 "type": kind,
+                "step": bool(s.get("step", False)),
             }
         )
     if not series:

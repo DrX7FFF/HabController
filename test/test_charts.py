@@ -33,7 +33,8 @@ class LoadChartsTest(unittest.TestCase):
         charts = charts_from('[[charts]]\nseries = [{ path = "/devices/fp2/illuminance/" }]')
         self.assertEqual(
             charts[0]["series"][0],
-            {"path": "devices/fp2/illuminance", "label": "illuminance", "unit": "", "type": "number"},
+            {"path": "devices/fp2/illuminance", "label": "illuminance", "unit": "", "type": "number",
+             "step": False},
         )
 
     def test_errors(self):

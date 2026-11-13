@@ -84,7 +84,7 @@ def build_mapping(accessories: list[dict], aliases: dict[int, str] | None = None
 class FP2(NetworkDevice):
     """Capteur de présence FP2 : une connexion permanente, l'état vient des événements HomeKit."""
 
-    WIDGET = "sensor"
+    WIDGET = "fp2"
     illuminance = Attribute[float](readonly=True)
     event_illuminance = EventSource[EventFloat]()
     event_zone = EventSource[EventZone]()

@@ -176,7 +176,7 @@ device = "filament"
 title = "Filament Temp&Hum"   # par défaut : l'id de l'équipement
 ```
 
-Le widget suit le type de l'équipement : capteur (capteurs Zigbee, FP2), prise (marche/arrêt
+Le widget suit le type de l'équipement : capteur (capteurs Zigbee), FP2 (une pastille par zone, jaune si occupée, grise sinon, et la luminosité), prise (marche/arrêt
 et mesures), lampe (marche/arrêt, puis intensité, température et couleur si suivies), marche/
 arrêt (TV, WLED, afficheur RGB). Un widget affiche toutes les mesures suivies de l'équipement (`tracked`), vides
 tant qu'aucune valeur n'est reçue ; une mesure non suivie (`disabled`) ou absente de l'appareil
@@ -197,7 +197,8 @@ series = [
 ```
 
 `path` est un chemin du datalog. `type` : `number` (par défaut, courbe) ou `bool` (bande
-allumé / éteint sous la courbe). Les séries de même `unit` partagent un axe. Fichier absent :
+allumé / éteint sous la courbe). `step = true` : courbe en escalier (valeur tenue jusqu'au
+changement suivant, ex. un état numéroté). Les séries de même `unit` partagent un axe. Fichier absent :
 aucun graphique.
 
 ## Appairage : déroulé et fichiers

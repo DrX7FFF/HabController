@@ -84,9 +84,18 @@ function matrix(dev) {
     } };
 }
 
+// FP2 : une pastille par zone, couleur active si occupée, grise sinon.
+function zones() {
+  const box = el("div", { className: "zones" });
+  return { el: box, set: s => box.replaceChildren(...Object.keys(s)
+    .filter(k => k.startsWith("zone."))
+    .map(k => el("span", { className: s[k] ? "on" : "", textContent: k.slice(5) }))) };
+}
+
 // Widget de chaque type d'équipement : ses parties, d'après l'état de surveillance des mesures.
 const WIDGETS = {
   sensor: (dev, m) => [values(SENSOR, m)],
+  fp2: (dev, m) => [zones(), values(SENSOR, m)],
   plug: (dev, m) => [power(dev), values(PLUG, m)],
   onoff: dev => [power(dev)],
   matrix: dev => [power(dev), matrix(dev)],

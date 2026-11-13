@@ -14,3 +14,6 @@
 .page-dashboard .player { display: grid; gap: .5rem; justify-items: center; }
 .page-dashboard .player .pattern { font-size: 1.1rem; font-weight: 600; }
 .page-dashboard .player div { display: flex; gap: .5rem; }
+.page-dashboard .zones { display: flex; flex-wrap: wrap; gap: .4rem; }
+.page-dashboard .zones span { padding: .3rem .7rem; border-radius: .8rem; background: #ddd; }
+.page-dashboard .zones span.on { background: var(--accent); }

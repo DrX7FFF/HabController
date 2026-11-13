@@ -3,7 +3,7 @@
 // Pour en changer, réécrire ce fichier en gardant createPlot().
 //
 // createPlot(container, series, group, onZoom) -> { setData(points, start, end), destroy() }
-//   series : [{ label, unit, type: "number" | "bool" }]
+//   series : [{ label, unit, type: "number" | "bool", step }]
 //   points : pour chaque série, dans le même ordre, [[ms, valeur], ...] triés
 //   start, end : période affichée (ms) ; la dernière valeur de chaque série tient jusqu'à end
 //     (ou jusqu'à maintenant si end est dans le futur)
@@ -34,7 +34,7 @@ function timeTicks(u, splits, axisIdx, space, incr) {
 }
 
 // Toutes les séries sur les mêmes instants : null là où une série n'a pas de point, sauf
-// pour celles de hold (booléens) qui gardent leur valeur jusqu'au changement suivant.
+// pour celles de hold (booléens, courbes en escalier) qui gardent leur valeur jusqu'au changement suivant.
 function align(points, hold, end) {
   const times = [...new Set(points.flatMap(p => p.map(([t]) => t)).concat([end]))]
     .sort((a, b) => a - b);
@@ -93,6 +93,7 @@ export function createPlot(container, series, group, onZoom) {
     } else {
       uSeries.push({
         label: s.label, scale: s.unit, stroke: color, width: 1.5, spanGaps: true,
+        ...(s.step && { paths: uPlot.paths.stepped({ align: 1 }) }),
         value: (u, v) => (v == null ? "—" : `${numFmt.format(v)} ${s.unit}`.trim()),
       });
     }
@@ -142,7 +143,7 @@ export function createPlot(container, series, group, onZoom) {
       // sans recalcul des échelles : celle de x est posée juste après (un seul onZoom)
       // la dernière valeur tient jusqu'à end, mais pas au-delà de maintenant
       const until = Math.min(end, Date.now());
-      plot.setData(align(shifted, series.map(s => s.type === "bool"), until), false);
+      plot.setData(align(shifted, series.map(s => s.type === "bool" || s.step), until), false);
       period = [start / 1000, end / 1000];
       plot.setScale("x", { min: period[0], max: period[1] });
     },
