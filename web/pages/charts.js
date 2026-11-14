@@ -25,6 +25,7 @@ export function mount(page) {
   const fromInput = page.querySelector("#from");
   const controls = page.querySelector("#controls");
   const unzoom = page.querySelector("#unzoom");
+  const nowButton = page.querySelector("#now");
   const show = banner(page);
   let period = DAY;
   let zoomed = false;
@@ -42,9 +43,13 @@ export function mount(page) {
     page.querySelector("#reload").onclick = refresh;
     unzoom.onclick = draw;  // redessine sur la période (à jour si Direct), ce qui sort du zoom
     fromInput.onchange = refresh;
+    nowButton.onclick = () => {  // fin dans 5 s (début arrondi à la minute supérieure)
+      fromInput.value = localInput(Math.ceil((Date.now() + 5000 - period) / MINUTE) * MINUTE);
+      refresh();
+    };
     liveBox.onchange = () => {
       send({ type: "live", on: liveBox.checked });
-      fromInput.hidden = liveBox.checked;
+      fromInput.hidden = nowButton.hidden = liveBox.checked;
       if (liveBox.checked) {
         refresh();  // repart d'un historique à jour
       } else {
