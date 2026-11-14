@@ -16,7 +16,7 @@ from pydantic import BaseModel, ValidationError
 
 from core import CONFIG_DIR, ROOT, TEMP_DIR, datalog, git, pair, sync
 from core.automation import check as check_automations
-from core.automation import load_automations, unload_automations
+from core.automation import fire_app, load_automations, unload_automations
 from core.base import DeviceError, cancel_tasks, spawn_task
 from core.charts import downsample, load_charts
 from core.devices import load_devices, summarize, wait_ready, write_summary
@@ -128,10 +128,10 @@ def on_device_ready(dev) -> None:
     broadcast({"type": "measures", "device": dev.id, "measures": measures(dev)})
 
 
-def start_automations() -> None:
-    """Charge automations/ et les abonne aux équipements chargés."""
+def start_automations(reload: bool = False) -> None:
+    """Charge automations/ et les abonne aux équipements chargés (reload : voir load_automations)."""
     with collect_errors() as errs:
-        load_automations()
+        load_automations(reload)
     errors["automations"] = errs
 
 
@@ -178,6 +178,7 @@ async def start() -> None:
         dev.subscribe_ready(partial(on_device_ready, dev))
     await start_datalog()
     start_automations()
+    await fire_app("start")  # avant les équipements : aucun de leurs événements ne le précède
     with collect_errors() as errs:
         results = await asyncio.gather(
             *(d.start() for d in devices.values()), return_exceptions=True
@@ -243,7 +244,8 @@ async def reload_automations() -> None:
     importent les équipements en marche, devices/ n'est pas relu)."""
     await unload_automations()
     forget_modules(("automations",))
-    start_automations()
+    start_automations(reload=True)
+    await fire_app("reload")
     spawn_task(check_when_ready(check_automations), "contrôle des automatisations")
 
 

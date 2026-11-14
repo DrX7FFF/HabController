@@ -39,8 +39,7 @@ Mode HabVide (HabConfig, automations/presence.py : porte d'entrée, alloff()) :
 - Événement « datalog actif » auquel une automatisation peut s'abonner, pour s'exécuter dès que
   le datalog est prêt (ex. enregistrer HabVide au démarrage : les automatisations sont chargées
   avant le datalog, un record() fait au chargement est ignoré).
-  En même temps : événement « démarrage » (système ou rechargement des automatisations), pour
-  initialiser les états depuis les équipements (ex. presence.py : présence et luminosité du FP2).
+  (@app_start, @app_reload et KeepOnReload faits ; @app_datalog seulement si besoin.)
 - Persistance entre deux redémarrages : l'état HabVide (et les autres états des automatisations)
   est perdu au redémarrage.
 

@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import time
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -271,6 +272,80 @@ class LoadTest(AutomationTestCase):
             ["automations.a", "automations.c"],
         )
         self.assertIn("b.py : fichier ignoré", logs.output[0])
+
+
+class AppTest(AutomationTestCase):
+    """KeepOnReload, @app_start, @app_reload : scripts écrits dans un dossier temporaire."""
+
+    def load(self, files: dict[str, str], reload: bool):
+        def fake_import(name):  # exécute le fichier comme un vrai module de automations/
+            mod = types.ModuleType(name)
+            exec((Path(self.tmp) / f"{name.split('.')[1]}.py").read_text(), mod.__dict__)
+            sys.modules[name] = mod
+            return mod
+
+        for name in [n for n in sys.modules if n.startswith("automations.")]:
+            del sys.modules[name]  # comme forget_modules
+        for path in Path(self.tmp).glob("*.py"):
+            path.unlink()
+        for name, text in files.items():
+            (Path(self.tmp) / f"{name}.py").write_text(text)
+        with (
+            mock.patch.object(automation, "AUTOMATIONS_DIR", Path(self.tmp)),
+            mock.patch.object(automation.importlib, "import_module", fake_import),
+        ):
+            automation.load_automations(reload)
+        return {n: sys.modules.get(f"automations.{n}") for n in files}
+
+    async def asyncSetUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: [sys.modules.pop(n) for n in list(sys.modules) if n.startswith("automations.")])
+
+    SCRIPT = "from core.automation import *\nstate: KeepOnReload = 'défaut'\nother = 'défaut'\n"
+
+    async def test_kept_on_reload_only(self):
+        mod = self.load({"a": self.SCRIPT}, reload=False)["a"]
+        mod.state, mod.other = "changé", "changé"
+        await automation.unload_automations()
+        mod = self.load({"a": self.SCRIPT}, reload=True)["a"]
+        self.assertEqual((mod.state, mod.other), ("changé", "défaut"))
+        mod.state = "encore"
+        await automation.unload_automations()
+        mod = self.load({"a": self.SCRIPT}, reload=False)["a"]  # démarrage : valeur du script
+        self.assertEqual(mod.state, "défaut")
+
+    async def test_renamed_or_removed_forgotten(self):
+        mod = self.load({"a": self.SCRIPT, "b": self.SCRIPT}, reload=False)["a"]
+        mod.state = "changé"
+        await automation.unload_automations()
+        renamed = self.SCRIPT.replace("state:", "etat:")
+        mod = self.load({"a": renamed}, reload=True)["a"]  # b supprimé
+        self.assertEqual(mod.etat, "défaut")
+        self.assertEqual(automation._kept, {})
+
+    async def test_failing_file_keeps_its_values(self):
+        mod = self.load({"a": self.SCRIPT}, reload=False)["a"]
+        mod.state = "changé"
+        await automation.unload_automations()
+        with self.assertLogs("core.automation", "ERROR"):
+            self.load({"a": self.SCRIPT + "raise NameError\n"}, reload=True)
+        await automation.unload_automations()
+        mod = self.load({"a": self.SCRIPT}, reload=True)["a"]
+        self.assertEqual(mod.state, "changé")
+
+    async def test_app_events(self):
+        script = (
+            "from core.automation import *\ncalls = []\n"
+            "@app_start\nasync def s():\n    calls.append('start')\n"
+            "@app_reload\nasync def r():\n    calls.append('reload')\n"
+        )
+        mod = self.load({"a": script}, reload=False)["a"]
+        await automation.fire_app("start")
+        await automation.fire_app("reload")
+        self.assertEqual(mod.calls, ["start", "reload"])
+        await automation.unload_automations()  # désabonnés
+        await automation.fire_app("start")
+        self.assertEqual(mod.calls, ["start", "reload"])
 
 
 class PresenceRuleTest(AutomationTestCase):

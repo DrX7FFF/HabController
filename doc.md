@@ -21,9 +21,8 @@ README…) n'est jamais relu. `habctrl.toml` modifié : redémarrage, par la sec
 - **Automatisations seules** : les équipements restent connectés et gardent leur état ; les
   automatisations sont désabonnées, celles en cours et les minuteurs annulés (les commandes
   déjà parties vont à leur terme), puis `automations/` est relu. Les variables d'un script
-  repartent de leur valeur initiale, et rien ne se déclenche avant le prochain changement :
-  un script qui doit connaître l'état courant le lit à l'import (`fp2.illuminance`, `None` au
-  démarrage du programme, équipements pas encore joignables).
+  repartent de leur valeur initiale, sauf celles annotées `KeepOnReload`, et rien ne se
+  déclenche avant le prochain changement d'un équipement ; `@app_reload` est appelé.
 - **Datalog seul** : le nouveau prend la relève, l'ancien finit ses envois en cours.
 - **Rechargement complet** (`devices/`) : comme un redémarrage sans quitter le programme (clé
   Zigbee rouverte, connexions HomeKit refaites) ; les automatisations et commandes en cours
@@ -111,6 +110,21 @@ async def eclairage(event: EventBool):
         salon.on = True
     else:
         extinction.start()                # extinction 5 min après le dernier départ
+```
+- **Application** : `@app_start` appelle une fonction async au démarrage, automatisations chargées
+  et avant la connexion des équipements (aussi au rechargement complet, `devices/`) ;
+  `@app_reload` au rechargement des seules automatisations. Une variable annotée
+  `KeepOnReload` garde sa valeur au rechargement des automatisations ; au démarrage, elle prend
+  celle écrite dans le script. Renommée ou supprimée : oubliée ; fichier en erreur : ses valeurs
+  attendent le rechargement suivant. Les minuteurs ne sont pas gardés.
+
+```python
+presence: KeepOnReload = None             # None au démarrage, reprise au rechargement
+demarrage = Timer(5 * 60, absent)
+
+@app_start
+async def start():
+    demarrage.start()                     # au démarrage seulement, pas au rechargement
 ```
 - Un fichier qui échoue au chargement (erreur de syntaxe, import faux…) est déchargé en entier,
   y compris les abonnements faits avant l'erreur ; l'erreur est journalisée et les autres
