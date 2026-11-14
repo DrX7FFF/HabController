@@ -197,7 +197,8 @@ series = [
 ```
 
 `path` est un chemin du datalog. `type` : `number` (par défaut, courbe) ou `bool` (bande
-allumé / éteint sous la courbe). `step = true` : courbe en escalier (valeur tenue jusqu'au
+allumé / éteint sous la courbe) ou `state` (valeur texte, en escalier ; `states` : les valeurs
+possibles, du bas vers le haut, ex. `["Absent", "Présent"]` ; autres valeurs ignorées). `step = true` : courbe en escalier (valeur tenue jusqu'au
 changement suivant, ex. un état numéroté). Les séries de même `unit` partagent un axe. Fichier absent :
 aucun graphique.
 

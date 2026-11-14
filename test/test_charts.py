@@ -37,6 +37,10 @@ class LoadChartsTest(unittest.TestCase):
              "step": False},
         )
 
+    def test_state(self):
+        charts = charts_from('[[charts]]\nseries = [{ path = "p", type = "state", states = ["A", "B"] }]')
+        self.assertEqual(charts[0]["series"][0]["states"], ["A", "B"])
+
     def test_errors(self):
         """Graphique incorrect : ignoré, erreur au journal ; les autres sont gardés."""
         valid = '[[charts]]\ntitle = "ok"\nseries = [{ path = "b" }]\n'
@@ -44,6 +48,7 @@ class LoadChartsTest(unittest.TestCase):
             '[[charts]]\ntitle = "vide"\n',
             '[[charts]]\nseries = [{ label = "sans chemin" }]\n',
             '[[charts]]\nseries = [{ path = "a", type = "texte" }]\n',
+            '[[charts]]\nseries = [{ path = "a", type = "state" }]\n',
         ):
             with self.subTest(text=text), self.assertLogs("core.charts", "ERROR"):
                 charts = charts_from(text + valid)

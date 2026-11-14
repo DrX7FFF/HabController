@@ -3,7 +3,8 @@
 // Pour en changer, réécrire ce fichier en gardant createPlot().
 //
 // createPlot(container, series, group, onZoom) -> { setData(points, start, end), destroy() }
-//   series : [{ label, unit, type: "number" | "bool", step }]
+//   series : [{ label, unit, type: "number" | "bool" | "state", step, states }]
+//     state : valeur texte, placée à la hauteur de son rang dans states (du bas vers le haut)
 //   points : pour chaque série, dans le même ordre, [[ms, valeur], ...] triés
 //   start, end : période affichée (ms) ; la dernière valeur de chaque série tient jusqu'à end
 //     (ou jusqu'à maintenant si end est dans le futur)
@@ -55,6 +56,7 @@ function align(points, hold, end) {
 export function createPlot(container, series, group, onZoom) {
   const units = [...new Set(series.filter(s => s.type === "number").map(s => s.unit))];
   const bools = series.filter(s => s.type === "bool");
+  const states = series.filter(s => s.type === "state");
   const realMin = {};  // échelle -> plus petite valeur réelle (graduations en dessous masquées)
 
   const scales = { x: { time: true } };
@@ -79,7 +81,17 @@ export function createPlot(container, series, group, onZoom) {
     values: (u, splits) => splits.map(v => (v == null ? "" : `${numFmt.format(v)} ${unit}`.trim())),
   }));
 
+  states.forEach((s, i) => {
+    scales[`state${i}`] = { range: [-0.5, s.states.length - 0.5] };
+    axes.push({
+      scale: `state${i}`, side: units.length + i ? 1 : 3, grid: { show: !units.length && !i }, size: 70,
+      splits: () => s.states.map((_, k) => k),
+      values: (u, splits) => splits.map(k => s.states[k] ?? ""),
+    });
+  });
+
   let boolIndex = 0;
+  let stateIndex = 0;
   const uSeries = [{ label: "Date", value: (u, v) => (v == null ? "—" : fullFmt.format(new Date(v * 1000))) }];
   series.forEach((s, i) => {
     const color = COLORS[i % COLORS.length];
@@ -89,6 +101,12 @@ export function createPlot(container, series, group, onZoom) {
         label: s.label, scale: "bool", stroke: color, fill: color + "55", fillTo: offset,
         paths: uPlot.paths.stepped({ align: 1 }), spanGaps: true, points: { show: false },
         value: (u, v) => (v == null ? "—" : v - offset >= 0.5 ? "oui" : "non"),
+      });
+    } else if (s.type === "state") {
+      uSeries.push({
+        label: s.label, scale: `state${stateIndex++}`, stroke: color, width: 1.5, spanGaps: true,
+        paths: uPlot.paths.stepped({ align: 1 }),
+        value: (u, v) => (v == null ? "—" : s.states[v]),
       });
     } else {
       uSeries.push({
@@ -136,6 +154,9 @@ export function createPlot(container, series, group, onZoom) {
       });
       let b = 0;
       const shifted = points.map((p, i) => {
+        if (series[i].type === "state") {
+          return p.map(([t, v]) => [t, series[i].states.indexOf(v)]).filter(([, k]) => k >= 0);
+        }
         if (series[i].type !== "bool") return p;
         const offset = b++ * BOOL_ROW;
         return p.map(([t, v]) => [t, offset + (v ? 1 : 0)]);
@@ -143,7 +164,7 @@ export function createPlot(container, series, group, onZoom) {
       // sans recalcul des échelles : celle de x est posée juste après (un seul onZoom)
       // la dernière valeur tient jusqu'à end, mais pas au-delà de maintenant
       const until = Math.min(end, Date.now());
-      plot.setData(align(shifted, series.map(s => s.type === "bool" || s.step), until), false);
+      plot.setData(align(shifted, series.map(s => s.type !== "number" || s.step), until), false);
       period = [start / 1000, end / 1000];
       plot.setScale("x", { min: period[0], max: period[1] });
     },

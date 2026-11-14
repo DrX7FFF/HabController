@@ -121,7 +121,7 @@ export function mount(page) {
     let at = 0;
     m.points.forEach(([path, t, value]) => views.forEach(v => v.chart.series.forEach((s, i) => {
       if (s.path !== path) return;
-      if (s.type === "bool" ? typeof value !== "boolean" : typeof value !== "number") return;
+      if (typeof value !== ({ bool: "boolean", state: "string" }[s.type] ?? "number")) return;
       const points = v.points[i];
       const last = points[points.length - 1];
       if (last && last[0] >= t) return;  // déjà connu

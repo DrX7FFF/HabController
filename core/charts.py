@@ -9,7 +9,7 @@ from core import CONFIG_DIR
 log = logging.getLogger(__name__)
 
 CHARTS = CONFIG_DIR / "dashboard" / "charts.toml"
-TYPES = {"number", "bool"}
+TYPES = {"number", "bool", "state"}
 MAX_POINTS = 1000  # par série envoyée à la page
 
 
@@ -65,6 +65,8 @@ def read_chart(chart: dict) -> dict:
         kind = s.get("type", "number")
         if kind not in TYPES:
             raise ValueError(f"« {title} » : type inconnu « {kind} »")
+        if kind == "state" and not s.get("states"):
+            raise ValueError(f"« {title} » : type state sans states")
         series.append(
             {
                 "path": path,
@@ -72,6 +74,7 @@ def read_chart(chart: dict) -> dict:
                 "unit": s.get("unit", ""),
                 "type": kind,
                 "step": bool(s.get("step", False)),
+                **({"states": [str(x) for x in s["states"]]} if kind == "state" else {}),
             }
         )
     if not series:
