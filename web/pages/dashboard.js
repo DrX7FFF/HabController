@@ -84,6 +84,13 @@ function matrix(dev) {
     } };
 }
 
+// Aspirateur : commandes seules, le robot ne remonte aucun état.
+function vacuum(dev) {
+  const buttons = [["clean", "Nettoyer"], ["pause", "Pause"], ["home", "Base"]].map(([cmd, text]) =>
+    el("button", { textContent: text, onclick: () => command(dev, "command", cmd) }));
+  return { el: el("div", { className: "player" }, ...buttons), set: () => {} };
+}
+
 // FP2 : une pastille par zone, couleur active si occupée, grise sinon.
 function zones() {
   const box = el("div", { className: "zones" });
@@ -99,6 +106,7 @@ const WIDGETS = {
   plug: (dev, m) => [power(dev), values(PLUG, m)],
   onoff: dev => [power(dev)],
   matrix: dev => [power(dev), matrix(dev)],
+  vacuum: dev => [vacuum(dev)],
   light: (dev, m) => [
     power(dev),
     m.brightness === "tracked" && slider(dev, "brightness", "Intensité", 1, 100),

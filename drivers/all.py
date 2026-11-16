@@ -2,6 +2,7 @@
 
 from drivers.esp32matrix.display import RGBMatrix
 from drivers.homekit.fp2 import FP2
+from drivers.roborock import Roborock
 from drivers.samsung.tv import SamsungTV
 from drivers.wled.strip import WLED
 from drivers.yeelight.bulb import YeelightBulb
@@ -16,6 +17,7 @@ from drivers.zigbee.sensor import Sensor
 __all__ = [
     "FP2",
     "RGBMatrix",
+    "Roborock",
     "SamsungTV",
     "WLED",
     "YeelightBulb",

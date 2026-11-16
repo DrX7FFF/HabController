@@ -8,3 +8,4 @@ zha
 websockets
 aiohomekit
 google-auth[requests]
+python-miio
