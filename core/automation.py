@@ -1,6 +1,7 @@
 """Moteur des automatisations de Config/automations : chargement et minuteurs. Les
 automatisations s'abonnent aux événements des équipements (@equipement.event_…, core.base)
-et de l'application (@app_start, @app_reload) ; variables gardées au rechargement : KeepOnReload.
+et de l'application (@app_start, @app_reload) ; variables gardées au rechargement : KeepOnReload ;
+notifications push sur le téléphone : notify, ask (core.push).
 
 Un script n'importe que ce module : `from core.automation import *` (voir __all__)."""
 
@@ -12,7 +13,7 @@ import sys
 from collections.abc import Callable
 from typing import Annotated, Any
 
-from core import CONFIG_DIR
+from core import CONFIG_DIR, push
 from core.base import (
     DeviceError,
     Event,
@@ -27,10 +28,12 @@ from core.base import (
     remove_listeners,
     spawn_task,
 )
+from core.push import ask, notify
 
 _log = logging.getLogger(__name__)  # moteur : system.log
 log = logging.getLogger("automations")  # scripts : automations.log, avec le nom du fichier
 __all__ = [
+    "DeviceError",
     "Event",
     "EventAction",
     "EventBool",
@@ -42,7 +45,9 @@ __all__ = [
     "Timer",
     "app_reload",
     "app_start",
+    "ask",
     "log",
+    "notify",
 ]
 
 AUTOMATIONS_DIR = CONFIG_DIR / "automations"
@@ -173,6 +178,7 @@ async def unload_automations() -> None:
             _kept[name] = {v: getattr(mod, v) for v in _kept_names(mod) if hasattr(mod, v)}
     for funcs in _app.values():
         funcs.clear()
+    push.forget()  # questions en attente : leurs actions seraient celles des anciens scripts
     await clear_listeners()
     while running := [task for task in _running if not task.done()]:  # voir base.cancel_tasks
         for task in running:

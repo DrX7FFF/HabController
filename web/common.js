@@ -37,7 +37,7 @@ export const wsUrl = path =>
 // Tout l'état du serveur affiché par les onglets (voir main.py). Une connexion pour tous les
 // onglets, reconnectée 2 s après sa perte. Fermée quand la page est masquée depuis 15 min
 // (message { type: "idle" }, sans bandeau), rouverte dès qu'elle redevient visible. Le dernier
-// message init, tenu à jour des messages state, measures, notifications et firmware, est rejoué
+// message init, tenu à jour des messages state, measures, notifications, firmware et push, est rejoué
 // à chaque nouvel abonné ; la perte de connexion lui est signalée par un message
 // { type: "closed" } et par le bandeau commun #lost.
 // Notifications en attente : pastille rouge sur l'onglet Administration (textes en info-bulle).
@@ -81,6 +81,8 @@ function connect() {
       init.notifications = m.notifications;
     } else if (m.type === "firmware" && init) {
       init.firmware = m.firmware;
+    } else if (m.type === "push" && init) {
+      init.push = m.push;
     }
     if (m.notifications) badge(m.notifications);
     dispatch(m);

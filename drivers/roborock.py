@@ -90,6 +90,10 @@ class Roborock(Device):
                                   "area": d.area, "complete": d.complete})
         return cleanings
 
+    async def last_complete(self) -> datetime | None:
+        """Début du dernier nettoyage terminé, None s'il n'y en a aucun dans l'historique."""
+        return max((c["start"] for c in await self.history() if c["complete"]), default=None)
+
     async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
         if name != "command" or value not in COMMANDS:
             raise ValueError(f"{self.id} ne gère pas « {name}={value} »")

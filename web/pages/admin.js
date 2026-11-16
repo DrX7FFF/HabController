@@ -13,6 +13,8 @@
 // avec sa progression. Liste, avancement et résultat : état du serveur.
 // Protocoles, erreurs de la configuration en cours (parties ignorées, listées sous « Recharger »)
 // et notifications (listées en tête de page) : état du serveur, reçu par le WebSocket /ws.
+// Notifications push : topic ntfy à saisir dans l'appli du téléphone ; « Ping » envoie une
+// notification de test (POST /api/push/ping), l'heure de réception de son Pong s'affiche.
 
 import { banner, el, request, subscribe, wsUrl } from "/common.js";
 
@@ -209,6 +211,23 @@ export function mount(page) {
     firmwareResult.textContent = f.running ? "" : f.last;
   }
 
+  const pongText = page.querySelector("#pong");
+
+  function showPush(p) {
+    page.querySelector("#push-topic").textContent = p.topic;
+    pongText.hidden = !p.pong;
+    if (p.pong) pongText.textContent = `Pong reçu le ${new Date(p.pong).toLocaleString("fr-FR")}`;
+  }
+
+  page.querySelector("#ping").onclick = async () => {
+    show("");
+    try {
+      await request("/api/push/ping", "POST");
+    } catch (err) {
+      show(`Ping impossible (${err.message}).`);
+    }
+  };
+
   // Les protocoles ne changent qu'au redémarrage : construits une fois (un appairage en cours
   // n'est pas dérangé par un nouveau message init).
   subscribe(m => {
@@ -219,6 +238,7 @@ export function mount(page) {
       if (restarted) restarted(m.boot);
     }
     if (m.firmware) listFirmware(m.firmware);
+    if (m.push) showPush(m.push);
     if (m.notifications) {
       others.replaceChildren(...m.notifications.map(n => el("li", { textContent: n.text })));
       others.hidden = !m.notifications.length;

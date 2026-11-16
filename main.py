@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketState
 from pydantic import BaseModel, ValidationError
 
-from core import CONFIG_DIR, ROOT, TEMP_DIR, datalog, git, pair, sync
+from core import CONFIG_DIR, ROOT, TEMP_DIR, datalog, git, pair, push, sync
 from core.automation import check as check_automations
 from core.automation import fire_app, load_automations, unload_automations
 from core.base import DeviceError, cancel_tasks, spawn_task
@@ -68,6 +68,8 @@ blocks, charts, errors["dashboard"] = read_dashboard(devices)
 boot_commit: str | None = None  # commit de HabController en marche
 history: datalog.Datalog | None = None
 summary: asyncio.Task | None = None
+notifier = push.setup()  # notifications push (ntfy.sh), indépendantes des rechargements
+pong: int | None = None  # réception (ms) de la réponse au dernier ping, None depuis le ping
 pairings = pair.protocols()  # {protocole: classe Pairing}
 admin_lock = asyncio.Lock()  # une opération d'administration à la fois (appairage, sauvegarde…)
 server = None  # uvicorn.Server lancé par ./habctrl : arrêté pour redémarrer (voir restart())
@@ -110,7 +112,18 @@ def pairing_list() -> list[dict]:
 def init_message() -> dict:
     return {"type": "init", "boot": BOOT, "blocks": snapshot(), "charts": charts,
             "errors": config_errors(), "pairings": pairing_list(),
-            "notifications": notifications.list(), "firmware": updates.list()}
+            "notifications": notifications.list(), "firmware": updates.list(),
+            "push": push_state()}
+
+
+def push_state() -> dict:
+    return {"topic": notifier.topic, "pong": pong}
+
+
+def set_pong(value: int | None) -> None:
+    global pong
+    pong = value
+    broadcast({"type": "push", "push": push_state()})
 
 
 def notifications_message() -> dict:
@@ -282,6 +295,7 @@ async def reload() -> list[str]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global boot_commit
+    await notifier.start()
     await start()
     if config_errors():
         log.warning("Configuration : %d erreur(s)", len(config_errors()))
@@ -291,6 +305,7 @@ async def lifespan(app: FastAPI):
         log.warning("HabController : commit en marche inconnu (%s)", err)
     yield
     await stop()
+    await notifier.stop()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -437,6 +452,15 @@ async def read_history(path: str, start: int, end: int):
     if kinds[path] == "number":
         points = downsample(points)
     return {"path": path, "points": points}
+
+
+# --- Ping : notification de test, son bouton Pong valide la boucle (envoi, réponse, réception)
+
+
+@app.post("/api/push/ping", status_code=202)
+async def ping():
+    set_pong(None)
+    notifier.ask("Test de ping", {"Pong": lambda: set_pong(int(time.time() * 1000))})
 
 
 # --- Firmwares (core/firmware.py) : installation de celui proposé pour un équipement --------
