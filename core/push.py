@@ -49,7 +49,7 @@ class Question:
 
     def cancel(self) -> None:
         if self._push.questions.pop(self.id, None):
-            self._push.publish("DELETE", f"{SERVER}/{self._push.topic}/{self.id}")
+            self._push.delete(self.id)
 
 
 class Push:
@@ -86,6 +86,10 @@ class Push:
         except Exception as err:
             log.warning("push : envoi impossible (%s)", str(err) or type(err).__name__)
 
+    def delete(self, sequence_id: str) -> None:
+        """Retire la notification du téléphone."""
+        self.publish("DELETE", f"{SERVER}/{self.topic}/{sequence_id}")
+
     def notify(self, text: str, data: dict | None = None) -> None:
         self.publish("POST", SERVER, {"topic": self.topic, "message": text, **(data or {})})
 
@@ -106,6 +110,7 @@ class Push:
         if question is None or not n.isdigit() or int(n) >= len(question.actions):
             log.info("push : réponse ignorée (question retirée ou inconnue)")
             return
+        self.delete(qid)  # traitée : retirée de tous les appareils abonnés
         if action := question.actions[int(n)]:
             spawn_task(self._run(action), "push.réponse")
 
@@ -163,7 +168,8 @@ def notify(text: str) -> None:
 
 def ask(text: str, buttons: dict[str, Callable | None]) -> Question | None:
     """Notification à boutons (trois au plus) : {libellé : action ou None}. L'action du bouton
-    choisi est appelée (fonction simple ou async). Renvoie la question (cancel() pour la retirer)."""
+    choisi est appelée (fonction simple ou async), et la notification retirée. Renvoie la question
+    (cancel() pour la retirer)."""
     return _push.ask(text, buttons) if _push else None
 
 
