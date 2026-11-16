@@ -6,7 +6,7 @@ from miio import DeviceException, RoborockVacuum
 
 from core.base import Device, DeviceError
 
-COMMANDS = ("clean", "pause", "home")  # commandes acceptées par set("command", …)
+COMMANDS = ("clean", "pause", "home", "refresh")  # commandes acceptées par set("command", …)
 
 
 class Roborock(Device):
@@ -18,6 +18,7 @@ class Roborock(Device):
         super().__init__()
         self._host = host
         self._vacuum = RoborockVacuum(host, token, model="roborock.vacuum.s5e")
+        self._last_clean: dict | None = None
 
     def physical(self) -> str:
         return f"Roborock {self._host}"
@@ -26,7 +27,18 @@ class Roborock(Device):
         return {"host": self._host}
 
     def state(self) -> dict:
-        return {}
+        return {"last_clean": self._last_clean}
+
+    async def start(self) -> None:
+        self._background("refresh", self.refresh)
+
+    async def refresh(self) -> None:
+        """Lit le dernier nettoyage (affiché par le widget)."""
+        d = await self._call(self._vacuum.last_clean_details)
+        self._last_clean = d and {"start": d.start.isoformat(), "area": round(d.area, 1),
+                                  "duration": round(d.duration.total_seconds() / 60),
+                                  "complete": d.complete}
+        self._notify()
 
     async def _call(self, func, *args):
         """python-miio est synchrone : exécuté hors de la boucle asyncio."""

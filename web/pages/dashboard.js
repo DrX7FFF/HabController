@@ -84,11 +84,18 @@ function matrix(dev) {
     } };
 }
 
-// Aspirateur : commandes seules, le robot ne remonte aucun état.
+// Aspirateur : dernier nettoyage (lu au chargement et par Actualiser) et commandes.
 function vacuum(dev) {
-  const buttons = [["clean", "Nettoyer"], ["pause", "Pause"], ["home", "Base"]].map(([cmd, text]) =>
-    el("button", { textContent: text, onclick: () => command(dev, "command", cmd) }));
-  return { el: el("div", { className: "player" }, ...buttons), set: () => {} };
+  const last = el("div", { className: "pattern" });
+  const buttons = [["clean", "Nettoyer"], ["pause", "Pause"], ["home", "Base"], ["refresh", "Actualiser"]]
+    .map(([cmd, text]) => el("button", { textContent: text, onclick: () => command(dev, "command", cmd) }));
+  return { el: el("div", { className: "player" }, last, el("div", {}, ...buttons)),
+    set: s => {
+      const c = s.last_clean;
+      last.textContent = c ? `Dernier : ${new Date(c.start).toLocaleString("fr-FR",
+        { dateStyle: "short", timeStyle: "short" })}, ${c.duration} min, ${c.area} m²` +
+        (c.complete ? "" : ", interrompu") : "";
+    } };
 }
 
 // FP2 : une pastille par zone, couleur active si occupée, grise sinon.
