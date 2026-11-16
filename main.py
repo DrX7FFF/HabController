@@ -464,7 +464,7 @@ async def ping():
     set_pong(None)
     if ping_question:
         ping_question.cancel()
-    ping_question = notifier.ask("Test de ping", {"Pong": lambda: set_pong(int(time.time() * 1000))})
+    ping_question = notifier.ask("🏓 Test de ping", {"Pong": lambda: set_pong(int(time.time() * 1000))})
 
 
 # --- Firmwares (core/firmware.py) : installation de celui proposé pour un équipement --------
