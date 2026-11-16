@@ -84,18 +84,18 @@ function matrix(dev) {
     } };
 }
 
-// Aspirateur : dernier nettoyage (lu au chargement et par Actualiser) et commandes.
+// Aspirateur : dernier nettoyage (lu au chargement et par Actualiser) et commandes, empilés.
 function vacuum(dev) {
-  const last = el("div", { className: "pattern" });
+  const last = el("div");
   const buttons = [["clean", "Nettoyer"], ["pause", "Pause"], ["home", "Base"], ["refresh", "Actualiser"]]
-    .map(([cmd, text]) => el("button", { textContent: text, onclick: () => command(dev, "command", cmd) }));
-  return { el: el("div", { className: "player" }, last, el("div", {}, ...buttons)),
-    set: s => {
-      const c = s.last_clean;
-      last.textContent = c ? `Dernier : ${new Date(c.start).toLocaleString("fr-FR",
-        { dateStyle: "short", timeStyle: "short" })}, ${c.duration} min, ${c.area} m²` +
-        (c.complete ? "" : ", interrompu") : "";
-    } };
+    .map(([cmd, text]) => ({ el: el("button", { textContent: text,
+      onclick: () => command(dev, "command", cmd) }), set: () => {} }));
+  return [{ el: last, set: s => {
+    const c = s.last_clean;
+    last.textContent = c ? `Dernier : ${new Date(c.start).toLocaleString("fr-FR",
+      { dateStyle: "short", timeStyle: "short" })}, ${c.duration} min, ${c.area} m²` +
+      (c.complete ? "" : ", interrompu") : "";
+  } }, ...buttons];
 }
 
 // FP2 : une pastille par zone, couleur active si occupée, grise sinon.
@@ -113,7 +113,7 @@ const WIDGETS = {
   plug: (dev, m) => [power(dev), values(PLUG, m)],
   onoff: dev => [power(dev)],
   matrix: dev => [power(dev), matrix(dev)],
-  vacuum: dev => [vacuum(dev)],
+  vacuum: dev => vacuum(dev),
   light: (dev, m) => [
     power(dev),
     m.brightness === "tracked" && slider(dev, "brightness", "Intensité", 1, 100),
