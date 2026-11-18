@@ -1,13 +1,15 @@
-"""Correctifs zha-quirks : seuls ceux des appareils de la base sont chargés.
+"""Correctifs zha-quirks : seuls ceux des appareils présents sont chargés.
 
 L'index (fabricant, modèle) → modules est construit par ce fichier lancé à part
 (`python quirks.py <index>`), qui charge tous les correctifs puis rend sa mémoire en se terminant."""
 
 import importlib
 import json
-import sqlite3
+import logging
 import sys
 from importlib.metadata import version
+
+log = logging.getLogger(__name__)
 
 
 def build(index: str) -> None:
@@ -35,43 +37,35 @@ def read_index(index) -> dict | None:
     return data if data.get("version") == version("zha-quirks") else None
 
 
-def paired_models(db) -> set[tuple[str, str]]:
-    """(fabricant, modèle) de chaque endpoint des appareils de la base zigpy."""
-    if not db.exists():
-        return set()
-    from zigpy.appdb import DB_VERSION
-
-    con = sqlite3.connect(db)
-    try:
-        rows = con.execute(
-            f"SELECT ieee, endpoint_id, attr_id, value FROM attributes_cache_v{DB_VERSION}"
-            " WHERE cluster_id = 0 AND attr_id IN (4, 5)"
-        ).fetchall()
-    finally:
-        con.close()
-    found: dict = {}
-    for ieee, endpoint, attr, value in rows:
-        found.setdefault((ieee, endpoint), {})[attr] = str(value)
-    return {(attrs.get(4), attrs.get(5)) for attrs in found.values()}
-
-
-def load(index: dict, db) -> list[str]:
-    """Importe les modules utiles aux appareils de la base ; renvoie leurs noms."""
+def resolver(index: dict):
+    """Charge les correctifs valables pour tous les appareils ; renvoie la fonction que zigpy
+    appelle sur chaque appareil (chargé de la base ou appairé), qui charge d'abord les
+    correctifs de son fabricant et de son modèle."""
     import zhaquirks
+    from zha.quirks import DEVICE_REGISTRY
 
-    models = paired_models(db)
-    modules = set(index["all"]) | {
-        module
-        for manufacturer, model, module in index["models"]
-        if any(
-            manufacturer in (None, paired[0]) and model in (None, paired[1])
-            for paired in models
+    by_model: dict = {}
+    for manufacturer, model, module in index["models"]:
+        by_model.setdefault((manufacturer, model), set()).add(module)
+
+    def load(modules) -> None:
+        for module in sorted(modules):
+            if module not in sys.modules:
+                importlib.import_module(module)
+                log.info("Correctif zha-quirks chargé : %s", module)
+        zhaquirks._register_pending_quirks()  # correctifs v1 : passés au registre de ZHA
+
+    def resolve(device):
+        manufacturer, model = device.manufacturer, device.model
+        load(
+            by_model.get((manufacturer, model), set())
+            | by_model.get((manufacturer, None), set())
+            | by_model.get((None, model), set())
         )
-    }
-    for module in sorted(modules):
-        importlib.import_module(module)
-    zhaquirks._register_pending_quirks()  # correctifs v1 : passés au registre de ZHA
-    return sorted(modules)
+        return DEVICE_REGISTRY.resolve(device)
+
+    load(index["all"])
+    return resolve
 
 
 if __name__ == "__main__":

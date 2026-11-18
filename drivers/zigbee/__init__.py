@@ -132,9 +132,8 @@ def load_config() -> dict:
 
 
 async def load_quirks():
-    """Correctifs zha-quirks des appareils de la base, d'après l'index de la configuration ;
-    index absent ou d'une autre version : reconstruit à part (environ 25 s sur le serveur).
-    Un appareil appairé depuis profite de ses correctifs à la prochaine ouverture de la clé."""
+    """Correctifs zha-quirks chargés appareil par appareil, d'après l'index de la configuration ;
+    index absent ou d'une autre version : reconstruit à part (environ 35 s sur le serveur)."""
     index = quirks.read_index(QUIRKS_INDEX)
     if index is None:
         log.info("Construction de l'index des correctifs zha-quirks")
@@ -147,10 +146,8 @@ async def load_quirks():
     if index is None:
         log.error("Index des correctifs zha-quirks illisible : chargement de tous les correctifs")
         await asyncio.to_thread(zhaquirks.setup)
-    else:
-        modules = await asyncio.to_thread(quirks.load, index, DB_FILE)
-        log.info("Correctifs zha-quirks chargés : %s", ", ".join(modules))
-    return DEVICE_REGISTRY.resolve
+        return DEVICE_REGISTRY.resolve
+    return await asyncio.to_thread(quirks.resolver, index)
 
 
 @asynccontextmanager
