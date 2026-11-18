@@ -6,6 +6,7 @@ REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m venv "$REPO_DIR/.venv"
 source "$REPO_DIR/.venv/bin/activate"
+pip install --upgrade pip
 pip install --upgrade -r "$REPO_DIR/requirements.txt"
 
 sudo tee /etc/systemd/system/habctrl.service > /dev/null <<EOF
