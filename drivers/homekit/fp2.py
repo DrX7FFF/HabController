@@ -9,7 +9,14 @@ from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
 
 from core.base import EventFloat, EventSource, EventZone, NetworkDevice, State
-from drivers.homekit import ERRORS, PairingError, connect, links, open_session, read_pairing_file
+from drivers.homekit import (
+    ERRORS,
+    PairingError,
+    connect,
+    links,
+    open_session,
+    read_pairing_file,
+)
 
 log = logging.getLogger(__name__)
 
@@ -244,7 +251,7 @@ class FP2(NetworkDevice):
             f"zone.{zone}",
             old,
             present,
-            lambda when, old, new: self._fire("zone", EventZone(self, when, zone, old, new)),
+            lambda when, old, new: self._fire("zone", EventZone(self, when, zone, None if old is None else bool(old), bool(new))),
         )
 
     def state(self) -> dict:

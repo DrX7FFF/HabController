@@ -22,8 +22,9 @@ def build(index: str) -> None:
         [manufacturer, model, entry.source.module]
         for (manufacturer, model), entries in DEVICE_REGISTRY._registry.items()
         for entry in entries
+        if entry.source
     ]
-    every = [entry.source.module for entry in DEVICE_REGISTRY._wildcard_registry]
+    every = [entry.source.module for entry in DEVICE_REGISTRY._wildcard_registry if entry.source]
     with open(index, "w", encoding="utf-8") as file:
         json.dump({"version": version("zha-quirks"), "all": every, "models": models}, file)
 

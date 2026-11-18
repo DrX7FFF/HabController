@@ -13,7 +13,12 @@ from aiohomekit.exceptions import HomeKitException, HttpException
 from aiohomekit.model.characteristics import CharacteristicsTypes as Chars
 from aiohomekit.model.services import ServicesTypes
 from aiohomekit.uuid import normalize_uuid
-from aiohomekit.zeroconf import HAP_TYPE_TCP, HAP_TYPE_UDP, HomeKitService, ZeroconfServiceListener
+from aiohomekit.zeroconf import (
+    HAP_TYPE_TCP,
+    HAP_TYPE_UDP,
+    HomeKitService,
+    ZeroconfServiceListener,
+)
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncZeroconf
 
 from core import PAIRING_DIR as CONFIG_PAIRING_DIR

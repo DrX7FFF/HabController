@@ -1,8 +1,8 @@
 """Tests Zigbee sans clé : instantané, appareils inutilisés, état de la prise, pair."""
 
 import asyncio
-import sqlite3
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -15,24 +15,27 @@ from unittest import mock
 os.environ["HABCTRL_CONFIG"] = str(Path(__file__).resolve().parent / "config")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import drivers.zigbee as zigbee  # noqa: E402
-from core import pair as core_pair  # noqa: E402
-import drivers.zigbee.pair as zigbee_pair  # noqa: E402
-import drivers.zigbee.plug as zigbee_plug  # noqa: E402
-import drivers.homekit as homekit  # noqa: E402
-from core.devices import id_from_name, summarize, write_summary  # noqa: E402
-from core.firmware import Firmwares  # noqa: E402
-from drivers.yeelight.bulb import YeelightBulb  # noqa: E402
-from core import base  # noqa: E402
-from drivers.zigbee.light import Light, rgb_to_xy, xy_to_rgb  # noqa: E402
-from drivers.zigbee.plug import ELECTRICAL, METERING, ON_OFF, Plug  # noqa: E402
-from drivers.zigbee.button import Button  # noqa: E402
-from drivers.zigbee.sensor import Sensor  # noqa: E402
-from drivers.zigbee.climate import Climate  # noqa: E402
-from drivers.zigbee.contact import Contact  # noqa: E402
-from drivers.zigbee.motion import Motion  # noqa: E402
-from zigpy.types import EUI64  # noqa: E402
-from test_fp2 import ScriptedDialog  # noqa: E402
+from test_fp2 import ScriptedDialog
+from zigpy.types import EUI64
+
+import drivers.zigbee.pair as zigbee_pair
+import drivers.zigbee.plug as zigbee_plug
+from core import base
+from core import pair as core_pair
+from core.devices import id_from_name, summarize, write_summary
+from core.firmware import Firmwares
+from drivers import (
+    homekit,
+    zigbee,
+)
+from drivers.yeelight.bulb import YeelightBulb
+from drivers.zigbee.button import Button
+from drivers.zigbee.climate import Climate
+from drivers.zigbee.contact import Contact
+from drivers.zigbee.light import Light, rgb_to_xy, xy_to_rgb
+from drivers.zigbee.motion import Motion
+from drivers.zigbee.plug import ELECTRICAL, METERING, ON_OFF, Plug
+from drivers.zigbee.sensor import Sensor
 
 IEEE = "a4:c1:38:d6:d7:c6:db:f6"
 OTHER = "00:17:88:01:08:9d:f1:10"
@@ -306,9 +309,8 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
     async def test_setting_missing_feature_refused(self):
         light = Light(IEEE)
         light.zdev = SimpleNamespace()
-        with mock.patch("drivers.zigbee.light.find_cluster", return_value=None):
-            with self.assertRaises(ValueError):
-                await light._set_rgb("#ff0000", None, None)
+        with mock.patch("drivers.zigbee.light.find_cluster", return_value=None), self.assertRaises(ValueError):
+            await light._set_rgb("#ff0000", None, None)
 
     def white_light(self, caps):
         """Ampoule à clusters marche/arrêt, intensité, couleur ; color_capabilities = caps."""
@@ -707,10 +709,10 @@ class CoordinatorSessionTest(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(zigbee, "open_session", session),
             mock.patch.object(zigbee, "READY_WAIT", 0.05),
             self.assertLogs("drivers.zigbee", "WARNING"),
+            self.assertRaises(zigbee.ERRORS),
         ):
-            with self.assertRaises(zigbee.ERRORS):
-                async with coordinator.session():
-                    pass
+            async with coordinator.session():
+                pass
         self.assertIsNone(coordinator._task)
 
 

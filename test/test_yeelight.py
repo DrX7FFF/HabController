@@ -5,8 +5,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core import base  # noqa: E402
-from drivers.yeelight.bulb import YeelightBulb  # noqa: E402
+from core import base
+from drivers.yeelight.bulb import YeelightBulb
 
 
 class FakeBulb:

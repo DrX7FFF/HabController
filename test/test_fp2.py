@@ -2,9 +2,9 @@
 
 import asyncio
 import importlib
+import os
 import pkgutil
 import stat
-import os
 import sys
 import tempfile
 import tomllib
@@ -19,14 +19,17 @@ from unittest import mock
 os.environ["HABCTRL_CONFIG"] = str(Path(__file__).resolve().parent / "config")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from aiohomekit.exceptions import AccessoryDisconnectedError, AccessoryNotFoundError  # noqa: E402
-from aiohomekit.zeroconf import HomeKitService  # noqa: E402
+from aiohomekit.exceptions import AccessoryDisconnectedError, AccessoryNotFoundError
+from aiohomekit.zeroconf import HomeKitService
 
-import drivers  # noqa: E402
-import drivers.all  # noqa: E402
-import drivers.homekit as homekit  # noqa: E402
-from core import ROOT, devices as core_devices, pair as core_pair  # noqa: E402
-from drivers.homekit import fp2, pair as homekit_pair  # noqa: E402
+import drivers
+import drivers.all
+from core import ROOT
+from core import devices as core_devices
+from core import pair as core_pair
+from drivers import homekit
+from drivers.homekit import fp2
+from drivers.homekit import pair as homekit_pair
 
 BASE = "-0000-1000-8000-0026BB765291"
 IEEE = "a4:c1:38:d6:d7:c6:db:f6"  # adresse d'une prise Zigbee
@@ -148,8 +151,8 @@ class FakePairing:
 
 async def until(condition, limit=2.0):
     async with asyncio.timeout(limit):
-        while not condition():  # noqa: ASYNC110
-            await asyncio.sleep(0.005)  # noqa: ASYNC110
+        while not condition():
+            await asyncio.sleep(0.005)
 
 
 class MappingTest(unittest.TestCase):

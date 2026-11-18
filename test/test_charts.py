@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core.charts import downsample, load_charts  # noqa: E402
+from core.charts import downsample, load_charts
 
 CONFIG = Path(__file__).resolve().parent / "config" / "dashboard" / "charts.toml"
 

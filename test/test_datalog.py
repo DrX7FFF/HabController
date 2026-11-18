@@ -1,14 +1,14 @@
-import time
 import asyncio
 import os
 import sys
+import time
 import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core import base, datalog  # noqa: E402
-from core.base import Device  # noqa: E402
+from core import base, datalog
+from core.base import Device
 
 
 class FakeDevice(Device):
@@ -154,17 +154,18 @@ class RecordFunctionTest(DatalogTestCase):
 
     async def test_nothing_recorded_before_time_sync(self):
         sync_file = mock.Mock(**{"exists.return_value": False})
-        with mock.patch.multiple(datalog, _clock_ok=False, _clock_warned=False,
-                                 SYNC_FILE=sync_file):
-            with self.assertLogs("core.datalog", "INFO") as logs:
-                self.prise.update({"on": True})
-                self.log.record("x", 1, 1000)
-                sync_file.exists.return_value = True
-                self.prise.update({"on": True, "active_power": 10.0})  # on : refusé, donc écrit
-                await self.idle()
-                sync_file.exists.return_value = False  # vu une fois : plus contrôlé
-                self.log.record("x", 2, 2000)
-                await self.idle()
+        with (
+            mock.patch.multiple(datalog, _clock_ok=False, _clock_warned=False, SYNC_FILE=sync_file),
+            self.assertLogs("core.datalog", "INFO") as logs,
+        ):
+            self.prise.update({"on": True})
+            self.log.record("x", 1, 1000)
+            sync_file.exists.return_value = True
+            self.prise.update({"on": True, "active_power": 10.0})  # on : refusé, donc écrit
+            await self.idle()
+            sync_file.exists.return_value = False  # vu une fois : plus contrôlé
+            self.log.record("x", 2, 2000)
+            await self.idle()
         at = self.prise.changed_at
         self.assertEqual(self.written(), [
             {f"devices/prise/on/{at}": True, f"devices/prise/active_power/{at}": 10.0},

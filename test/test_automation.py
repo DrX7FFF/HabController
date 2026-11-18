@@ -16,10 +16,10 @@ os.environ["HABCTRL_CONFIG"] = str(Path(__file__).resolve().parent / "config")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_fp2 import FakePairing, make_fp2, presence_key, until  # noqa: E402
+from test_fp2 import FakePairing, make_fp2, presence_key, until
 
-from core import automation, base  # noqa: E402
-from core.base import Device, DeviceError, State, Switchable, spawn_task  # noqa: E402
+from core import automation, base
+from core.base import Device, DeviceError, State, Switchable, spawn_task
 
 
 class FakeBulb(Switchable):

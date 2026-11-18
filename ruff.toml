@@ -1,0 +1,3 @@
+[lint]
+# voulu : les erreurs inattendues sont attrapées et journalisées ; DEFAULTS de classe ; exec des tests
+ignore = ["BLE001", "RUF012", "S102"]

@@ -14,7 +14,13 @@ from typing import Protocol
 
 import drivers
 from core.base import Device
-from core.devices import add_device, check_id, driver_for_model, id_from_name, load_devices
+from core.devices import (
+    add_device,
+    check_id,
+    driver_for_model,
+    id_from_name,
+    load_devices,
+)
 
 YES_NO = [("o", "Oui"), ("n", "Non")]
 
@@ -73,7 +79,7 @@ class Pairing:
 
     @property
     def models(self) -> Path:
-        return Path(self.PROTOCOL.__file__).with_name("models.toml")
+        return Path(self.PROTOCOL.__file__ or "").with_name("models.toml")
 
     # --- à fournir par le protocole -----------------------------------------
 

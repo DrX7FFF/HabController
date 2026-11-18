@@ -3,7 +3,8 @@
 import asyncio
 from datetime import datetime
 
-from miio import DeviceException, RoborockVacuum
+from miio.exceptions import DeviceException
+from miio.integrations.vacuum.roborock.vacuum import RoborockVacuum
 
 from core.base import DeviceError, IPDevice, State, spawn_task
 from core.datalog import device_path, record

@@ -9,7 +9,6 @@ from pathlib import Path
 from types import ModuleType
 
 import drivers
-
 from core import CONFIG_DIR, read_toml
 from core.base import Device
 
@@ -105,7 +104,7 @@ def write_summary(devices: dict[str, Device], path: Path) -> int:
     unlinked: dict = {}  # appareil : sa déclaration
     orphans = 0
     for module in protocol_modules():
-        models_path = Path(module.__file__).with_name("models.toml")
+        models_path = Path(module.__file__ or "").with_name("models.toml")
         if links := getattr(module, "links", None):
             found = [(i, p) for i, p in sorted(links().items()) if i not in devices]
             link_models = getattr(module, "link_models", None)

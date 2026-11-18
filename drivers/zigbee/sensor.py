@@ -5,11 +5,17 @@ attributs. Les appareils non standard (Xiaomi…) sont ramenés aux clusters sta
 correctif zha-quirks. L'appareil dort : il n'est jamais interrogé."""
 
 import math
-from collections.abc import Mapping
-from typing import Any, Callable, ClassVar, TypedDict
+from collections.abc import Callable, Mapping
+from typing import Any, ClassVar, TypedDict
 
 from core.base import Device, State
-from drivers.zigbee import ZigbeeDevice, find_cluster, raw_change, setup_reporting, tracked
+from drivers.zigbee import (
+    ZigbeeDevice,
+    find_cluster,
+    raw_change,
+    setup_reporting,
+    tracked,
+)
 
 POWER = 0x0001
 ON_OFF = 0x0006

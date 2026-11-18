@@ -4,7 +4,7 @@ Le pilote met les attributs à jour à la réception (`Light.on.update(self, val
 _set_color_temp() et _set_rgb() ; les méthodes publiques partent en tâche de fond."""
 
 import logging
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 
 from core.base import Capability, EventInt, EventSource, EventStr, State, Switchable
 
@@ -19,7 +19,7 @@ def rgb_bytes(rgb: str) -> tuple[int, int, int]:
     return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
 
 
-class Light(Switchable):
+class Light(Switchable, ABC):
     WIDGET = "light"
     brightness = State[int]()  # 1 à 100
     color_temp = State[int]()  # Kelvin

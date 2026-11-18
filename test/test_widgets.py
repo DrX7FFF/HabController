@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core.widgets import load_blocks  # noqa: E402
+from core.widgets import load_blocks
 
 
 class LoadBlocksTest(unittest.TestCase):

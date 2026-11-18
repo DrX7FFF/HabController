@@ -16,16 +16,16 @@ from drivers.zigbee.sensor import Sensor
 
 __all__ = [
     "FP2",
-    "RGBMatrix",
-    "Roborock",
-    "SamsungTV",
     "WLED",
-    "YeelightBulb",
     "Button",
     "Climate",
     "Contact",
     "Light",
     "Motion",
     "Plug",
+    "RGBMatrix",
+    "Roborock",
+    "SamsungTV",
     "Sensor",
+    "YeelightBulb",
 ]

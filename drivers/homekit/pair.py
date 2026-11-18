@@ -13,11 +13,11 @@ class Pairing(pair.Pairing):
     LABEL = "HomeKit"
     SECRET_ERRORS = True
 
-    async def search(self, controller, duration: int) -> list[pair.Candidate]:
+    async def search(self, session, duration: int) -> list[pair.Candidate]:
         self.ui.say(f"Recherche des accessoires HomeKit pendant {duration} s…")
         self.ui.wait(duration)
         try:
-            discoveries = await discover(controller, duration)
+            discoveries = await discover(session, duration)
         finally:
             self.ui.wait(0)
         candidates = []
@@ -37,7 +37,7 @@ class Pairing(pair.Pairing):
             )
         return candidates
 
-    async def link(self, controller, candidate: pair.Candidate, dev_id: str) -> Path:
+    async def link(self, session, candidate: pair.Candidate, dev_id: str) -> Path:
         return await pair_accessory(candidate.device, dev_id, await self.ask_pin())
 
     async def ask_pin(self) -> str:

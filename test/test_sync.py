@@ -8,8 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core import git, sync  # noqa: E402
-from core.notifications import Notifications  # noqa: E402
+from core import git, sync
+from core.notifications import Notifications
 
 
 def run(cwd: Path, *args: str) -> None:

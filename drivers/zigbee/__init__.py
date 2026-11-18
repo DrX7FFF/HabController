@@ -28,6 +28,7 @@ from zigpy.config import (
     CONF_OTA_PROVIDER_TYPE,
 )
 from zigpy.device import Device as ZigpyDevice
+from zigpy.endpoint import Endpoint
 from zigpy.exceptions import RadioException, ZigbeeException
 from zigpy.profiles import zha, zll
 from zigpy.types import EUI64
@@ -36,10 +37,10 @@ from zigpy.zcl import (
     AttributeUpdatedEvent,
     ClusterType,
     OtaImageAvailableEvent,
-    ReportingConfig,
 )
 from zigpy.zcl.clusters.general import Ota
 from zigpy.zcl.foundation import Status
+from zigpy.zcl.helpers import ReportingConfig
 
 from core import PAIRING_DIR, TEMP_DIR, settings
 from core.base import DeviceError, NetworkDevice
@@ -313,7 +314,7 @@ class Coordinator:
 
     def __init__(self):
         self.app: ZigpyApplication | None = None
-        self._devices: dict[EUI64, "ZigbeeDevice"] = {}
+        self._devices: dict[EUI64, ZigbeeDevice] = {}
         self._sessions = 0  # appairages qui empruntent la clé
         self.paired: set[EUI64] = set()  # appairés depuis le démarrage, déclarés au prochain
         self._task: asyncio.Task | None = None
@@ -373,6 +374,7 @@ class Coordinator:
         try:
             if self._task is None or self._task.done():
                 self._launch()
+            assert self._task is not None
             ready = asyncio.ensure_future(self._ready.wait())
             await asyncio.wait({ready, self._task}, timeout=READY_WAIT, return_when=asyncio.FIRST_COMPLETED)
             ready.cancel()
@@ -508,8 +510,8 @@ class ZigbeeDevice(NetworkDevice):
     def _ota(self):
         """Cluster de mise à jour OTA, ou None (clé fermée, ou équipement sans mise à jour)."""
         try:
-            return self.zdev.find_cluster(Ota.cluster_id, ClusterType.Client)
-        except (AttributeError, ValueError):
+            return self.zdev.find_cluster(Ota.cluster_id, ClusterType.Client) if self.zdev else None
+        except ValueError:
             return None
 
     def _firmware(self) -> str:
@@ -550,7 +552,7 @@ class ZigbeeDevice(NetworkDevice):
         tracked ou disabled (voir _measure_state), absent (l'appareil ne l'a pas), unmanaged
         (mesure standard de l'appareil inconnue du pilote) ; puis les clusters propres au
         fabricant."""
-        info = {"ieee": str(self.ieee)}
+        info: dict[str, object] = {"ieee": str(self.ieee)}
         zdev = self.zdev
         if zdev is None:  # clé fermée : rien de plus connu
             return info
@@ -571,9 +573,7 @@ class ZigbeeDevice(NetworkDevice):
             key: "absent" if watch[key] == "absent" else self._measure_state(key)
             for key in self.DEFAULTS
         }
-        used = {
-            self._cluster(zdev, key).cluster_id for key in self.DEFAULTS if watch[key] != "absent"
-        }
+        used = {c.cluster_id for key in self.DEFAULTS if (c := self._cluster(zdev, key)) is not None}
         clusters = {cid: c for ep in endpoints.values() for cid, c in ep.in_clusters.items()}
         for cid, cluster in sorted(clusters.items()):
             if cid not in used and is_measure(cid):
@@ -600,8 +600,8 @@ class ZigbeeDevice(NetworkDevice):
             return
         self.zdev = zdev
         self._ready_changed()
-        for endpoint_id, endpoint in zdev.endpoints.items():
-            if endpoint_id == 0:
+        for endpoint in zdev.endpoints.values():
+            if not isinstance(endpoint, Endpoint):  # endpoint 0 (ZDO)
                 continue
             # clusters de sortie aussi : certains capteurs y rapportent (ex. porte Xiaomi, 0x0006)
             for cluster in (*endpoint.in_clusters.values(), *endpoint.out_clusters.values()):
@@ -611,7 +611,7 @@ class ZigbeeDevice(NetworkDevice):
                     self._unsubscribe.append(cluster.on_event(event.event_type, self._on_event))
                 self._unsubscribe.append(cluster.on_event(OtaImageAvailableEvent.event_type, self._on_ota))
         if self.poll:
-            self._spawn(self._poll_loop(zdev))
+            self._spawn(self._poll_loop(zdev, self.poll))
 
     def _detach(self) -> None:
         for unsubscribe in self._unsubscribe:
@@ -623,7 +623,7 @@ class ZigbeeDevice(NetworkDevice):
         self._ready_changed()
         self._set_connected(False, silent=True)  # clé fermée (journalisé par le coordinateur) ou arrêt
 
-    async def _poll_loop(self, zdev) -> None:
+    async def _poll_loop(self, zdev, poll: float) -> None:
         configured = False
         while True:
             try:
@@ -635,7 +635,7 @@ class ZigbeeDevice(NetworkDevice):
                 self._set_connected(False, reason=type(err).__name__)
             else:
                 self._set_connected(True, synced=True)
-            await asyncio.sleep(self.poll)
+            await asyncio.sleep(poll)
 
     # --- à fournir par le pilote --------------------------------------------
 
@@ -644,7 +644,7 @@ class ZigbeeDevice(NetworkDevice):
 
     def _cluster(self, zdev, key: str):
         """Cluster de l'équipement qui fournit la mesure `key` de DEFAULTS, ou None."""
-        return None
+        return
 
     async def _read(self, zdev) -> None:
         """Lit tout l'état de l'équipement."""

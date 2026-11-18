@@ -427,6 +427,7 @@ def restart() -> None:
     global restart_requested
     log.info("Redémarrage demandé")
     restart_requested = True
+    assert server is not None  # restart() n'est proposé que lancé par ./habctrl
     server.should_exit = True
 
 

@@ -2,8 +2,8 @@
 
 from typing import TypedDict
 
-from core.base import DeviceError
 import core.light
+from core.base import DeviceError
 from drivers.zigbee import (
     ZigbeeDevice,
     find_cluster,
@@ -94,12 +94,12 @@ class Light(core.light.Light, ZigbeeDevice):
 
     # --- état ---------------------------------------------------------------
 
-    def _cluster(self, zdev, name: str):
-        """Cluster du réglage `name`, ou None si l'ampoule ne l'a pas (cluster absent, ou
+    def _cluster(self, zdev, key: str):
+        """Cluster du réglage `key`, ou None si l'ampoule ne l'a pas (cluster absent, ou
         couleur non déclarée dans color_capabilities, lu depuis le cache de la base zigpy)."""
-        cluster = find_cluster(zdev, SETTINGS[name][0])
-        caps = cluster.get(CAPABILITIES) if cluster is not None and name in CAPABILITY else None
-        return None if caps is not None and not caps & CAPABILITY[name] else cluster
+        cluster = find_cluster(zdev, SETTINGS[key][0])
+        caps = cluster.get(CAPABILITIES) if cluster is not None and key in CAPABILITY else None
+        return None if caps is not None and not caps & CAPABILITY[key] else cluster
 
     def _reports(self, zdev) -> list:
         """[(cluster, envoi spontané par attribut)] pour les réglages que l'ampoule a ; None :
@@ -137,7 +137,7 @@ class Light(core.light.Light, ZigbeeDevice):
 
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
         setting = SETTING_OF.get(name)
-        if setting not in self.reports or value is None:
+        if setting is None or setting not in self.reports or value is None:
             return
         # ex. une ampoule blanc réglable envoie aussi x/y : pas de rgb pour elle
         if self.zdev is not None and self._cluster(self.zdev, setting) is None:

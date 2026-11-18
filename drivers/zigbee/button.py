@@ -2,8 +2,9 @@
 
 import logging
 
-from core.base import EventAction, EventSource
+from zigpy.endpoint import Endpoint
 
+from core.base import EventAction, EventSource
 from drivers.zigbee import ERRORS, MANUFACTURER, find_cluster
 from drivers.zigbee.sensor import Sensor
 
@@ -17,8 +18,8 @@ class Button(Sensor):
         super()._attach(app)
         if self.zdev is None:
             return
-        for endpoint_id, endpoint in self.zdev.endpoints.items():
-            if endpoint_id == 0:
+        for endpoint in self.zdev.endpoints.values():
+            if not isinstance(endpoint, Endpoint):  # endpoint 0 (ZDO)
                 continue
             for cluster in (*endpoint.in_clusters.values(), *endpoint.out_clusters.values()):
                 cluster.add_listener(self)

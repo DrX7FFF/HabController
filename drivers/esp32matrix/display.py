@@ -2,8 +2,8 @@
 chaque changement (« state on=1 auto=1 pattern="Plasma" »)."""
 
 import asyncio
-import shlex
 import logging
+import shlex
 
 from core.base import (
     DeviceError,

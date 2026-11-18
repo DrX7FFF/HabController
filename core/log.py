@@ -21,7 +21,8 @@ def _file_handler(name: str) -> RotatingFileHandler:
 
 def _http_problem(record: logging.LogRecord) -> bool:
     """Requête HTTP journalisée par uvicorn : seulement les erreurs (statut 400 et plus)."""
-    return not isinstance(record.args, tuple) or record.args[-1] >= 400
+    status = record.args[-1] if isinstance(record.args, tuple) else None
+    return not isinstance(status, int) or status >= 400
 
 
 def _uvicorn_server(record: logging.LogRecord) -> bool:

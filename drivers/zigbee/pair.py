@@ -2,6 +2,9 @@
 
 import asyncio
 from collections.abc import Callable
+from typing import cast
+
+from zigpy.types import EUI64
 
 from core import pair
 from core.devices import driver_for_model, load_driver
@@ -92,8 +95,8 @@ class Pairing(pair.Pairing):
     def session(self):
         return coordinator.session()
 
-    async def search(self, app, duration: int) -> list[pair.Candidate]:
-        device = await wait_device(app, duration, self.ui)
+    async def search(self, session, duration: int) -> list[pair.Candidate]:
+        device = await wait_device(session, duration, self.ui)
         if device is None:
             return []
         # juste après l'interview, l'équipement échange encore (ex. demande de mise à jour OTA)
@@ -115,17 +118,17 @@ class Pairing(pair.Pairing):
         """Configuration par le pilote tant que l'équipement juste appairé est éveillé : sur pile,
         il n'enverrait sinon rien au coordinateur avant d'y être lié (binding)."""
         if known := self.paired_ids(device.ieee):
-            driver = self.declared[known[0]]
+            driver = cast(ZigbeeDevice, self.declared[known[0]])
         elif name := driver_for_model(model_keys(device), self.models):
-            driver = load_driver(name)(str(device.ieee))
+            driver = cast(ZigbeeDevice, load_driver(name)(str(device.ieee)))
             driver.configure(str(device.ieee))
         else:
             return
         await driver._configure(device)
 
-    async def link(self, app, candidate: pair.Candidate, dev_id: str) -> None:
+    async def link(self, session, candidate: pair.Candidate, dev_id: str) -> None:
         """L'appareil a rejoint le réseau : l'adresse dans la déclaration suffit."""
-        coordinator.paired.add(candidate.uid)
+        coordinator.paired.add(cast(EUI64, candidate.uid))
 
     def paired_ids(self, uid) -> list[str]:
         return [
