@@ -139,39 +139,14 @@ def on_value(value: bool | str | int) -> bool:
     raise ValueError("on attend True ou False")
 
 
-class Attribute(Generic[T]):
-    """Attribut d'un équipement : lecture dans l'état mémorisé (None si absent, ex. injoignable),
-    écriture = commande envoyée en tâche de fond. Le nom est celui de la clé d'état."""
-
-    def __init__(self, readonly: bool = False):
-        self.readonly = readonly
-        self.name = ""
-
-    def __set_name__(self, owner: type, name: str) -> None:
-        self.name = name
-
-    @overload
-    def __get__(self, obj: None, owner: type) -> "Attribute[T]": ...
-    @overload
-    def __get__(self, obj: "Device", owner: type) -> T | None: ...
-    def __get__(self, obj, owner=None):
-        if obj is None:
-            return self
-        return obj.state().get(self.name)
-
-    def __set__(self, obj: "Device", value: T) -> None:
-        if self.readonly:
-            raise AttributeError(f"{self.name} est en lecture seule")
-        obj._assign(self.name, value)  # pyright: ignore[reportArgumentType]
-
-
 class State(Generic[T]):
     """Attribut d'état : la valeur est gardée dans l'équipement, en lecture seule
     (`cuisine.on`) ; seul le pilote l'écrit, par `Light.on.update(self, valeur)`, qui annonce
     le changement (événement event_<nom>, pages)."""
 
-    def __init__(self):
+    def __init__(self, default: T | None = None):
         self.name = ""
+        self.default = default  # valeur tant que le pilote n'a rien écrit
 
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
@@ -183,13 +158,13 @@ class State(Generic[T]):
     def __get__(self, obj, owner=None):
         if obj is None:
             return self
-        return obj.__dict__.get(self.name)
+        return obj.__dict__.get(self.name, self.default)
 
     def __set__(self, obj: "Device", value: T) -> None:
         raise AttributeError(f"{self.name} est en lecture seule (utiliser les méthodes)")
 
     def update(self, obj: "Device", value: T | None) -> None:
-        old = obj.__dict__.get(self.name)
+        old = obj.__dict__.get(self.name, self.default)
         obj.__dict__[self.name] = value
         if value != old:
             obj._notify()
@@ -207,8 +182,11 @@ class Device:
     """Base commune des pilotes : identité, état et commandes."""
 
     WIDGET = ""  # widget du tableau de bord : sensor, plug, onoff ou light ; "" : aucun
-    connected = Attribute[bool](readonly=True)
+    connected = State[bool]()  # joignable (et état lu) ; None : sans connexion suivie
+    battery_powered = State[bool](default=False)  # sur pile, renseigné par le pilote
+    battery = State[int]()  # %, équipement sur pile
     event_connected = EventSource[EventBool]()
+    event_battery = EventSource[EventInt]()
 
     def __init__(self):
         self.id = ""  # affecté par configure() : le chargeur le déduit du nom de la variable
@@ -225,6 +203,7 @@ class Device:
     def _reset(self) -> None:
         """Équipement injoignable : chaque classe remet ses attributs d'état à None, puis
         appelle super()."""
+        Device.battery.update(self, None)
 
     def configure(self, dev_id: str) -> None:
         """Appelé par le chargeur, avant start() : identifiant."""
@@ -331,11 +310,9 @@ class Device:
 
     def measures(self) -> dict[str, str]:
         """État de surveillance de chaque attribut : tracked (peut être reçu), disabled (non
-        suivi, voir reports), absent (l'appareil ne le fournit pas). Par défaut : tous suivis."""
-        cls = type(self)
-        return {
-            name: "tracked" for name in dir(cls) if isinstance(getattr(cls, name), Attribute)
-        }
+        suivi, voir reports), absent (l'appareil ne le fournit pas). Chaque classe ajoute les
+        siens, puis appelle super()."""
+        return {"connected": "tracked"} | ({"battery": "tracked"} if self.battery_powered else {})
 
     def check_measure(self, name: str) -> str:
         """Pourquoi la mesure `name` ne sera jamais reçue ("" si elle peut l'être), d'après son
@@ -345,26 +322,6 @@ class Device:
     def state(self) -> dict:
         """État courant, lu en mémoire : ne doit jamais interroger l'équipement."""
         raise NotImplementedError
-
-    async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
-        raise NotImplementedError
-
-    async def send(self, name: str, value: bool | str | int, transition: int | None = None) -> bool:
-        """set() après les autres commandes : False (journalisé) si l'équipement n'a pas répondu.
-
-        Une commande refusée par le pilote (ValueError) est une erreur du script : elle remonte.
-        """
-        async with self._lock:
-            try:
-                await self.set(name, value, transition)
-            except DeviceError as err:
-                log.warning("%s : commande %s=%s non envoyée (%s)", self.id, name, value, err)
-                return False
-        return True
-
-    def _assign(self, name: str, value: bool | str | int) -> None:
-        """Écriture `equipement.attribut = valeur` : commande en tâche de fond, sans bloquer."""
-        self._background(f"{name}={value!r}", lambda: self.set(name, value))
 
     def _background(self, label: str, command: Callable[[], Awaitable[None]]) -> None:
         """Lance command() en tâche de fond, après les commandes précédentes de l'équipement.
@@ -390,6 +347,7 @@ class NetworkDevice(Device):
         super().__init__()
         self._connected = False
         self._synced = False  # état lu au moins une fois depuis la connexion courante
+        Device.connected.update(self, False)  # avant tout abonnement : rien n'est annoncé
         self._tasks: set[asyncio.Task] = set()  # tâches du pilote, annulées par stop()
 
     async def stop(self) -> None:
@@ -423,6 +381,7 @@ class NetworkDevice(Device):
         self._synced = connected and synced
         if not self._synced:
             self._reset()
+        Device.connected.update(self, self._synced)
         self._notify()
 
     def _check_reachable(self) -> None:
@@ -431,18 +390,11 @@ class NetworkDevice(Device):
             raise DeviceError(f"{self.id} : injoignable")
 
     def state(self) -> dict:
-        """Retourne l'état : {"connected": False} si injoignable, sinon {"connected": True, ...}."""
+        """État envoyé aux pages et au datalog : {"connected": False} si injoignable, sinon
+        connected et les valeurs reçues ; chaque classe ajoute les siennes."""
         if not (self._connected and self._synced):
-            return {"connected": False, **self._get_disconnected_state()}
-        return {"connected": True, **self._get_connected_state()}
-
-    def _get_disconnected_state(self) -> dict:
-        """Valeurs par défaut quand injoignable. Peut être surchargé par les subclasses."""
-        return {}
-
-    def _get_connected_state(self) -> dict:
-        """L'état quand connecté et synchronisé. À implémenter par les subclasses."""
-        return {}
+            return {"connected": False}
+        return {"connected": True} | known(battery=self.battery)
 
 
 class Switchable(Device):

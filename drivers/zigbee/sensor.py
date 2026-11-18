@@ -8,7 +8,7 @@ import math
 from collections.abc import Mapping
 from typing import ClassVar, TypedDict
 
-from core.base import Attribute, EventInt, EventSource
+from core.base import Device
 from drivers.zigbee import ZigbeeDevice, find_cluster, raw_change, setup_reporting, tracked
 
 POWER = 0x0001
@@ -62,13 +62,11 @@ class Sensor(ZigbeeDevice):
     WIDGET = "sensor"
     # valeurs suivies par défaut, propres à chaque variante
     DEFAULTS: ClassVar[Mapping[str, object]] = {"battery": 1}
-    battery = Attribute[int](readonly=True)
-    event_battery = EventSource[EventInt]()
 
     def __init__(self, ieee: str, reports: SensorReports | None = None):
         super().__init__(ieee)
         self.reports = tracked(self.DEFAULTS, reports)
-        self._values: dict[str, bool | float] = {}
+        Device.battery_powered.update(self, True)
 
     async def _configure(self, zdev) -> None:
         # non suivie (ou d'une autre variante) : le capteur doit cesser de l'envoyer
@@ -88,7 +86,9 @@ class Sensor(ZigbeeDevice):
         if (measure := MEASURES.get((cluster_id, name))) and value is not None:
             key, convert = measure
             if key in self.reports:
-                self._values[key] = convert(value)
+                self._measure(key, convert(value))
 
-    def _get_connected_state(self) -> dict:
-        return dict(self._values)
+    def _measure(self, key: str, value) -> None:
+        """Valeur reçue : chaque variante met à jour ses attributs, puis appelle super()."""
+        if key == "battery":
+            Device.battery.update(self, value)

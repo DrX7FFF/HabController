@@ -31,7 +31,9 @@
 - `Switchable(Device)` : on, switch, toggle. Pour la lampe, la
   prise, le ruban, l'afficheur et la TV.
 - `Light(Switchable)` : brightness, color_temp, rgb, rgb_capable.
-- Capteurs, présence et aspirateur : à définir.
+- Capteurs Zigbee (`Sensor(Device)`, sur pile) : `Climate`, `Contact`, `Motion`,
+  `Button`. FP2 : illuminance et zones. Aspirateur : last_clean ; clean, pause,
+  home, refresh.
 
 ## Capacités
 - Une classe générique par catégorie. Ce qui dépend du modèle est un attribut

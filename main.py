@@ -316,13 +316,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-class SetMessage(BaseModel):
-    device: str
-    name: str
-    value: bool | str | int  # sans bool, un true JSON arriverait en "1"
-    transition: int | None = None  # ms, sinon valeur par défaut de l'équipement
-
-
 class CallMessage(BaseModel):
     device: str
     method: str  # méthode publique de l'équipement (switch, set_brightness…)
@@ -337,13 +330,6 @@ def apply_call(cmd: CallMessage) -> None:
     if cmd.method.startswith("_") or not callable(method := getattr(dev, cmd.method, None)):
         raise ValueError(f"{cmd.device} n'a pas l'action « {cmd.method} »")
     method(*cmd.args)
-
-
-async def apply_command(cmd: SetMessage) -> None:
-    dev = devices.get(cmd.device)
-    if dev is None:
-        raise LookupError("équipement inconnu")
-    await dev.set(cmd.name, cmd.value, cmd.transition)
 
 
 # --- Synchronisations (core/sync.py) : contrôle (GET) puis synchro (POST) ----
@@ -532,7 +518,6 @@ async def install_firmware(dev_id: str):
 #                   {"type": "firmware", "firmware": {...}} à chaque changement (liste, avancement),
 #                   et {"type": "error", "device", "detail"} pour une commande refusée
 # page -> serveur : {"type": "call", "device", "method", "args"} (action de l'équipement),
-#                   {"type": "set", "device", "name", "value", "transition"?},
 #                   {"type": "live", "on"} pour recevoir ou non les messages datalog
 
 
@@ -542,12 +527,9 @@ async def handle_message(message: dict, queue: asyncio.Queue) -> str | None:
         if message.get("type") == "live":
             (live.add if message.get("on") else live.discard)(queue)
             return None
-        if message.get("type") == "call":
-            apply_call(CallMessage.model_validate(message))
-            return None
-        if message.get("type") != "set":
+        if message.get("type") != "call":
             return "type de message inconnu"
-        await apply_command(SetMessage.model_validate(message))
+        apply_call(CallMessage.model_validate(message))
     except ValidationError:
         return "commande invalide"
     except (LookupError, ValueError, TypeError, DeviceError) as err:

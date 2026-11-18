@@ -239,8 +239,9 @@ Déroulé et nettoyage des appareils Zigbee inutilisés : voir `README.md`.
 
 ## États et commandes par type d'équipement
 
-Commun à tous : `connected` (bool, lecture seule). Quand il vaut `False`, les autres attributs
-disparaissent de l'état et se lisent `None`.
+Commun à tous (`Device`) : `connected` (bool), `battery_powered` (bool, sur pile) et
+`battery` (int, %, équipement sur pile). Quand `connected` vaut `False`, les autres attributs
+disparaissent de l'état et se lisent `None`. Tous les attributs sont en lecture seule.
 
 Dans une automatisation :
 

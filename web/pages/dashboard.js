@@ -24,7 +24,6 @@ const PLUG = [
   ["energy", "Énergie", v => `${v} kWh`],
 ];
 
-const command = (device, name, value) => send({ type: "set", device, name, value });
 const call = (device, method, ...args) => send({ type: "call", device, method, args });
 
 // Les contrôles ne sont pas écrasés par un événement pendant qu'on les manipule.
@@ -90,7 +89,7 @@ function vacuum(dev) {
   const last = el("div");
   const buttons = [["clean", "Nettoyer"], ["pause", "Pause"], ["home", "Base"], ["refresh", "Actualiser"]]
     .map(([cmd, text]) => ({ el: el("button", { textContent: text,
-      onclick: () => command(dev, "command", cmd) }), set: () => {} }));
+      onclick: () => call(dev, cmd) }), set: () => {} }));
   return [{ el: last, set: s => {
     const c = s.last_clean;
     last.textContent = c ? `Dernier : ${new Date(c.start).toLocaleString("fr-FR",

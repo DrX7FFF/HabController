@@ -343,11 +343,6 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second.subscribed, {presence_key(0), presence_key(1), (1, 32)})
         self.assertTrue(driver.state().get("zone.0"))
 
-    async def test_set_refused(self):
-        driver = make_fp2()
-        with self.assertRaises(ValueError):
-            await driver.set("on", True)
-
     async def test_stop_after_start_unreachable_pairing_missing(self):
         # sans appairage enregistré : aucune connexion tentée (signalé par equipements.yaml)
         driver = make_fp2("inconnu_test")

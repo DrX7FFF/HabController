@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
 
-from core.base import Attribute, EventFloat, EventSource, EventZone, NetworkDevice
+from core.base import EventFloat, EventSource, EventZone, NetworkDevice, State, known
 from drivers.homekit import (
     ERRORS,
     PairingError,
@@ -85,7 +85,7 @@ class FP2(NetworkDevice):
     """Capteur de présence FP2 : une connexion permanente, l'état vient des événements HomeKit."""
 
     WIDGET = "fp2"
-    illuminance = Attribute[float](readonly=True)
+    illuminance = State[float]()  # lx
     event_illuminance = EventSource[EventFloat]()
     event_zone = EventSource[EventZone]()
 
@@ -108,7 +108,7 @@ class FP2(NetworkDevice):
         }
         self._subscribed: set[Key] = set()  # abonnements actifs sur la connexion courante
         self._mapping = Mapping()
-        self._values: dict[str, bool | float] = {}  # dernières valeurs connues, par attribut
+        self._zones: dict[str, bool] = {}  # présence par zone : "zone.<nom>" -> occupée
         self._pairing = None  # défini une fois la première lecture faite
         self._backoff = RETRY_MIN
 
@@ -217,7 +217,8 @@ class FP2(NetworkDevice):
                 mapping, await pairing.get_characteristics(list(mapping.entities))
             )
         self._mapping = mapping
-        self._values = values
+        self._zones = {}
+        self._apply_values(values)
         self._set_connected(pairing.is_available, synced=True)
 
     async def _read(self, pairing) -> None:
@@ -239,10 +240,28 @@ class FP2(NetworkDevice):
         return values
 
     def _apply(self, updates: dict[Key, dict]) -> None:
-        self._values.update(self._convert(self._mapping, updates))
+        self._apply_values(self._convert(self._mapping, updates))
 
-    def _get_connected_state(self) -> dict:
-        return self._values
+    def _apply_values(self, values: dict[str, bool | float]) -> None:
+        """Valeurs converties : luminosité dans son attribut, présences dans les zones."""
+        for attr, value in values.items():
+            if attr == "illuminance":
+                FP2.illuminance.update(self, value)
+            else:
+                self._zones[attr] = bool(value)
+
+    def state(self) -> dict:
+        state = super().state()
+        if not state.get("connected"):
+            return state
+        return state | known(illuminance=self.illuminance) | self._zones
+
+    def measures(self) -> dict[str, str]:
+        return {"illuminance": "tracked"} | super().measures()
+
+    def _reset(self) -> None:
+        FP2.illuminance.update(self, None)
+        super()._reset()
 
     # --- événements de la bibliothèque (appelés dans la boucle asyncio) ------
 
@@ -269,17 +288,11 @@ class FP2(NetworkDevice):
                 await self._sync(pairing)
             else:
                 await self._read(pairing)
-                self._synced = True
-                self._notify()
+                self._set_connected(True, synced=True)
         except ERRORS as err:
             log.warning(
                 "%s : lecture de l'état impossible (%s : %s)", self.id, type(err).__name__, err
             )
-
-    # --- commandes ----------------------------------------------------------
-
-    async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
-        raise ValueError(f"{self.id} est un capteur : aucune commande")
 
 
 class Zones:
