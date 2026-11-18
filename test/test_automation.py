@@ -368,7 +368,7 @@ class PresenceRuleTest(AutomationTestCase):
         self.commands = {"salon": [], "cuisine": []}
         self.fail: dict[str, Exception] = {}
         for dev in (self.salon, self.cuisine):
-            patcher = mock.patch.object(dev, "set", self.fake_set(dev))
+            patcher = mock.patch.object(dev, "_switch", self.fake_switch(dev))
             patcher.start()
             self.addCleanup(patcher.stop)
         self.fp = presence.fp2
@@ -379,11 +379,11 @@ class PresenceRuleTest(AutomationTestCase):
         await until(lambda: self.fp._pairing is not None)
         await self.idle()
 
-    def fake_set(self, dev):
-        async def fake(name, value, transition=None):
+    def fake_switch(self, dev):
+        async def fake(on, transition=None):
             if dev.id in self.fail:
                 raise self.fail[dev.id]
-            self.commands[dev.id].append((name, value))
+            self.commands[dev.id].append(("on", on))
 
         return fake
 

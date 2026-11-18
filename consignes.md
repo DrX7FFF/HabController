@@ -10,18 +10,25 @@
 
 ## Équipements
 - Un équipement est un objet Python ordinaire : classes et héritage.
-- Son état est porté par de vrais attributs : `cuisine.on` lit l'attribut,
-  sans recherche par nom ni reconstruction.
-- Le pilote met à jour l'attribut à la réception : `self.on = ...`.
-- Une affectation d'attribut public (nom sans `_`) qui change sa valeur
-  déclenche les automatisations et la mise à jour des pages web. Un seul
-  mécanisme, dans `Device`.
-- Les actions sont des méthodes : `await cuisine.turn_on()`.
+- Son état est porté par de vrais attributs : `cuisine.on` lit la valeur
+  gardée dans l'objet, sans recherche par nom ni reconstruction.
+- Attributs = état, en lecture seule : un attribut d'état est déclaré par
+  `on = State[bool]()` ; `cuisine.on = True` est refusé par Python.
+- Seul le pilote l'écrit, à la réception : `Light.on.update(self, valeur)`.
+  C'est l'annonce officielle du changement : elle déclenche `event_on` et met à
+  jour les pages web. Aucune autre écriture n'est surveillée.
+- Méthodes = actions sur l'objet : `cuisine.switch(True)`. Sans `await` : la
+  commande part en tâche de fond, dans l'ordre, et le script n'attend pas.
+- Paramètre non pris en charge par l'équipement (ex. transition) : ignoré.
+- Équipement injoignable : ses attributs valent `None`. `Device` reçoit la
+  perte de connexion et appelle la remise à zéro ; chaque classe la surcharge
+  pour remettre ses attributs à `None`, puis appelle `super()` (héritage,
+  sans parcours).
 - Si l'équipement ou son attribut n'existe pas, c'est Python qui le signale.
 
 ## Hiérarchie
 - `Device` : connected, battery_powered, battery.
-- `Switchable(Device)` : on, turn_on, turn_off, toggle. Pour la lampe, la
+- `Switchable(Device)` : on, switch, toggle. Pour la lampe, la
   prise, le ruban, l'afficheur et la TV.
 - `Light(Switchable)` : brightness, color_temp, rgb, rgb_capable.
 - Capteurs, présence et aspirateur : à définir.
@@ -36,6 +43,8 @@
 ## Pages web
 - Chaque widget est lié à sa catégorie d'équipement : pas de widget générique
   qui relit la structure pour reconstruire le HTML.
+- Le passage entre Python et JavaScript (état en JSON, méthode appelée par
+  son nom) est la seule entorse acceptée au typage fort.
 
 ## Générique accepté
 - Détection des fonctions d'événement dans les automatisations.

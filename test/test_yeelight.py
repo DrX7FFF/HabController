@@ -46,16 +46,16 @@ class YeelightOnTest(unittest.IsolatedAsyncioTestCase):
     async def test_set_on(self):
         bulb = self.make()
         bulb._merge({"power": "off"})
-        await bulb.set("on", True, 0)
+        await bulb._switch(True, 0)
         self.assertIs(bulb.on, True)
-        await bulb.set("on", False, 0)
+        await bulb._switch(False, 0)
         self.assertIs(bulb.on, False)
         self.assertEqual(bulb._bulb.calls, ["on", "off"])
 
     async def test_setting_turns_bulb_on_first(self):
         bulb = self.make()
         bulb._merge({"power": "off"})
-        await bulb.set("brightness", 40, 0)
+        await bulb._set_brightness(40, 0)
         self.assertEqual(bulb._bulb.calls, ["on", 40])
         self.assertIs(bulb.on, True)
 
@@ -65,8 +65,8 @@ class YeelightOnTest(unittest.IsolatedAsyncioTestCase):
     async def test_set_rgb_and_set_temp_send_one_message(self):
         bulb = self.make()
         bulb._merge({"power": "off"})
-        bulb.set_rgb(80, "#ff0000", transition=0)
-        bulb.set_temp(60, 2700, transition=2000)
+        bulb.set_rgb("#ff0000", 80, transition=0)
+        bulb.set_color_temp(2700, 60, transition=2000)
         await self.idle()
         # une scène « color flow » d'une étape (1 fois, rester) : durée, mode, valeur, intensité
         self.assertEqual(
@@ -81,7 +81,7 @@ class YeelightOnTest(unittest.IsolatedAsyncioTestCase):
     async def test_default_transition_and_toggle(self):
         bulb = self.make()
         bulb._merge({"power": "on"})
-        bulb.set_temp(50, 4000)
+        bulb.set_color_temp(4000, 50)
         bulb.toggle()
         await self.idle()
         self.assertEqual(bulb._bulb.calls, [("CF", 1, 1, "300, 2, 4000, 50"), "off"])
@@ -91,7 +91,7 @@ class YeelightOnTest(unittest.IsolatedAsyncioTestCase):
         bulb = self.make()
         bulb._connected = False
         with self.assertLogs("core.base", "WARNING") as logs:
-            bulb.set_rgb(80, "#ff0000")
+            bulb.set_rgb("#ff0000", 80)
             await self.idle()
         self.assertIn("injoignable", logs.output[0])
         self.assertEqual(bulb._bulb.calls, [])

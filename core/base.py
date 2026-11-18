@@ -127,6 +127,11 @@ async def clear_listeners() -> None:
         await asyncio.gather(*running, return_exceptions=True)
 
 
+def known(**values: Any) -> dict:
+    """Valeurs d'état déjà reçues (None : pas encore lue, ou injoignable)."""
+    return {name: value for name, value in values.items() if value is not None}
+
+
 def on_value(value: bool | str | int) -> bool:
     """Valeur demandée pour l'attribut `on` : True ou False."""
     if isinstance(value, bool):
@@ -160,6 +165,36 @@ class Attribute(Generic[T]):
         obj._assign(self.name, value)  # pyright: ignore[reportArgumentType]
 
 
+class State(Generic[T]):
+    """Attribut d'état : la valeur est gardée dans l'équipement, en lecture seule
+    (`cuisine.on`) ; seul le pilote l'écrit, par `Light.on.update(self, valeur)`, qui annonce
+    le changement (événement event_<nom>, pages)."""
+
+    def __init__(self):
+        self.name = ""
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.name = name
+
+    @overload
+    def __get__(self, obj: None, owner: type) -> "State[T]": ...
+    @overload
+    def __get__(self, obj: "Device", owner: type) -> T | None: ...
+    def __get__(self, obj, owner=None):
+        if obj is None:
+            return self
+        return obj.__dict__.get(self.name)
+
+    def __set__(self, obj: "Device", value: T) -> None:
+        raise AttributeError(f"{self.name} est en lecture seule (utiliser les méthodes)")
+
+    def update(self, obj: "Device", value: T | None) -> None:
+        old = obj.__dict__.get(self.name)
+        obj.__dict__[self.name] = value
+        if value != old:
+            obj._notify()
+
+
 # État de surveillance d'une mesure (voir Device.measures) -> pourquoi elle ne sera jamais reçue
 REASONS = {
     "tracked": "",
@@ -186,6 +221,14 @@ class Device:
         self.last_seen: int | None = None  # ms, dernière mise à jour reçue (même identique)
         self._evt_listeners: dict[str, list[Callable]] = {}  # clé d'EventSource -> fonctions abonnées
         self._evt_lock = asyncio.Lock()  # fonctions abonnées : une à la fois, dans l'ordre
+
+    def _reset(self) -> None:
+        """Équipement injoignable : chaque classe remet ses attributs d'état à None, puis
+        appelle super()."""
+
+    def switch(self, on: bool, transition: int | None = None) -> None:
+        """Marche/arrêt (pilotes pas encore passés à Switchable : commande « on »)."""
+        self._assign("on", on)
 
     def configure(self, dev_id: str) -> None:
         """Appelé par le chargeur, avant start() : identifiant."""
@@ -382,6 +425,8 @@ class NetworkDevice(Device):
                 log.warning("%s : déconnecté%s", self.id, f" ({reason})" if reason else "")
         self._connected = connected
         self._synced = connected and synced
+        if not self._synced:
+            self._reset()
         self._notify()
 
     def _check_reachable(self) -> None:
@@ -402,3 +447,31 @@ class NetworkDevice(Device):
     def _get_connected_state(self) -> dict:
         """L'état quand connecté et synchronisé. À implémenter par les subclasses."""
         return {}
+
+
+class Switchable(Device):
+    """Équipement à marche/arrêt. Le pilote met `on` à jour à la réception et fournit
+    _switch()."""
+
+    on = State[bool]()
+    event_on = EventSource[EventBool]()
+
+    def state(self) -> dict:
+        state = super().state()
+        return state | known(on=self.on) if state.get("connected") else state
+
+    def measures(self) -> dict[str, str]:
+        return {"on": "tracked"} | super().measures()
+
+    def _reset(self) -> None:
+        Switchable.on.update(self, None)
+        super()._reset()
+
+    def switch(self, on: bool, transition: int | None = None) -> None:
+        self._background(f"switch({on!r})", lambda: self._switch(on_value(on), transition))
+
+    def toggle(self, transition: int | None = None) -> None:
+        self._background("toggle", lambda: self._switch(not self.on, transition))
+
+    async def _switch(self, on: bool, transition: int | None) -> None:
+        raise NotImplementedError

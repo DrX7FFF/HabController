@@ -4,14 +4,13 @@ import logging
 from yeelight import BulbException, Flow, RGBTransition, SceneClass, TemperatureTransition
 from yeelight.aio import KEY_CONNECTED, AsyncBulb
 
-from core.base import DeviceError, NetworkDevice, on_value
+from core.base import DeviceError, NetworkDevice
 from core.light import Light
 
 log = logging.getLogger(__name__)
 
 ERRORS = (BulbException, OSError)  # erreurs du protocole ou du réseau
 PROPERTIES = ["power", "bright", "ct", "rgb"]
-SETTABLE = frozenset({"on", "brightness", "color_temp", "rgb"})
 RETRY_DELAY = 10  # s, entre deux tentatives de première connexion
 
 
@@ -20,13 +19,6 @@ def _rgb(value: str) -> tuple[int, int, int]:
     if len(text) != 6:
         raise ValueError("rgb attend une couleur au format #rrggbb")
     return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
-
-
-def _effect(transition: int) -> dict:
-    """Transition en millisecondes (0 = immédiat) au format de la bibliothèque."""
-    if transition <= 0:
-        return {"effect": "sudden"}
-    return {"effect": "smooth", "duration": max(30, transition)}
 
 
 class YeelightBulb(Light, NetworkDevice):
@@ -43,7 +35,7 @@ class YeelightBulb(Light, NetworkDevice):
         self._host = host
         self._port = port
         self._bulb: AsyncBulb | None = None
-        self._props: dict = {}  # dernières valeurs connues, noms du protocole Yeelight
+        Light.rgb_capable.update(self, True)
 
     # --- cycle de vie -------------------------------------------------------
 
@@ -85,12 +77,17 @@ class YeelightBulb(Light, NetworkDevice):
             if connected:
                 self._spawn(self._refresh())  # l'état a pu changer pendant la coupure
         self._merge(props)
-        self._notify()
 
     def _merge(self, props: dict) -> None:
-        for key in PROPERTIES:
-            if props.get(key) not in (None, ""):
-                self._props[key] = props[key]
+        """Valeurs reçues, noms du protocole Yeelight ("" ou absent : inchangé)."""
+        if props.get("power"):
+            Light.on.update(self, props["power"] == "on")
+        if props.get("bright"):
+            Light.brightness.update(self, int(props["bright"]))
+        if props.get("ct"):
+            Light.color_temp.update(self, int(props["ct"]))
+        if props.get("rgb"):
+            Light.rgb.update(self, f"#{int(props['rgb']):06x}")
 
     async def _refresh(self) -> None:
         try:
@@ -99,81 +96,78 @@ class YeelightBulb(Light, NetworkDevice):
             log.warning("%s : lecture de l'état impossible (%s)", self.id, err)
             return
         self._merge(props)
-        self._synced = True
-        self._notify()
-
-    def _get_connected_state(self) -> dict:
-        state = {}
-        if "power" in self._props:  # le protocole Yeelight dit "on" / "off"
-            state["on"] = self._props["power"] == "on"
-        if "bright" in self._props:
-            state["brightness"] = int(self._props["bright"])
-        if "ct" in self._props:
-            state["color_temp"] = int(self._props["ct"])
-        if "rgb" in self._props:
-            state["rgb"] = f"#{int(self._props['rgb']):06x}"
-        return state
+        self._set_connected(True, synced=True)
 
     # --- commandes ----------------------------------------------------------
-    # set_rgb et set_temp (core/light.py) : allument et règlent tout en un seul message (scène
-    # « color flow » d'une étape, la seule qui accepte une transition).
+    # Avec intensité : allume et règle tout en un seul message (scène « color flow » d'une
+    # étape, la seule qui accepte une transition).
 
-    async def _set_rgb(self, brightness: int, rgb: str, transition: int | None) -> None:
+    async def _switch(self, on: bool, transition: int | None) -> None:
+        fx = self._effect(transition)
+        await self._send(self._bulb.async_turn_on(**fx) if on else self._bulb.async_turn_off(**fx))
+        Light.on.update(self, on)
+
+    async def _set_brightness(self, brightness: int, transition: int | None) -> None:
+        await self._power_on(transition)
+        await self._send(self._bulb.async_set_brightness(int(brightness), **self._effect(transition)))
+        Light.brightness.update(self, int(brightness))
+
+    async def _set_color_temp(
+        self, color_temp: int, brightness: int | None, transition: int | None
+    ) -> None:
+        if brightness is None:
+            await self._power_on(transition)
+            await self._send(
+                self._bulb.async_set_color_temp(int(color_temp), **self._effect(transition))
+            )
+        else:
+            step = TemperatureTransition(
+                int(color_temp), self._duration(transition), int(brightness)
+            )
+            await self._scene(step)
+            Light.on.update(self, True)
+            Light.brightness.update(self, int(brightness))
+        Light.color_temp.update(self, int(color_temp))
+
+    async def _set_rgb(self, rgb: str, brightness: int | None, transition: int | None) -> None:
         red, green, blue = _rgb(rgb)
-        step = RGBTransition(red, green, blue, self._duration(transition), int(brightness))
-        rgb_value = str((red << 16) | (green << 8) | blue)  # format du protocole
-        await self._scene(step, bright=str(int(brightness)), rgb=rgb_value)
+        if brightness is None:
+            await self._power_on(transition)
+            await self._send(self._bulb.async_set_rgb(red, green, blue, **self._effect(transition)))
+        else:
+            step = RGBTransition(red, green, blue, self._duration(transition), int(brightness))
+            await self._scene(step)
+            Light.on.update(self, True)
+            Light.brightness.update(self, int(brightness))
+        Light.rgb.update(self, f"#{red:02x}{green:02x}{blue:02x}")
 
-    async def _set_temp(self, brightness: int, color_temp: int, transition: int | None) -> None:
-        step = TemperatureTransition(int(color_temp), self._duration(transition), int(brightness))
-        await self._scene(step, bright=str(int(brightness)), ct=str(int(color_temp)))
+    async def _power_on(self, transition: int | None) -> None:
+        """L'ampoule refuse les réglages quand elle est éteinte : on l'allume d'abord."""
+        if not self.on:
+            await self._switch(True, transition)
 
-    async def _scene(self, step, **props: str) -> None:
-        self._check_reachable()
+    async def _scene(self, step) -> None:
+        await self._send(self._bulb.async_set_scene(SceneClass.CF, Flow(1, Flow.actions.stay, [step])))
+
+    async def _send(self, command) -> None:
+        """Envoie une commande de la bibliothèque ; DeviceError si l'ampoule est injoignable."""
         try:
-            await self._bulb.async_set_scene(SceneClass.CF, Flow(1, Flow.actions.stay, [step]))
+            self._check_reachable()
+            await command
         except ERRORS as err:
             raise DeviceError(f"{self.id} : {err}") from err
-        self._props.update(power="on", **props)
-        self._notify()
+        finally:
+            command.close()  # coroutine non attendue (injoignable) : pas d'avertissement
 
     def _duration(self, transition: int | None) -> int:
         return self.transition if transition is None else transition
 
-    async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
-        if name not in SETTABLE:
-            raise ValueError(f"{self.id} ne gère pas « {name} »")
-        self._check_reachable()
-        fx = _effect(self._duration(transition))
-        try:
-            await self._apply(name, value, fx)
-        except ERRORS as err:
-            raise DeviceError(f"{self.id} : {err}") from err
-        self._notify()
-
-    async def _apply(self, name: str, value: bool | str | int, fx: dict) -> None:
-        bulb = self._bulb
-        if name != "on" and self._props.get("power") != "on":
-            # l'ampoule refuse les réglages quand elle est éteinte : on l'allume d'abord
-            await bulb.async_turn_on(**fx)
-            self._props["power"] = "on"
-        if name == "on":
-            on = on_value(value)
-            if on:
-                await bulb.async_turn_on(**fx)
-            else:
-                await bulb.async_turn_off(**fx)
-            self._props["power"] = "on" if on else "off"
-        elif name == "brightness":
-            await bulb.async_set_brightness(int(value), **fx)
-            self._props["bright"] = str(int(value))
-        elif name == "color_temp":
-            await bulb.async_set_color_temp(int(value), **fx)
-            self._props["ct"] = str(int(value))
-        elif name == "rgb":
-            red, green, blue = _rgb(str(value))
-            await bulb.async_set_rgb(red, green, blue, **fx)
-            self._props["rgb"] = str((red << 16) | (green << 8) | blue)
+    def _effect(self, transition: int | None) -> dict:
+        """Transition en millisecondes (0 = immédiat) au format de la bibliothèque."""
+        duration = self._duration(transition)
+        if duration <= 0:
+            return {"effect": "sudden"}
+        return {"effect": "smooth", "duration": max(30, duration)}
 
 
 Driver = YeelightBulb  # convention : le chargeur cherche ce nom

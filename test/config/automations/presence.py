@@ -9,6 +9,6 @@ from devices.salon import fp2, salon
 async def eclairage(event: EventZone):
     if event.zonename != "Global":
         return
-    salon.on = event.new
-    cuisine.on = event.new
+    salon.switch(event.new)
+    cuisine.switch(event.new)
     log.warning("Detection = %s", event.new)

@@ -307,7 +307,7 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
         light.zdev = SimpleNamespace()
         with mock.patch("drivers.zigbee.light.find_cluster", return_value=None):
             with self.assertRaises(ValueError):
-                await light.set("rgb", "#ff0000")
+                await light._set_rgb("#ff0000", None, None)
 
     def white_light(self, caps):
         """Ampoule à clusters marche/arrêt, intensité, couleur ; color_capabilities = caps."""
@@ -336,7 +336,7 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
     async def test_undeclared_color_refused_without_sending(self):
         light = self.white_light(caps=0x10)  # température seulement
         with self.assertRaises(ValueError):
-            await light.set("rgb", "#ff0000")
+            await light._set_rgb("#ff0000", None, None)
         self.assertEqual(self.sent, [])
         light._on_attribute(0x0300, "current_x", 20000)  # x/y envoyés quand même : ignorés
         light._on_attribute(0x0300, "current_y", 20000)
@@ -344,18 +344,17 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_color_turns_bulb_on_first(self):
         light = self.white_light(caps=None)  # non lu : tout supposé présent
-        light._raw["on_off"] = 0
-        await light.set("color_temp", 2700)
+        Light.on.update(light, False)
+        await light._set_color_temp(2700, None, None)
         self.assertEqual(self.sent, [(0x0006, "on"), (0x0300, "move_to_color_temp")])
 
-    async def test_set_rgb_on_white_bulb_does_what_it_can(self):
-        light = self.white_light(caps=0x10)
-        with self.assertLogs("core.base", "WARNING") as logs:
-            light.set_rgb(30, "#ff0000")
+    async def test_set_rgb_on_white_bulb_is_ignored(self):
+        light = self.white_light(caps=0x10)  # rgb_capable reste False
+        with self.assertLogs("core.light", "WARNING") as logs:
+            light.set_rgb("#ff0000", 30)
             await asyncio.gather(*list(base.tasks))
-        self.assertEqual(self.sent, [(0x0008, "move_to_level_with_on_off")])
-        self.assertIn("refusée", logs.output[0])
-        self.assertIs(light.on, True)
+        self.assertEqual(self.sent, [])
+        self.assertIn("ne prend pas en charge RGB", logs.output[0])
 
 
 def make_zdev(ieee=IEEE, model="TS011F"):

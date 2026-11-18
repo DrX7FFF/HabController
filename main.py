@@ -323,6 +323,22 @@ class SetMessage(BaseModel):
     transition: int | None = None  # ms, sinon valeur par défaut de l'équipement
 
 
+class CallMessage(BaseModel):
+    device: str
+    method: str  # méthode publique de l'équipement (switch, set_brightness…)
+    args: list[bool | int | str] = []
+
+
+def apply_call(cmd: CallMessage) -> None:
+    """Action demandée par une page : méthode de l'équipement, en tâche de fond."""
+    dev = devices.get(cmd.device)
+    if dev is None:
+        raise LookupError("équipement inconnu")
+    if cmd.method.startswith("_") or not callable(method := getattr(dev, cmd.method, None)):
+        raise ValueError(f"{cmd.device} n'a pas l'action « {cmd.method} »")
+    method(*cmd.args)
+
+
 async def apply_command(cmd: SetMessage) -> None:
     dev = devices.get(cmd.device)
     if dev is None:
@@ -515,7 +531,8 @@ async def install_firmware(dev_id: str):
 #                   {"type": "notifications", "notifications": [...]} à chaque changement,
 #                   {"type": "firmware", "firmware": {...}} à chaque changement (liste, avancement),
 #                   et {"type": "error", "device", "detail"} pour une commande refusée
-# page -> serveur : {"type": "set", "device", "name", "value", "transition"?},
+# page -> serveur : {"type": "call", "device", "method", "args"} (action de l'équipement),
+#                   {"type": "set", "device", "name", "value", "transition"?},
 #                   {"type": "live", "on"} pour recevoir ou non les messages datalog
 
 
@@ -525,12 +542,15 @@ async def handle_message(message: dict, queue: asyncio.Queue) -> str | None:
         if message.get("type") == "live":
             (live.add if message.get("on") else live.discard)(queue)
             return None
+        if message.get("type") == "call":
+            apply_call(CallMessage.model_validate(message))
+            return None
         if message.get("type") != "set":
             return "type de message inconnu"
         await apply_command(SetMessage.model_validate(message))
     except ValidationError:
         return "commande invalide"
-    except (LookupError, ValueError, DeviceError) as err:
+    except (LookupError, ValueError, TypeError, DeviceError) as err:
         return str(err)
     return None
 

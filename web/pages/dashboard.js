@@ -25,13 +25,14 @@ const PLUG = [
 ];
 
 const command = (device, name, value) => send({ type: "set", device, name, value });
+const call = (device, method, ...args) => send({ type: "call", device, method, args });
 
 // Les contrôles ne sont pas écrasés par un événement pendant qu'on les manipule.
-function slider(dev, name, text, min, max) {
+function slider(dev, name, method, text, min, max) {
   const input = el("input", { type: "range", min, max });
   let busy = false;
   input.oninput = () => { busy = true; };
-  input.onchange = () => { command(dev, name, +input.value); busy = false; };
+  input.onchange = () => { call(dev, method, +input.value); busy = false; };
   return { el: el("label", {}, text, input),
     set: s => { if (!busy && s[name] !== undefined) input.value = s[name]; } };
 }
@@ -40,7 +41,7 @@ function colorPicker(dev) {
   const input = el("input", { type: "color" });
   let busy = false;
   input.oninput = () => { busy = true; };
-  input.onchange = () => { command(dev, "rgb", input.value); busy = false; };
+  input.onchange = () => { call(dev, "set_rgb", input.value); busy = false; };
   return { el: input, set: s => { if (!busy && s.rgb) input.value = s.rgb; } };
 }
 
@@ -58,7 +59,7 @@ function values(rows, measures) {
 function power(dev) {
   const button = el("button");
   let on = false;
-  button.onclick = () => command(dev, "on", !on);
+  button.onclick = () => call(dev, "switch", !on);
   return { el: button, set: s => {
     on = s.on === true;
     button.className = onKey(s);
@@ -116,8 +117,8 @@ const WIDGETS = {
   vacuum: dev => vacuum(dev),
   light: (dev, m) => [
     power(dev),
-    m.brightness === "tracked" && slider(dev, "brightness", "Intensité", 1, 100),
-    m.color_temp === "tracked" && slider(dev, "color_temp", "Température", 1700, 6500),
+    m.brightness === "tracked" && slider(dev, "brightness", "set_brightness", "Intensité", 1, 100),
+    m.color_temp === "tracked" && slider(dev, "color_temp", "set_color_temp", "Température", 1700, 6500),
     m.rgb === "tracked" && colorPicker(dev),
   ].filter(Boolean),
 };

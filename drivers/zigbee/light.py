@@ -2,7 +2,7 @@
 
 from typing import TypedDict
 
-from core.base import DeviceError, on_value
+from core.base import DeviceError
 import core.light
 from drivers.zigbee import (
     ZigbeeDevice,
@@ -93,7 +93,7 @@ class Light(core.light.Light, ZigbeeDevice):
         super().__init__(ieee, poll)
         self.reports = tracked(DEFAULTS, reports)
         self.transition = transition  # durée par défaut des transitions (ms)
-        self._raw: dict[str, int] = {}  # dernières valeurs ZCL reçues
+        self._xy: dict[str, int] = {}  # dernières coordonnées de couleur reçues (current_x/y)
 
     # --- état ---------------------------------------------------------------
 
@@ -133,56 +133,82 @@ class Light(core.light.Light, ZigbeeDevice):
             for name, value in (await read(cluster, names)).items():
                 self._on_attribute(cluster.cluster_id, name, value)
 
+    def _attach(self, app) -> None:
+        super()._attach(app)
+        if self.zdev is not None:
+            Light.rgb_capable.update(self, self._cluster(self.zdev, "rgb") is not None)
+
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
-        if name not in SETTING_OF or value is None:
+        setting = SETTING_OF.get(name)
+        if setting not in self.reports or value is None:
             return
         # ex. une ampoule blanc réglable envoie aussi x/y : pas de rgb pour elle
-        if self.zdev is None or self._cluster(self.zdev, SETTING_OF[name]) is not None:
-            self._raw[name] = int(value)
-
-    def _get_connected_state(self) -> dict:
-        raw, state = self._raw, {}
-        if "on_off" in raw:
-            state["on"] = bool(raw["on_off"])
-        if "current_level" in raw:
-            state["brightness"] = max(1, round(raw["current_level"] * 100 / 254))
-        if raw.get("color_temperature"):
-            state["color_temp"] = round(1_000_000 / raw["color_temperature"])
-        if "current_x" in raw and "current_y" in raw:
-            state["rgb"] = xy_to_rgb(raw["current_x"] / 65535, raw["current_y"] / 65535)
-        return {name: value for name, value in state.items() if name in self.reports}
+        if self.zdev is not None and self._cluster(self.zdev, setting) is None:
+            return
+        if name == "on_off":
+            Light.on.update(self, bool(value))
+        elif name == "current_level":
+            Light.brightness.update(self, max(1, round(int(value) * 100 / 254)))
+        elif name == "color_temperature":
+            if value:
+                Light.color_temp.update(self, round(1_000_000 / int(value)))
+        else:
+            self._xy[name] = int(value)
+            if len(self._xy) == 2:
+                x, y = self._xy["current_x"] / 65535, self._xy["current_y"] / 65535
+                Light.rgb.update(self, xy_to_rgb(x, y))
 
     # --- commandes ----------------------------------------------------------
 
-    async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
-        if name not in SETTINGS:
-            raise ValueError(f"{self.id} ne gère pas « {name} »")
+    def _tenths(self, transition: int | None) -> int:
+        return round((self.transition if transition is None else transition) / 100)
+
+    def _setting(self, name: str):
+        """Cluster du réglage `name` ; DeviceError si injoignable, ValueError si l'ampoule ne
+        l'a pas."""
         if self.zdev is None:
             raise DeviceError(f"{self.id} : injoignable")
         if (cluster := self._cluster(self.zdev, name)) is None:
             raise ValueError(f"{self.id} ne gère pas « {name} » (ampoule sans ce réglage)")
-        tenths = round((self.transition if transition is None else transition) / 100)
-        if name in CAPABILITY and self._raw.get("on_off") != 1:
-            # une ampoule éteinte ignore les commandes de couleur : on l'allume d'abord
-            await self._command(find_cluster(self.zdev, ON_OFF), "on")
-            self._raw["on_off"] = 1
-        if name == "on":
-            on = on_value(value)
-            await self._command(cluster, "on" if on else "off")
-            self._raw["on_off"] = int(on)
-        elif name == "brightness":
-            level = min(254, max(1, round(int(value) * 254 / 100)))
-            await self._command(cluster, "move_to_level_with_on_off", level, tenths)
-            self._raw.update(current_level=level, on_off=1)
-        elif name == "color_temp":
-            mireds = round(1_000_000 / int(value))
-            await self._command(cluster, "move_to_color_temp", mireds, tenths)
-            self._raw["color_temperature"] = mireds
-        else:
-            x, y = (round(c * 65535) for c in rgb_to_xy(str(value)))
-            await self._command(cluster, "move_to_color", x, y, tenths)
-            self._raw.update(current_x=x, current_y=y)
-        self._notify()
+        return cluster
+
+    async def _switch(self, on: bool, transition: int | None) -> None:
+        await self._command(self._setting("on"), "on" if on else "off")
+        Light.on.update(self, on)
+
+    async def _set_brightness(self, brightness: int, transition: int | None) -> None:
+        level = min(254, max(1, round(int(brightness) * 254 / 100)))
+        await self._command(
+            self._setting("brightness"), "move_to_level_with_on_off", level, self._tenths(transition)
+        )
+        Light.on.update(self, True)
+        Light.brightness.update(self, int(brightness))
+
+    async def _set_color_temp(
+        self, color_temp: int, brightness: int | None, transition: int | None
+    ) -> None:
+        if brightness is not None:
+            await self._set_brightness(brightness, transition)
+        cluster = await self._color_cluster("color_temp")
+        mireds = round(1_000_000 / int(color_temp))
+        await self._command(cluster, "move_to_color_temp", mireds, self._tenths(transition))
+        Light.color_temp.update(self, int(color_temp))
+
+    async def _set_rgb(self, rgb: str, brightness: int | None, transition: int | None) -> None:
+        if brightness is not None:
+            await self._set_brightness(brightness, transition)
+        cluster = await self._color_cluster("rgb")
+        x, y = (round(c * 65535) for c in rgb_to_xy(rgb))
+        await self._command(cluster, "move_to_color", x, y, self._tenths(transition))
+        Light.rgb.update(self, rgb)
+
+    async def _color_cluster(self, name: str):
+        """Cluster couleur ; une ampoule éteinte ignore les commandes de couleur : on l'allume
+        d'abord."""
+        cluster = self._setting(name)
+        if not self.on:
+            await self._switch(True, None)
+        return cluster
 
 
 Driver = Light  # convention : le chargeur cherche ce nom

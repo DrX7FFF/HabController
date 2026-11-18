@@ -56,8 +56,8 @@ from devices.devices import bouton
 @capteur.event_presence
 async def eclairage(event: EventBool):   # event.device, event.time, event.old, event.new
     if event.new and capteur.connected:
-        salon.on = True                     # écriture : commande envoyée en tâche de fond
-        cuisine.on = True
+        salon.switch(True)                  # action : commande envoyée en tâche de fond
+        cuisine.switch(True)
 
 @fp2.event_zone
 async def zone(event: EventZone):          # + event.zonename : nom de zonemapping (ou numéro)
@@ -88,10 +88,11 @@ async def appui(event: EventAction):             # event.action : nom du correct
   est gardée.
 - **Lecture** : un attribut vaut `None` si l'équipement est injoignable (l'attribut disparaît
   de son état).
-- **Écriture** : `salon.on = True` ne bloque pas et ne lève rien si l'équipement est
-  injoignable (c'est journalisé) ; les commandes d'un même équipement partent dans l'ordre.
-  Pour attendre la réponse, ou passer une transition : `ok = await salon.send("on", True, 2)`,
-  qui renvoie `False` si la commande n'a pas pu partir.
+- **Actions** : les attributs se lisent, les méthodes agissent (`salon.switch(True)`). Une
+  action ne bloque pas et ne lève rien si l'équipement est injoignable (c'est journalisé) ; les
+  actions d'un même équipement partent dans l'ordre. Équipements pas encore passés aux
+  méthodes (prise, ruban, afficheur, TV) : `switch()` existe, les autres réglages s'écrivent
+  encore `equipement.attribut = valeur`.
 - **Minuteur** : `Timer(délai_s, action)` appelle `action()` (fonction simple ou async) à la
   fin du délai. `start()` (re)lance le décompte depuis zéro, même s'il tourne déjà : un seul
   minuteur, quel que soit le nombre de départs ; `cancel()` l'arrête ; `running` indique s'il
@@ -99,7 +100,7 @@ async def appui(event: EventAction):             # event.action : nom du correct
 
 ```python
 def eteindre():
-    salon.on = False
+    salon.switch(False)
 
 extinction = Timer(5 * 60, eteindre)
 
@@ -107,7 +108,7 @@ extinction = Timer(5 * 60, eteindre)
 async def eclairage(event: EventBool):
     if event.new:
         extinction.cancel()
-        salon.on = True
+        salon.switch(True)
     else:
         extinction.start()                # extinction 5 min après le dernier départ
 ```
@@ -245,9 +246,8 @@ disparaissent de l'état et se lisent `None`.
 Dans une automatisation :
 
 ```python
-salon.on = True                              # commande en tâche de fond, ne bloque pas
-ok = await salon.send("brightness", 50, 2000)  # attend la réponse ; transition en ms
-if prise_salon.on: ...                       # lecture de l'état mémorisé
+salon.set_brightness(50, transition=2000)    # action en tâche de fond ; transition en ms
+if prise_salon.on: ...                       # lecture de l'état
 ```
 
 Les équipements Zigbee se déclarent avec l'adresse IEEE de leur appareil (`ieee="…"`, premier
@@ -279,34 +279,37 @@ salon = YeelightBulb(host="192.168.1.110")   # port=55443, transition=300
 plafonnier = Light(ieee="00:17:88:01:08:b6:48:b3")  # Zigbee ; transition=300
 ```
 
-Interface commune (`core/light.py`) : une automatisation écrite pour une ampoule marche avec
-l'autre.
+Interface commune (`core/light.py`, classe `Light`, fille de `Switchable`) : une
+automatisation écrite pour une ampoule marche avec l'autre.
 
-| Attribut     | Type                      | Lecture | Commande                    |
-|--------------|---------------------------|---------|-----------------------------|
-| `on`         | bool                      | ✓       | `True`, `False`             |
-| `brightness` | int, 1 à 100 (%)          | ✓       | ✓                           |
-| `color_temp` | int, Kelvin (~1700–6500)  | ✓       | ✓                           |
-| `rgb`        | str, `"#rrggbb"`          | ✓       | ✓                           |
+| Attribut      | Type                      | Signification                          |
+|---------------|---------------------------|----------------------------------------|
+| `on`          | bool                      | allumée                                |
+| `brightness`  | int, 1 à 100 (%)          | intensité                              |
+| `color_temp`  | int, Kelvin (~1700–6500)  | température de blanc                   |
+| `rgb`         | str, `"#rrggbb"`          | couleur                                |
+| `rgb_capable` | bool                      | couleur prise en charge (le pilote le renseigne) |
 
-Commandes groupées, en tâche de fond comme `salon.on = True` :
+Actions, en tâche de fond :
 
-| Commande                                   | Effet                                         |
-|--------------------------------------------|-----------------------------------------------|
-| `toggle(transition=None)`                  | inverse allumé / éteint                       |
-| `set_rgb(brightness, rgb, transition=None)` | allume en couleur                            |
-| `set_temp(brightness, color_temp, transition=None)` | allume en blanc                      |
+| Action                                                  | Effet                       |
+|---------------------------------------------------------|-----------------------------|
+| `switch(on, transition=None)`                           | allume ou éteint            |
+| `toggle(transition=None)`                               | inverse allumé / éteint     |
+| `set_brightness(brightness, transition=None)`           | règle l'intensité           |
+| `set_color_temp(color_temp, brightness=None, transition=None)` | allume en blanc      |
+| `set_rgb(rgb, brightness=None, transition=None)`        | allume en couleur           |
 
 Règles :
-- régler `brightness`, `color_temp` ou `rgb` allume l'ampoule éteinte ;
-- `color_temp` et `rgb` n'existent que si l'ampoule les a : sinon lecture `None`, écriture
-  refusée (journalisée, rien d'autre ne s'arrête). `set_rgb` sur une ampoule blanche règle
-  l'intensité puis s'arrête sur la couleur.
+- régler l'intensité, le blanc ou la couleur allume l'ampoule éteinte ;
+- `set_rgb` sur une ampoule sans couleur (`rgb_capable` faux) : avertissement au journal, rien
+  n'est envoyé ; un réglage que l'ampoule n'a pas est refusé (journalisé, rien d'autre ne
+  s'arrête).
 
 Transition : celle passée à la commande, sinon `transition=` de la déclaration
 (300 ms par défaut) ; 0 = immédiat.
 
-Yeelight : `set_rgb` et `set_temp` partent en un seul message. Zigbee : deux commandes
+Yeelight : `set_rgb` et `set_color_temp` avec intensité partent en un seul message. Zigbee : deux commandes
 (intensité puis réglage) ; les réglages de couleur sont ceux que l'ampoule déclare à
 l'appairage (`color_capabilities` ; non lu : tout est supposé présent) ; le `rgb` relu est
 approché, à pleine intensité (l'ampoule donne sa couleur en coordonnées xy) ; transition au

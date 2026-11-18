@@ -520,7 +520,6 @@ class ZigbeeDevice(NetworkDevice):
 
     POLL: float | None = 300  # s, période de lecture par défaut ; None : sur pile
     DEFAULTS: ClassVar[Mapping[str, object]] = {}  # mesures du pilote, suivies par défaut
-    reports: dict = {}  # mesures suivies : tracked(DEFAULTS, déclaration), fixé par le pilote
 
     def __init__(self, ieee: str, poll: float | None = None):
         super().__init__()
@@ -529,6 +528,7 @@ class ZigbeeDevice(NetworkDevice):
         except (AssertionError, ValueError) as err:
             raise ValueError(f"adresse IEEE invalide « {ieee} »") from err
         self.poll = self.POLL if poll is None else poll
+        self.reports: dict = {}  # mesures suivies : tracked(DEFAULTS, déclaration), fixé par le pilote
         self.zdev = None  # objet zigpy de l'équipement, tant que la clé est ouverte
         self._unsubscribe: list = []
         self._ota_image = None  # firmware plus récent trouvé par zigpy, à installer à la demande

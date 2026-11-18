@@ -1,42 +1,70 @@
 """Ampoule, quel que soit le protocole : base commune des pilotes d'ampoule.
 
-Le pilote écrit set() ; toggle(), set_temp() et set_rgb() en découlent (deux commandes : intensité
-puis réglage). Un pilote qui sait tout envoyer en un message les réécrit (ex. Yeelight)."""
+Le pilote met les attributs à jour à la réception (`Light.on.update(self, valeur)`) et fournit _switch(), _set_brightness(),
+_set_color_temp() et _set_rgb() ; les méthodes publiques partent en tâche de fond."""
 
-from core.base import Attribute, Device, EventBool, EventInt, EventSource, EventStr
+import logging
+
+from core.base import EventInt, EventSource, EventStr, State, Switchable, known
+
+log = logging.getLogger(__name__)
 
 
-class Light(Device):
+class Light(Switchable):
     WIDGET = "light"
-    on = Attribute[bool]()
-    brightness = Attribute[int]()  # 1 à 100
-    color_temp = Attribute[int]()  # Kelvin
-    rgb = Attribute[str]()  # "#rrggbb"
-    event_on = EventSource[EventBool]()
+    brightness = State[int]()  # 1 à 100
+    color_temp = State[int]()  # Kelvin
+    rgb = State[str]()  # "#rrggbb"
+    rgb_capable = State[bool]()  # couleur prise en charge, renseigné par le pilote
     event_brightness = EventSource[EventInt]()
     event_color_temp = EventSource[EventInt]()
     event_rgb = EventSource[EventStr]()
 
-    # Commandes groupées : en tâche de fond, comme salon.on = True.
+    def state(self) -> dict:
+        state = super().state()
+        if not state.get("connected"):
+            return state
+        return state | known(brightness=self.brightness, color_temp=self.color_temp, rgb=self.rgb)
 
-    def toggle(self, transition: int | None = None) -> None:
-        self._background("toggle", lambda: self.set("on", not self.on, transition))
+    def measures(self) -> dict[str, str]:
+        tracked = {"brightness": "tracked", "color_temp": "tracked", "rgb": "tracked"}
+        return tracked | super().measures()
 
-    def set_temp(self, brightness: int, color_temp: int, transition: int | None = None) -> None:
+    def _reset(self) -> None:
+        for state in (Light.brightness, Light.color_temp, Light.rgb):
+            state.update(self, None)
+        super()._reset()
+
+    # --- actions : en tâche de fond, l'ampoule est allumée si besoin -------------
+
+    def set_brightness(self, brightness: int, transition: int | None = None) -> None:
         self._background(
-            f"set_temp({brightness}, {color_temp})",
-            lambda: self._set_temp(brightness, color_temp, transition),
+            f"set_brightness({brightness})", lambda: self._set_brightness(brightness, transition)
         )
 
-    def set_rgb(self, brightness: int, rgb: str, transition: int | None = None) -> None:
+    def set_color_temp(
+        self, color_temp: int, brightness: int | None = None, transition: int | None = None
+    ) -> None:
         self._background(
-            f"set_rgb({brightness}, {rgb!r})", lambda: self._set_rgb(brightness, rgb, transition)
+            f"set_color_temp({color_temp})",
+            lambda: self._set_color_temp(color_temp, brightness, transition),
         )
 
-    async def _set_temp(self, brightness: int, color_temp: int, transition: int | None) -> None:
-        await self.set("brightness", brightness, transition)
-        await self.set("color_temp", color_temp, transition)
+    def set_rgb(self, rgb: str, brightness: int | None = None, transition: int | None = None) -> None:
+        if not self.rgb_capable:
+            log.warning("%s ne prend pas en charge RGB", self.id)
+            return
+        self._background(f"set_rgb({rgb!r})", lambda: self._set_rgb(rgb, brightness, transition))
 
-    async def _set_rgb(self, brightness: int, rgb: str, transition: int | None) -> None:
-        await self.set("brightness", brightness, transition)
-        await self.set("rgb", rgb, transition)
+    # --- à fournir par le pilote --------------------------------------------
+
+    async def _set_brightness(self, brightness: int, transition: int | None) -> None:
+        raise NotImplementedError
+
+    async def _set_color_temp(
+        self, color_temp: int, brightness: int | None, transition: int | None
+    ) -> None:
+        raise NotImplementedError
+
+    async def _set_rgb(self, rgb: str, brightness: int | None, transition: int | None) -> None:
+        raise NotImplementedError
