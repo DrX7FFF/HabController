@@ -3,7 +3,7 @@
 import logging
 from typing import TypedDict
 
-from core.base import Attribute, EventBool, EventFloat, EventSource, on_value
+from core.base import EventFloat, EventSource, State, Switchable, known
 from drivers.zigbee import (
     ZigbeeDevice,
     find_cluster,
@@ -55,18 +55,16 @@ DEFAULTS: PlugReports = {
 }
 
 
-class Plug(ZigbeeDevice):
+class Plug(Switchable, ZigbeeDevice):
     """Prise Zigbee : marche/arrêt et mesures, envoyées spontanément par la prise."""
 
     DEFAULTS = DEFAULTS
     WIDGET = "plug"
 
-    on = Attribute[bool]()
-    active_power = Attribute[float](readonly=True)
-    voltage = Attribute[float](readonly=True)
-    current = Attribute[float](readonly=True)
-    energy = Attribute[float](readonly=True)
-    event_on = EventSource[EventBool]()
+    active_power = State[float]()  # W
+    voltage = State[float]()  # V
+    current = State[float]()  # A
+    energy = State[float]()  # kWh
     event_active_power = EventSource[EventFloat]()
     event_voltage = EventSource[EventFloat]()
     event_current = EventSource[EventFloat]()
@@ -77,7 +75,6 @@ class Plug(ZigbeeDevice):
     ):
         super().__init__(ieee, poll)
         self.reports = tracked(DEFAULTS, reports)
-        self._values: dict[str, bool | float] = {}
         self._scales: dict[str, float] = {}  # mesure suivie -> facteur, si la prise l'a
         self._by_zcl = {(cluster_id, attr): key for key, (cluster_id, attr, _, _) in ZCL.items()}
 
@@ -126,26 +123,47 @@ class Plug(ZigbeeDevice):
         if key not in self.reports:
             return
         if key == "on":
-            self._values["on"] = bool(value)
-        elif key in self._scales:
-            self._values[key] = round(value * self._scales[key], 3)
+            Plug.on.update(self, bool(value))
+            return
+        if key not in self._scales:
+            return
+        value = round(value * self._scales[key], 3)
+        match key:
+            case "active_power":
+                Plug.active_power.update(self, value)
+            case "voltage":
+                Plug.voltage.update(self, value)
+            case "current":
+                Plug.current.update(self, value)
+            case "energy":
+                Plug.energy.update(self, value)
 
-    def _get_connected_state(self) -> dict:
-        return dict(self._values)
+    def state(self) -> dict:
+        state = super().state()
+        if not state.get("connected"):
+            return state
+        return state | known(
+            active_power=self.active_power,
+            voltage=self.voltage,
+            current=self.current,
+            energy=self.energy,
+        )
+
+    def measures(self) -> dict[str, str]:
+        tracked = dict.fromkeys(("active_power", "voltage", "current", "energy"), "tracked")
+        return tracked | super().measures()
+
+    def _reset(self) -> None:
+        for state in (Plug.active_power, Plug.voltage, Plug.current, Plug.energy):
+            state.update(self, None)
+        super()._reset()
 
     # --- commandes ----------------------------------------------------------
 
-    def toggle(self) -> None:
-        self._background("toggle", lambda: self.set("on", not self.on))
-
-    async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
-        if name != "on":
-            raise ValueError(f"{self.id} ne gère pas « {name} »")
-        on = on_value(value)
+    async def _switch(self, on: bool, transition: int | None) -> None:
         cluster = find_cluster(self.zdev, ON_OFF) if self.zdev is not None else None
         await self._command(cluster, "on" if on else "off")  # commandes ZCL « on » / « off »
-        self._values["on"] = on
-        self._notify()
+        Plug.on.update(self, on)
 
 
 Driver = Plug  # convention : le chargeur cherche ce nom

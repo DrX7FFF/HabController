@@ -226,10 +226,6 @@ class Device:
         """Équipement injoignable : chaque classe remet ses attributs d'état à None, puis
         appelle super()."""
 
-    def switch(self, on: bool, transition: int | None = None) -> None:
-        """Marche/arrêt (pilotes pas encore passés à Switchable : commande « on »)."""
-        self._assign("on", on)
-
     def configure(self, dev_id: str) -> None:
         """Appelé par le chargeur, avant start() : identifiant."""
         self.id = dev_id

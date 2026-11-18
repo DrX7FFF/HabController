@@ -5,19 +5,28 @@ import asyncio
 import shlex
 import logging
 
-from core.base import Attribute, DeviceError, EventBool, EventSource, NetworkDevice, on_value
+from core.base import (
+    DeviceError,
+    EventBool,
+    EventSource,
+    EventStr,
+    NetworkDevice,
+    State,
+    Switchable,
+    known,
+)
 
 log = logging.getLogger(__name__)
 
 
-class RGBMatrix(NetworkDevice):
+class RGBMatrix(Switchable, NetworkDevice):
     """Afficheur HUB75 : connexion permanente, l'état vient de ses messages."""
 
     WIDGET = "matrix"
-    on = Attribute[bool]()
-    auto = Attribute[bool]()  # enchaînement automatique des animations (False : pause)
-    pattern = Attribute[str]()  # animation affichée ; commande "next" ou "prev"
-    event_on = EventSource[EventBool]()
+    auto = State[bool]()  # enchaînement automatique des animations (False : pause)
+    pattern = State[str]()  # animation affichée
+    event_auto = EventSource[EventBool]()
+    event_pattern = EventSource[EventStr]()
 
     def __init__(self, host: str, port: int = 5000, retry: float = 10, ping: float = 10):
         super().__init__()
@@ -26,9 +35,6 @@ class RGBMatrix(NetworkDevice):
         self._retry = retry
         self._ping = ping
         self._writer: asyncio.StreamWriter | None = None
-        self._on: bool | None = None
-        self._auto: bool | None = None
-        self._pattern: str | None = None
 
     def physical(self) -> str:
         return f"RGBMatrix {self._host}"
@@ -88,35 +94,46 @@ class RGBMatrix(NetworkDevice):
         fields = dict(f.split("=", 1) for f in words if "=" in f)
         if "on" not in fields:
             return
-        self._on = fields["on"] == "1"
-        self._auto = fields["auto"] == "1" if "auto" in fields else None
-        self._pattern = fields.get("pattern")
-        self._synced = True
-        self._notify()
+        RGBMatrix.on.update(self, fields["on"] == "1")
+        RGBMatrix.auto.update(self, fields["auto"] == "1" if "auto" in fields else None)
+        RGBMatrix.pattern.update(self, fields.get("pattern"))
+        self._set_connected(True, synced=True)
 
     async def _send(self, command: str) -> None:
         assert self._writer is not None  # connecté
         self._writer.write(f"{command}\n".encode())
         await self._writer.drain()
 
-    def _get_connected_state(self) -> dict:
-        return {"on": self._on, "auto": self._auto, "pattern": self._pattern}
+    def state(self) -> dict:
+        state = super().state()
+        if not state.get("connected"):
+            return state
+        return state | known(auto=self.auto, pattern=self.pattern)
 
-    # --- commandes ----------------------------------------------------------
+    def measures(self) -> dict[str, str]:
+        return {"auto": "tracked", "pattern": "tracked"} | super().measures()
 
-    def toggle(self) -> None:
-        self._background("toggle", lambda: self.set("on", not self.on))
+    def _reset(self) -> None:
+        RGBMatrix.auto.update(self, None)
+        RGBMatrix.pattern.update(self, None)
+        super()._reset()
 
-    async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
-        # l'afficheur renvoie son état après chaque commande : pas de mise à jour locale
-        if name == "on":
-            command = "on" if on_value(value) else "off"
-        elif name == "auto":
-            command = "play" if on_value(value) else "pause"
-        elif name == "pattern" and value in ("next", "prev"):
-            command = "n" if value == "next" else "p"
-        else:
-            raise ValueError(f"{self.id} ne gère pas « {name} » = {value!r}")
+    # --- actions : l'afficheur renvoie son état après chaque commande -------
+
+    def set_auto(self, auto: bool) -> None:
+        """Enchaînement automatique des animations (False : pause)."""
+        self._background(f"set_auto({auto!r})", lambda: self._command("play" if auto else "pause"))
+
+    def next_pattern(self) -> None:
+        self._background("next_pattern", lambda: self._command("n"))
+
+    def previous_pattern(self) -> None:
+        self._background("previous_pattern", lambda: self._command("p"))
+
+    async def _switch(self, on: bool, transition: int | None) -> None:
+        await self._command("on" if on else "off")
+
+    async def _command(self, command: str) -> None:
         self._check_reachable()
         try:
             await self._send(command)

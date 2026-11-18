@@ -226,10 +226,10 @@ class PlugCommandTest(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(zigbee_plug, "find_cluster", return_value=object()),
             mock.patch.object(plug, "_command", command),
         ):
-            await plug.set("on", True)
-            await plug.set("on", False)
+            await plug._switch(True, None)
+            await plug._switch(False, None)
         self.assertEqual(sent, ["on", "off"])
-        self.assertIs(plug._values["on"], False)
+        self.assertIs(plug.on, False)
 
 
 class SensorTest(unittest.IsolatedAsyncioTestCase):

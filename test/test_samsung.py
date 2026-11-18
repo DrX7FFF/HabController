@@ -37,8 +37,8 @@ class SamsungTVTest(unittest.IsolatedAsyncioTestCase):
         await until(lambda: tv.on)
         self.assertEqual(tv.state(), {"connected": True, "on": True})
         with self.assertRaises(ValueError):
-            await tv.set("on", True)  # impossible par le réseau
-        await tv.set("on", False)
+            await tv._switch(True, None)  # impossible par le réseau
+        await tv._switch(False, None)
         await until(lambda: key_packet("KEY_POWEROFF") in received)
         self.assertTrue(received.startswith(auth_packet()))
         server.close()

@@ -5,7 +5,7 @@ import base64
 import logging
 import socket
 
-from core.base import Attribute, DeviceError, EventBool, EventSource, NetworkDevice, on_value
+from core.base import DeviceError, NetworkDevice, Switchable, known
 
 log = logging.getLogger(__name__)
 
@@ -41,12 +41,11 @@ async def read_response(reader: asyncio.StreamReader) -> bytes:
     return await reader.readexactly(size)
 
 
-class SamsungTV(NetworkDevice):
-    """TV Samsung legacy : connexion permanente, allumée tant qu'elle répond."""
+class SamsungTV(Switchable, NetworkDevice):
+    """TV Samsung legacy : connexion permanente, allumée tant qu'elle répond (`on` suit la
+    connexion, False quand elle ne répond pas). Ne peut être qu'éteinte par le réseau."""
 
     WIDGET = "onoff"
-    on = Attribute[bool]()  # écriture : False seulement
-    event_on = EventSource[EventBool]()
 
     def __init__(self, host: str, port: int = 55000, retry: float = 30):
         super().__init__()
@@ -54,6 +53,7 @@ class SamsungTV(NetworkDevice):
         self._port = port
         self._retry = retry
         self._writer: asyncio.StreamWriter | None = None
+        SamsungTV.on.update(self, False)
 
     def physical(self) -> str:
         return f"Samsung {self._host}"
@@ -97,23 +97,23 @@ class SamsungTV(NetworkDevice):
         await writer.drain()
         self._writer = writer
         self._set_connected(True, synced=True)
+        SamsungTV.on.update(self, True)
         while True:  # réponses de la TV, jusqu'à la fermeture de la connexion
             response = await read_response(reader)
             if response == ACCESS_DENIED:
                 log.error("%s : « %s » refusé par la TV (réglages de la TV)", self.id, APP)
 
-    def _get_connected_state(self) -> dict:
-        return {"on": True}
+    def state(self) -> dict:
+        return super().state() | known(on=self.on)  # éteinte : on vaut False, pas None
 
-    def _get_disconnected_state(self) -> dict:
-        return {"on": False}
+    def _reset(self) -> None:
+        super()._reset()
+        SamsungTV.on.update(self, False)
 
     # --- commandes ----------------------------------------------------------
 
-    async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
-        if name != "on":
-            raise ValueError(f"{self.id} ne gère pas « {name} »")
-        if on_value(value):
+    async def _switch(self, on: bool, transition: int | None) -> None:
+        if on:
             raise ValueError(f"{self.id} : impossible de l'allumer par le réseau")
         if self._writer is None:
             return  # déjà éteinte

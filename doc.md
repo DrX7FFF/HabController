@@ -90,9 +90,8 @@ async def appui(event: EventAction):             # event.action : nom du correct
   de son état).
 - **Actions** : les attributs se lisent, les méthodes agissent (`salon.switch(True)`). Une
   action ne bloque pas et ne lève rien si l'équipement est injoignable (c'est journalisé) ; les
-  actions d'un même équipement partent dans l'ordre. Équipements pas encore passés aux
-  méthodes (prise, ruban, afficheur, TV) : `switch()` existe, les autres réglages s'écrivent
-  encore `equipement.attribut = valeur`.
+  actions d'un même équipement partent dans l'ordre. Écrire un attribut
+  (`salon.on = True`) est refusé par Python.
 - **Minuteur** : `Timer(délai_s, action)` appelle `action()` (fonction simple ou async) à la
   fin du délai. `start()` (re)lance le décompte depuis zéro, même s'il tourne déjà : un seul
   minuteur, quel que soit le nombre de départs ; `cancel()` l'arrête ; `running` indique s'il
@@ -330,15 +329,15 @@ Valeurs suivies (`reports=`, Zigbee seulement) :
 prise_salon = Plug(ieee="a4:c1:38:d6:d7:c6:db:f6")
 ```
 
-| Attribut       | Type             | Lecture | Commande                    |
-|----------------|------------------|---------|-----------------------------|
-| `on`           | bool             | ✓       | `True`, `False`             |
-| `active_power` | float, W         | ✓       | —                           |
-| `voltage`      | float, V         | ✓       | —                           |
-| `current`      | float, A         | ✓       | —                           |
-| `energy`       | float, kWh cumul | ✓       | —                           |
+| Attribut       | Type             |
+|----------------|------------------|
+| `on`           | bool             |
+| `active_power` | float, W         |
+| `voltage`      | float, V         |
+| `current`      | float, A         |
+| `energy`       | float, kWh cumul |
 
-`toggle()` inverse allumé / éteint.
+Actions : `switch(on)`, `toggle()`.
 
 Les mesures sont envoyées spontanément par la prise, et n'apparaissent que si elles sont
 suivies et que le modèle les fournit (clusters 0x0b04, 0x0702). Une lecture toutes les 5 min
@@ -439,9 +438,11 @@ Ex. UE55ES7000, système Orsay, protocole « legacy ».
 tv = SamsungTV(host="192.168.1.104")   # port=55000, retry=30
 ```
 
-| Attribut | Type | Lecture | Commande                        |
-|----------|------|---------|---------------------------------|
-| `on`     | bool | ✓       | `False` (extinction) seulement |
+| Attribut | Type |
+|----------|------|
+| `on`     | bool |
+
+Action : `switch(False)` (extinction) ; `switch(True)` est refusé (journalisé).
 
 `connected` et `on` reflètent la connexion TCP permanente à la TV : éteinte, elle la coupe
 (sinon le keepalive TCP le détecte) ; une nouvelle tentative a lieu toutes les `retry`
@@ -454,11 +455,11 @@ accepter « HabController » sur l'écran de la TV : elle s'en souvient.
 ruban = WLED(host="192.168.1.120")   # port=80, retry=10
 ```
 
-| Attribut | Type | Lecture | Commande                    |
-|----------|------|---------|-----------------------------|
-| `on`     | bool | ✓       | `True`, `False`             |
+| Attribut | Type |
+|----------|------|
+| `on`     | bool |
 
-`toggle()` inverse allumé / éteint.
+Actions : `switch(on)`, `toggle()`.
 
 Connexion WebSocket permanente (`/ws`) : le WLED envoie son état à chaque changement, même
 venu d'ailleurs (appli, bouton). Coupée, une nouvelle tentative a lieu toutes les `retry`
@@ -470,13 +471,14 @@ secondes.
 matrice = RGBMatrix(host="192.168.1.130")   # port=5000, retry=10, ping=10
 ```
 
-| Attribut  | Type | Lecture | Commande                    |
-|-----------|------|---------|-----------------------------|
-| `on`      | bool | ✓       | `True`, `False`             |
-| `auto`    | bool | ✓       | `True` (lecture), `False` (pause : reste sur l'animation) |
-| `pattern` | str  | ✓       | `"next"`, `"prev"`          |
+| Attribut  | Type | Signification                                  |
+|-----------|------|------------------------------------------------|
+| `on`      | bool | allumé                                         |
+| `auto`    | bool | enchaînement des animations (False : pause)    |
+| `pattern` | str  | animation affichée                             |
 
-`toggle()` inverse allumé / éteint. Éteint : écran noir et animations suspendues, l'ESP32 reste
+Actions : `switch(on)`, `toggle()`, `set_auto(auto)` (False : reste sur l'animation),
+`next_pattern()`, `previous_pattern()`. Éteint : écran noir et animations suspendues, l'ESP32 reste
 joignable. Widget `matrix` : marche/arrêt, nom de l'animation, précédente / pause / suivante.
 
 Connexion TCP permanente (une commande texte par ligne, projet ESP32RGBMatrix) : l'afficheur

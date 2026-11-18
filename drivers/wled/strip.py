@@ -7,19 +7,17 @@ import logging
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import WebSocketException
 
-from core.base import Attribute, DeviceError, EventBool, EventSource, NetworkDevice, on_value
+from core.base import DeviceError, NetworkDevice, Switchable
 
 log = logging.getLogger(__name__)
 
 ERRORS = (OSError, TimeoutError, WebSocketException)
 
 
-class WLED(NetworkDevice):
+class WLED(Switchable, NetworkDevice):
     """Contrôleur WLED : connexion permanente, l'état vient de ses messages."""
 
     WIDGET = "onoff"
-    on = Attribute[bool]()
-    event_on = EventSource[EventBool]()
 
     def __init__(self, host: str, port: int = 80, retry: float = 10):
         super().__init__()
@@ -27,7 +25,6 @@ class WLED(NetworkDevice):
         self._port = port
         self._retry = retry
         self._ws: ClientConnection | None = None
-        self._on: bool | None = None
 
     def physical(self) -> str:
         return f"WLED {self._host}"
@@ -61,30 +58,19 @@ class WLED(NetworkDevice):
         state = json.loads(message).get("state")
         if state is None:
             return  # autre message (ex. réponse "success")
-        self._on = state["on"]
-        self._synced = True
-        self._notify()
-
-    def _get_connected_state(self) -> dict:
-        return {"on": self._on}
+        WLED.on.update(self, state["on"])
+        self._set_connected(True, synced=True)
 
     # --- commandes ----------------------------------------------------------
 
-    def toggle(self) -> None:
-        self._background("toggle", lambda: self.set("on", not self.on))
-
-    async def set(self, name: str, value: bool | str | int, transition: int | None = None) -> None:
-        if name != "on":
-            raise ValueError(f"{self.id} ne gère pas « {name} »")
-        on = on_value(value)
+    async def _switch(self, on: bool, transition: int | None) -> None:
         self._check_reachable()
         assert self._ws is not None  # connecté
         try:
             await self._ws.send(json.dumps({"on": on}))
         except ERRORS as err:
             raise DeviceError(f"{self.id} : {err}") from err
-        self._on = on
-        self._notify()
+        WLED.on.update(self, on)
 
 
 Driver = WLED  # convention : le chargeur cherche ce nom

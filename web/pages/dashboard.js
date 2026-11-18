@@ -74,9 +74,9 @@ function matrix(dev) {
   const play = el("button", { title: "Pause / lecture" });
   const next = el("button", { textContent: "⏭", title: "Suivante" });
   let auto = true;
-  prev.onclick = () => command(dev, "pattern", "prev");
-  next.onclick = () => command(dev, "pattern", "next");
-  play.onclick = () => command(dev, "auto", !auto);
+  prev.onclick = () => call(dev, "previous_pattern");
+  next.onclick = () => call(dev, "next_pattern");
+  play.onclick = () => call(dev, "set_auto", !auto);
   return { el: el("div", { className: "player" }, name, el("div", {}, prev, play, next)),
     set: s => {
       auto = s.auto !== false;
