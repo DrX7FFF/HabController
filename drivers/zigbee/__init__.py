@@ -8,6 +8,7 @@ import asyncio
 import logging
 import shutil
 import sqlite3
+import sys
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from typing import ClassVar
@@ -43,6 +44,7 @@ from zigpy.zcl.foundation import Status
 from core import PAIRING_DIR, TEMP_DIR, settings
 from core.base import DeviceError, NetworkDevice
 from core.firmware import updates
+from drivers.zigbee import quirks
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +58,7 @@ DB_FILE = TEMP_DIR / "zigbee.db"  # base vivante, utilisée par zigpy
 SNAPSHOT = (
     PAIRING_DIR / "zigbee.db"
 )  # copie de sauvegarde de la base, dans la configuration
+QUIRKS_INDEX = PAIRING_DIR / "zigbee-quirks.json"  # correctifs zha-quirks par modèle
 HOME_AUTOMATION = 0x0104  # profil Zigbee des types d'appareil standard
 PROFILES = {  # profils standard : abréviation, types d'appareil de la norme
     HOME_AUTOMATION: ("HA", zha.DeviceType),
@@ -128,19 +131,25 @@ def load_config() -> dict:
     }
 
 
-_quirks_loaded = False
-
-
 async def load_quirks():
-    """Correctifs zha-quirks des appareils non standard, chargés une fois hors de la boucle
-    (environ 2 s sur PC, 25 s sur le serveur) ; renvoie de quoi les appliquer à chaque appareil
-    de la base ou appairé."""
-    global _quirks_loaded
-    if not _quirks_loaded:
-        log.info("Chargement des correctifs zha-quirks")
+    """Correctifs zha-quirks des appareils de la base, d'après l'index de la configuration ;
+    index absent ou d'une autre version : reconstruit à part (environ 25 s sur le serveur).
+    Un appareil appairé depuis profite de ses correctifs à la prochaine ouverture de la clé."""
+    index = quirks.read_index(QUIRKS_INDEX)
+    if index is None:
+        log.info("Construction de l'index des correctifs zha-quirks")
+        QUIRKS_INDEX.parent.mkdir(parents=True, exist_ok=True)
+        build = await asyncio.create_subprocess_exec(
+            sys.executable, "-I", quirks.__file__, str(QUIRKS_INDEX)
+        )
+        await build.wait()
+        index = quirks.read_index(QUIRKS_INDEX)
+    if index is None:
+        log.error("Index des correctifs zha-quirks illisible : chargement de tous les correctifs")
         await asyncio.to_thread(zhaquirks.setup)
-        log.info("Correctifs zha-quirks chargés")
-        _quirks_loaded = True
+    else:
+        modules = await asyncio.to_thread(quirks.load, index, DB_FILE)
+        log.info("Correctifs zha-quirks chargés : %s", ", ".join(modules))
     return DEVICE_REGISTRY.resolve
 
 
