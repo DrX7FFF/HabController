@@ -447,6 +447,8 @@ class Coordinator:
                     err,
                     backoff,
                 )
+            except Exception:  # imprévue : tracée, sans arrêter le Zigbee
+                log.exception("Clé Zigbee : erreur inattendue, nouvel essai dans %s s", backoff)
             finally:
                 self.app = None
                 self._ready.clear()
