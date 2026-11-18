@@ -17,7 +17,7 @@ from pydantic import BaseModel, ValidationError
 from core import CONFIG_DIR, ROOT, TEMP_DIR, datalog, git, pair, push, sync
 from core.automation import check as check_automations
 from core.automation import fire_app, load_automations, unload_automations
-from core.base import DeviceError, cancel_tasks, spawn_task
+from core.base import cancel, spawn_task
 from core.charts import downsample, load_charts
 from core.devices import load_devices, summarize, wait_ready, write_summary
 from core.firmware import updates
@@ -212,7 +212,7 @@ async def stop() -> None:
     if summary:
         summary.cancel()
     await unload_automations()
-    await cancel_tasks()  # commandes et envois du datalog en cours
+    await cancel()  # commandes et envois du datalog en cours
     if history:
         await history.stop()
     results = await asyncio.gather(*(d.stop() for d in devices.values()), return_exceptions=True)
@@ -521,7 +521,7 @@ async def install_firmware(dev_id: str):
 #                   {"type": "live", "on"} pour recevoir ou non les messages datalog
 
 
-async def handle_message(message: dict, queue: asyncio.Queue) -> str | None:
+def handle_message(message: dict, queue: asyncio.Queue) -> str | None:
     """Exécute une commande reçue ; renvoie un message d'erreur, ou None si tout va bien."""
     try:
         if message.get("type") == "live":
@@ -532,7 +532,7 @@ async def handle_message(message: dict, queue: asyncio.Queue) -> str | None:
         apply_call(CallMessage.model_validate(message))
     except ValidationError:
         return "commande invalide"
-    except (LookupError, ValueError, TypeError, DeviceError) as err:
+    except (LookupError, ValueError, TypeError) as err:
         return str(err)
     return None
 
@@ -549,7 +549,7 @@ async def read_loop(ws: WebSocket, queue: asyncio.Queue) -> None:
         except json.JSONDecodeError:
             queue.put_nowait({"type": "error", "detail": "message illisible"})
             continue
-        error = await handle_message(message, queue) if isinstance(message, dict) else "message invalide"
+        error = handle_message(message, queue) if isinstance(message, dict) else "message invalide"
         if error:
             device = message.get("device") if isinstance(message, dict) else None
             queue.put_nowait({"type": "error", "device": device, "detail": error})

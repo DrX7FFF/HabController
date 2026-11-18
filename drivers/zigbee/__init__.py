@@ -48,16 +48,9 @@ from drivers.zigbee import quirks
 
 log = logging.getLogger(__name__)
 
-ERRORS = (
-    ZigbeeException,
-    RadioException,
-    AshException,
-    OSError,
-)  # protocole ou liaison série
+ERRORS = (ZigbeeException, RadioException, AshException, OSError)  # protocole ou liaison série
 DB_FILE = TEMP_DIR / "zigbee.db"  # base vivante, utilisée par zigpy
-SNAPSHOT = (
-    PAIRING_DIR / "zigbee.db"
-)  # copie de sauvegarde de la base, dans la configuration
+SNAPSHOT = PAIRING_DIR / "zigbee.db"  # copie de sauvegarde de la base, dans la configuration
 QUIRKS_INDEX = PAIRING_DIR / "zigbee-quirks.json"  # correctifs zha-quirks par modèle
 HOME_AUTOMATION = 0x0104  # profil Zigbee des types d'appareil standard
 PROFILES = {  # profils standard : abréviation, types d'appareil de la norme
@@ -246,9 +239,7 @@ def describe(device) -> list[str]:
         if ep_id == 0:  # endpoint ZDO : présent partout, sans intérêt ici
             continue
         clusters_in = ", ".join(f"0x{cid:04x}" for cid in sorted(endpoint.in_clusters))
-        clusters_out = ", ".join(
-            f"0x{cid:04x}" for cid in sorted(endpoint.out_clusters)
-        )
+        clusters_out = ", ".join(f"0x{cid:04x}" for cid in sorted(endpoint.out_clusters))
         lines.append(
             f"Endpoint {ep_id} (profil 0x{endpoint.profile_id:04x}, type"
             f" 0x{endpoint.device_type:04x}) : entrée [{clusters_in}]  sortie [{clusters_out}]"
@@ -272,9 +263,7 @@ def find_cluster(zdev, cluster_id: int, output: bool = False):
 async def read(cluster, names: list[str]) -> dict:
     """Lit des attributs ; ceux que l'équipement ne gère pas sont absents du résultat."""
     success, _failure = await cluster.read_attributes(names)
-    return {
-        name: value for name, value in success.items() if not isinstance(value, Status)
-    }
+    return {name: value for name, value in success.items() if not isinstance(value, Status)}
 
 
 def tracked(defaults: Mapping, reports: Mapping | None) -> dict:
@@ -308,12 +297,7 @@ async def setup_reporting(
             }
         )
     except ERRORS as err:
-        log.warning(
-            "%s : reporting non configuré sur 0x%04x (%s)",
-            name,
-            cluster.cluster_id,
-            err,
-        )
+        log.warning("%s : reporting non configuré sur 0x%04x (%s)", name, cluster.cluster_id, err)
         return
     for attr, status in result.items():
         if status != Status.SUCCESS:
@@ -331,9 +315,7 @@ class Coordinator:
         self.app: ZigpyApplication | None = None
         self._devices: dict[EUI64, "ZigbeeDevice"] = {}
         self._sessions = 0  # appairages qui empruntent la clé
-        self.paired: set[EUI64] = (
-            set()
-        )  # appairés depuis le démarrage, déclarés au prochain
+        self.paired: set[EUI64] = set()  # appairés depuis le démarrage, déclarés au prochain
         self._task: asyncio.Task | None = None
         self._lost: asyncio.Event | None = None
         self._ready = asyncio.Event()  # clé ouverte
@@ -341,12 +323,7 @@ class Coordinator:
     def register(self, device: "ZigbeeDevice") -> None:
         other = self._devices.setdefault(device.ieee, device)
         if other is not device:
-            log.error(
-                "%s : IEEE %s déjà utilisée par %s, ignoré",
-                device.id,
-                device.ieee,
-                other.id,
-            )
+            log.error("%s : IEEE %s déjà utilisée par %s, ignoré", device.id, device.ieee, other.id)
             return
         if self._task is None:
             self._launch()
@@ -381,9 +358,7 @@ class Coordinator:
                 try:
                     await app.remove(zdev.ieee)
                 except ERRORS as err:
-                    log.warning(
-                        "Zigbee : retrait de %s impossible (%s)", label(zdev), err
-                    )
+                    log.warning("Zigbee : retrait de %s impossible (%s)", label(zdev), err)
                     continue
                 log.info("Zigbee : %s retiré du réseau", label(zdev))
                 removed.append(label(zdev))
@@ -399,11 +374,7 @@ class Coordinator:
             if self._task is None or self._task.done():
                 self._launch()
             ready = asyncio.ensure_future(self._ready.wait())
-            await asyncio.wait(
-                {ready, self._task},
-                timeout=READY_WAIT,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+            await asyncio.wait({ready, self._task}, timeout=READY_WAIT, return_when=asyncio.FIRST_COMPLETED)
             ready.cancel()
             if self.app is None:
                 raise RadioException("clé Zigbee inaccessible, voir le journal")
@@ -441,12 +412,8 @@ class Coordinator:
                 log.error("Clé Zigbee : %s", err)
                 return
             except ERRORS as err:
-                log.warning(
-                    "Clé Zigbee inaccessible (%s : %s), nouvel essai dans %s s",
-                    type(err).__name__,
-                    err,
-                    backoff,
-                )
+                log.warning("Clé Zigbee inaccessible (%s : %s), nouvel essai dans %s s",
+                            type(err).__name__, err, backoff)
             except Exception:  # imprévue : tracée, sans arrêter le Zigbee
                 log.exception("Clé Zigbee : erreur inattendue, nouvel essai dans %s s", backoff)
             finally:
@@ -637,19 +604,12 @@ class ZigbeeDevice(NetworkDevice):
             if endpoint_id == 0:
                 continue
             # clusters de sortie aussi : certains capteurs y rapportent (ex. porte Xiaomi, 0x0006)
-            for cluster in (
-                *endpoint.in_clusters.values(),
-                *endpoint.out_clusters.values(),
-            ):
+            for cluster in (*endpoint.in_clusters.values(), *endpoint.out_clusters.values()):
                 # rapport spontané de l'équipement (attribute_report), ou valeur corrigée par
                 # un quirk (attribute_updated) : zigpy n'émet qu'un des deux par valeur reçue
                 for event in (AttributeReportedEvent, AttributeUpdatedEvent):
-                    self._unsubscribe.append(
-                        cluster.on_event(event.event_type, self._on_event)
-                    )
-                self._unsubscribe.append(
-                    cluster.on_event(OtaImageAvailableEvent.event_type, self._on_ota)
-                )
+                    self._unsubscribe.append(cluster.on_event(event.event_type, self._on_event))
+                self._unsubscribe.append(cluster.on_event(OtaImageAvailableEvent.event_type, self._on_ota))
         if self.poll:
             self._spawn(self._poll_loop(zdev))
 
@@ -696,9 +656,7 @@ class ZigbeeDevice(NetworkDevice):
     # --- événements de zigpy ------------------------------------------------
 
     def _on_event(self, event: AttributeReportedEvent | AttributeUpdatedEvent) -> None:
-        if (
-            event.attribute_name is None
-        ):  # attribut propre au fabricant, inconnu de zigpy
+        if event.attribute_name is None:  # attribut propre au fabricant, inconnu de zigpy
             return
         self._received()
         self._on_attribute(event.cluster_id, event.attribute_name, event.value)

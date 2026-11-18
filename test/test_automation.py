@@ -67,11 +67,11 @@ class FakeBulb(Switchable):
 class AutomationTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await automation.unload_automations()
-        await base.cancel_tasks()
+        await base.cancel()
 
     async def idle(self):
         # Les tâches peuvent en lancer d'autres (commandes). Seulement celles en cours : voir
-        # base.cancel_tasks(), une tâche finie peut rester dans tasks.
+        # base.cancel(), une tâche finie peut rester dans tasks.
         while tasks := [task for task in base.tasks if not task.done()]:
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -115,7 +115,7 @@ class DeviceTest(AutomationTestCase):
         await asyncio.sleep(0)  # la tâche est finie, son rappel _done pas encore passé
         self.assertTrue(all(task.done() for task in base.tasks))
         self.assertTrue(base.tasks)
-        await base.cancel_tasks()  # ne doit pas tourner à vide
+        await base.cancel()  # ne doit pas tourner à vide
 
 
 class AttributeTest(AutomationTestCase):
@@ -273,7 +273,7 @@ class LoadTest(AutomationTestCase):
             ):
                 automation.load_automations()
         self.assertEqual(
-            [func.__module__ for func in bulb._evt_listeners["bright"]],
+            [func.__module__ for device, _, func in base.listeners() if device is bulb],
             ["automations.a", "automations.c"],
         )
         self.assertIn("b.py : fichier ignoré", logs.output[0])
@@ -586,7 +586,7 @@ class EventTest(AutomationTestCase):
         bulb.update(on=True)
         await self.idle()
         self.assertEqual(seen, [])
-        self.assertEqual(bulb._evt_listeners, {"on": []})
+        self.assertEqual(base.listeners(), [])
 
     async def test_unreachable_device_never_stops_the_script(self):
         fp = FakeBulb("fp2")

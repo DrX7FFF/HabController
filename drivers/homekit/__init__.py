@@ -13,12 +13,7 @@ from aiohomekit.exceptions import HomeKitException, HttpException
 from aiohomekit.model.characteristics import CharacteristicsTypes as Chars
 from aiohomekit.model.services import ServicesTypes
 from aiohomekit.uuid import normalize_uuid
-from aiohomekit.zeroconf import (
-    HAP_TYPE_TCP,
-    HAP_TYPE_UDP,
-    HomeKitService,
-    ZeroconfServiceListener,
-)
+from aiohomekit.zeroconf import HAP_TYPE_TCP, HAP_TYPE_UDP, HomeKitService, ZeroconfServiceListener
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncZeroconf
 
 from core import PAIRING_DIR as CONFIG_PAIRING_DIR
@@ -54,9 +49,7 @@ def read_pairing_file(dev_id: str) -> dict:
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as err:
-        raise PairingError(
-            f"appairage absent ({path}) : l'appairer"
-        ) from err
+        raise PairingError(f"appairage absent ({path}) : l'appairer") from err
     except tomllib.TOMLDecodeError as err:
         raise PairingError(f"fichier d'appairage illisible ({path})") from err
     if not isinstance(data.get("hap"), dict) or "AccessoryPairingID" not in data["hap"]:
@@ -69,45 +62,32 @@ def load_pairing(dev_id: str) -> dict:
     return read_pairing_file(dev_id)["hap"]
 
 
-def paired_ids(accessory_id: str) -> list[str]:
-    """Équipements logiques déjà rattachés à cet accessoire (identifiant HomeKit, ex. A8:01:…)."""
-    found = []
-    for path in sorted(PAIRING_DIR.glob("*.toml")):
-        try:
-            if read_pairing_file(path.stem)["hap"]["AccessoryPairingID"].lower() == accessory_id:
-                found.append(path.stem)
-        except (PairingError, ValueError):
-            continue
-    return found
-
-
-def links() -> dict[str, str]:
-    """Accessoires appairés : {id: description}, d'après pairing/homekit/."""
+def pairings() -> dict[str, dict]:
+    """Fichiers d'appairage lisibles de pairing/homekit/ : {id: contenu}."""
     found = {}
     for path in sorted(PAIRING_DIR.glob("*.toml")):
         try:
-            data = read_pairing_file(path.stem)
+            found[path.stem] = read_pairing_file(path.stem)
         except (PairingError, ValueError):
             continue
-        found[path.stem] = (
-            f"HomeKit {data['hap']['AccessoryPairingID']}"
-            f" ({data.get('manufacturer', '?')} {data.get('model', '?')})"
-        )
     return found
 
+
+def paired_ids(accessory_id: str) -> list[str]:
+    """Équipements logiques déjà rattachés à cet accessoire (identifiant HomeKit, ex. A8:01:…)."""
+    return [i for i, d in pairings().items() if d["hap"]["AccessoryPairingID"].lower() == accessory_id]
+
+
+def links() -> dict[str, str]:
+    """Accessoires appairés : {id: description}."""
+    return {i: f"HomeKit {d['hap']['AccessoryPairingID']} ({d.get('manufacturer', '?')} {d.get('model', '?')})"
+            for i, d in pairings().items()}
 
 
 def link_models() -> dict[str, tuple[list[str], str]]:
     """Accessoires appairés : {id: (clés de models.toml, commentaire de déclaration)}."""
-    found = {}
-    for path in sorted(PAIRING_DIR.glob("*.toml")):
-        try:
-            data = read_pairing_file(path.stem)
-        except (PairingError, ValueError):
-            continue
-        model = data.get("model", "")
-        found[path.stem] = ([model], f"HomeKit : {data.get('name', '?')}, modèle {model or '?'}")
-    return found
+    return {i: ([d.get("model", "")], f"HomeKit : {d.get('name', '?')}, modèle {d.get('model') or '?'}")
+            for i, d in pairings().items()}
 
 
 def save_pairing(dev_id: str, keys: dict, info: dict | None = None) -> Path:
@@ -143,9 +123,7 @@ async def accessory_info(pairing) -> dict:
         if accessory.get("aid") != 1:  # l'accessoire principal (les autres : passerelle)
             continue
         for service in accessory.get("services", []):
-            if normalize_uuid(str(service.get("type", ""))) != normalize_uuid(
-                ServicesTypes.ACCESSORY_INFORMATION
-            ):
+            if normalize_uuid(str(service.get("type", ""))) != normalize_uuid(ServicesTypes.ACCESSORY_INFORMATION):
                 continue
             for char in service.get("characteristics", []):
                 field = INFO_CHARS.get(normalize_uuid(str(char.get("type", ""))))
@@ -182,9 +160,7 @@ async def pair_accessory(discovery, dev_id: str, pin: str) -> Path:
     finish = await discovery.async_start_pairing(dev_id)
     pairing = await finish(pin)
     try:
-        keys = {
-            key: value for key, value in pairing.pairing_data.items() if key not in ENDPOINT_KEYS
-        }
+        keys = {key: value for key, value in pairing.pairing_data.items() if key not in ENDPOINT_KEYS}
         save_pairing(dev_id, keys)  # d'abord les clés : l'appairage ne doit pas se perdre
         try:
             info = await accessory_info(pairing)

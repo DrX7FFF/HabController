@@ -10,6 +10,7 @@ from core.base import (
     EventBool,
     EventSource,
     EventStr,
+    IPDevice,
     NetworkDevice,
     State,
     Switchable,
@@ -18,28 +19,22 @@ from core.base import (
 log = logging.getLogger(__name__)
 
 
-class RGBMatrix(Switchable, NetworkDevice):
+class RGBMatrix(Switchable, IPDevice, NetworkDevice):
     """Afficheur HUB75 : connexion permanente, l'état vient de ses messages."""
 
     WIDGET = "matrix"
+    BRAND = "RGBMatrix"
     auto = State[bool]()  # enchaînement automatique des animations (False : pause)
     pattern = State[str]()  # animation affichée
     event_auto = EventSource[EventBool]()
     event_pattern = EventSource[EventStr]()
 
     def __init__(self, host: str, port: int = 5000, retry: float = 10, ping: float = 10):
-        super().__init__()
-        self._host = host
-        self._port = port
+        super().__init__(host, port)
         self._retry = retry
         self._ping = ping
         self._writer: asyncio.StreamWriter | None = None
 
-    def physical(self) -> str:
-        return f"RGBMatrix {self._host}"
-
-    def details(self) -> dict:
-        return {"host": self._host}
 
     async def start(self) -> None:
         self._spawn(self._run())

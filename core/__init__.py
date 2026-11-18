@@ -17,16 +17,20 @@ if str(CONFIG_DIR) not in sys.path:
     sys.path.insert(1, str(CONFIG_DIR))
 
 
-def settings(section: str) -> dict:
-    """Une section de habctrl.toml ({} si absente, ou fichier illisible : erreur au journal)."""
+def read_toml(path: Path) -> dict:
+    """Contenu d'un fichier TOML : {} s'il est absent, ou illisible (erreur au journal)."""
     try:
-        conf = tomllib.loads((CONFIG_DIR / "habctrl.toml").read_text(encoding="utf-8"))
+        return tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {}
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as err:
-        logging.getLogger(__name__).error("habctrl.toml illisible, [%s] ignoré : %s", section, err)
+        logging.getLogger(__name__).error("%s illisible, ignoré : %s", path.name, err)
         return {}
-    section_conf = conf.get(section, {})
+
+
+def settings(section: str) -> dict:
+    """Une section de habctrl.toml ({} si absente)."""
+    section_conf = read_toml(CONFIG_DIR / "habctrl.toml").get(section, {})
     if not isinstance(section_conf, dict):
         logging.getLogger(__name__).error("habctrl.toml : [%s] n'est pas une section", section)
         return {}

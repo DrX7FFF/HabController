@@ -9,14 +9,7 @@ from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
 
 from core.base import EventFloat, EventSource, EventZone, NetworkDevice, State
-from drivers.homekit import (
-    ERRORS,
-    PairingError,
-    connect,
-    links,
-    open_session,
-    read_pairing_file,
-)
+from drivers.homekit import ERRORS, PairingError, connect, links, open_session, read_pairing_file
 
 log = logging.getLogger(__name__)
 

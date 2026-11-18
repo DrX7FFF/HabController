@@ -11,6 +11,14 @@ from core.base import Capability, EventInt, EventSource, EventStr, State, Switch
 log = logging.getLogger(__name__)
 
 
+def rgb_bytes(rgb: str) -> tuple[int, int, int]:
+    """« #rrggbb » en (rouge, vert, bleu) ; ValueError si le format est faux."""
+    text = str(rgb).lstrip("#")
+    if len(text) != 6:
+        raise ValueError("rgb attend une couleur au format #rrggbb")
+    return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
+
+
 class Light(Switchable):
     WIDGET = "light"
     brightness = State[int]()  # 1 à 100

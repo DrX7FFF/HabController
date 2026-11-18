@@ -5,30 +5,25 @@ from datetime import datetime
 
 from miio import DeviceException, RoborockVacuum
 
-from core.base import Device, DeviceError, State, spawn_task
+from core.base import DeviceError, IPDevice, State, spawn_task
 from core.datalog import device_path, record
 
 HISTORY_PERIOD = 3600  # s, le robot garde ses 20 derniers nettoyages
 
 
-class Roborock(Device):
+class Roborock(IPDevice):
     """Robot aspirateur : le dernier nettoyage est gardé, le reste interroge le robot."""
 
     WIDGET = "vacuum"
+    BRAND = "Roborock"
     last_clean = State[dict]()  # début, surface, durée, terminé ; lu par refresh()
 
     def __init__(self, host: str, token: str):
-        super().__init__()
-        self._host = host
+        super().__init__(host)
         self._vacuum = RoborockVacuum(host, token, model="roborock.vacuum.s5e")
         self._logged: set[tuple[datetime, datetime]] = set()  # plages déjà envoyées au datalog
         self._history_task: asyncio.Task | None = None
 
-    def physical(self) -> str:
-        return f"Roborock {self._host}"
-
-    def details(self) -> dict:
-        return {"host": self._host}
 
     async def start(self) -> None:
         self.refresh()

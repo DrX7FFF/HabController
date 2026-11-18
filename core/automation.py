@@ -23,6 +23,7 @@ from core.base import (
     EventInt,
     EventStr,
     EventZone,
+    cancel,
     clear_listeners,
     listeners,
     remove_listeners,
@@ -91,13 +92,6 @@ def _kept_names(module) -> list[str]:
     return [name for name, ann in annotations.items() if ann in (KeepOnReload, "KeepOnReload")]
 
 
-def _spawn_task(coro, name: str) -> asyncio.Task:
-    task = spawn_task(coro, name)
-    _running.add(task)
-    task.add_done_callback(_running.discard)
-    return task
-
-
 class Timer:
     """Minuteur réarmable : start() (re)lance le décompte, cancel() l'arrête. À l'échéance,
     action() est appelée (fonction simple ou async). Annulé au rechargement, comme les
@@ -115,7 +109,7 @@ class Timer:
 
     def start(self) -> None:
         self.cancel()
-        self._task = _spawn_task(self._wait(), self.name)
+        self._task = spawn_task(self._wait(), self.name, _running)
 
     def cancel(self) -> None:
         if self._task:
@@ -180,7 +174,4 @@ async def unload_automations() -> None:
         funcs.clear()
     push.forget()  # questions en attente : leurs actions seraient celles des anciens scripts
     await clear_listeners()
-    while running := [task for task in _running if not task.done()]:  # voir base.cancel_tasks
-        for task in running:
-            task.cancel()
-        await asyncio.gather(*running, return_exceptions=True)
+    await cancel(_running)

@@ -7,30 +7,24 @@ import logging
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import WebSocketException
 
-from core.base import DeviceError, NetworkDevice, Switchable
+from core.base import DeviceError, IPDevice, NetworkDevice, Switchable
 
 log = logging.getLogger(__name__)
 
 ERRORS = (OSError, TimeoutError, WebSocketException)
 
 
-class WLED(Switchable, NetworkDevice):
+class WLED(Switchable, IPDevice, NetworkDevice):
     """Contrôleur WLED : connexion permanente, l'état vient de ses messages."""
 
     WIDGET = "onoff"
+    BRAND = "WLED"
 
     def __init__(self, host: str, port: int = 80, retry: float = 10):
-        super().__init__()
-        self._host = host
-        self._port = port
+        super().__init__(host, port)
         self._retry = retry
         self._ws: ClientConnection | None = None
 
-    def physical(self) -> str:
-        return f"WLED {self._host}"
-
-    def details(self) -> dict:
-        return {"host": self._host}
 
     async def start(self) -> None:
         self._spawn(self._run())

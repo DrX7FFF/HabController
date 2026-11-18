@@ -55,7 +55,7 @@ class LoadChartsTest(unittest.TestCase):
                 self.assertEqual([c["title"] for c in charts], ["ok"])
 
     def test_unreadable_file(self):
-        with self.assertLogs("core.charts", "ERROR"):
+        with self.assertLogs("core", "ERROR"):
             self.assertEqual(charts_from("[[charts]\n"), [])
 
 

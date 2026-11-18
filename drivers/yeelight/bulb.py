@@ -4,8 +4,8 @@ import logging
 from yeelight import BulbException, Flow, RGBTransition, SceneClass, TemperatureTransition
 from yeelight.aio import KEY_CONNECTED, AsyncBulb
 
-from core.base import DeviceError, NetworkDevice
-from core.light import Light
+from core.base import DeviceError, IPDevice, NetworkDevice
+from core.light import Light, rgb_bytes
 
 log = logging.getLogger(__name__)
 
@@ -14,15 +14,10 @@ PROPERTIES = ["power", "bright", "ct", "rgb"]
 RETRY_DELAY = 10  # s, entre deux tentatives de première connexion
 
 
-def _rgb(value: str) -> tuple[int, int, int]:
-    text = str(value).lstrip("#")
-    if len(text) != 6:
-        raise ValueError("rgb attend une couleur au format #rrggbb")
-    return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
-
-
-class YeelightBulb(Light, NetworkDevice):
+class YeelightBulb(Light, IPDevice, NetworkDevice):
     """Ampoule Yeelight : une connexion permanente, l'état vient des notifications."""
+
+    BRAND = "Yeelight"
 
     def __init__(
         self,
@@ -30,20 +25,13 @@ class YeelightBulb(Light, NetworkDevice):
         port: int = 55443,
         transition: int = 300,
     ):
-        super().__init__()
+        super().__init__(host, port)
         self.transition = transition  # durée par défaut des transitions (ms)
-        self._host = host
-        self._port = port
         self._bulb: AsyncBulb | None = None
         Light.rgb_capable.update(self, True)
 
     # --- cycle de vie -------------------------------------------------------
 
-    def physical(self) -> str:
-        return f"Yeelight {self._host}"
-
-    def details(self) -> dict:
-        return {"host": self._host}
 
     async def start(self) -> None:
         # AsyncBulb a besoin de la boucle d'événements en cours : création ici, pas dans __init__.
@@ -130,7 +118,7 @@ class YeelightBulb(Light, NetworkDevice):
         Light.color_temp.update(self, int(color_temp))
 
     async def _set_rgb(self, rgb: str, brightness: int | None, transition: int | None) -> None:
-        red, green, blue = _rgb(rgb)
+        red, green, blue = rgb_bytes(rgb)
         if brightness is None:
             await self._power_on(transition)
             await self._send(self._bulb.async_set_rgb(red, green, blue, **self._effect(transition)))

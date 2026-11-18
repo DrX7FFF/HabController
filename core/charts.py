@@ -1,10 +1,9 @@
 """Lecture des graphiques de Config/dashboard/charts.toml."""
 
 import logging
-import tomllib
 from pathlib import Path
 
-from core import CONFIG_DIR
+from core import CONFIG_DIR, read_toml
 
 log = logging.getLogger(__name__)
 
@@ -36,17 +35,9 @@ def downsample(points: list[list], max_points: int = MAX_POINTS) -> list[list]:
 
 
 def load_charts(path: Path = CHARTS) -> list[dict]:
-    """Graphiques ; graphique incorrect : ignoré, erreur au journal. Fichier absent : aucun
-    graphique ; illisible : aucun graphique, erreur au journal."""
-    try:
-        conf = tomllib.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return []
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as err:
-        log.error("%s illisible, aucun graphique : %s", path.name, err)
-        return []
+    """Graphiques ; graphique incorrect : ignoré, erreur au journal."""
     charts = []
-    for chart in conf.get("charts", []):
+    for chart in read_toml(path).get("charts", []):
         try:
             charts.append(read_chart(chart))
         except (ValueError, TypeError, AttributeError) as err:

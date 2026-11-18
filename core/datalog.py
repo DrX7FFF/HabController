@@ -3,8 +3,6 @@
 import asyncio
 import logging
 import re
-import time
-import tomllib
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -13,8 +11,8 @@ import aiohttp
 from google.auth.transport.requests import Request
 from google.oauth2.service_account import Credentials
 
-from core import CONFIG_DIR, settings
-from core.base import Device, spawn_task
+from core import CONFIG_DIR, read_toml, settings
+from core.base import Device, now_ms, spawn_task
 
 log = logging.getLogger(__name__)
 __all__ = ["record"]
@@ -29,10 +27,6 @@ CONFIG_FILE = CONFIG_DIR / "datalog.toml"  # rechargeable seul, sans toucher aux
 TIMEOUT = aiohttp.ClientTimeout(total=10)
 # créé par systemd-timesyncd à la première synchronisation NTP réussie depuis le démarrage
 SYNC_FILE = Path("/run/systemd/timesync/synchronized")
-
-
-def now_ms() -> int:
-    return time.time_ns() // 1_000_000
 
 
 # [global] timesyncctrl de habctrl.toml : "ignored" (par défaut) ou "timesyncfile" (rien
@@ -160,14 +154,10 @@ class Datalog:
         self._listeners.append(callback)
 
     def send(self, data: dict) -> None:
-        points = [[*key.rsplit("/", 1), value] for key, value in data.items()]
-        for point in points:
-            point[1] = int(point[1])
+        points = [[k.rpartition("/")[0], int(k.rpartition("/")[2]), v] for k, v in data.items()]
         for callback in self._listeners:
             callback(points)
-        task = spawn_task(self._patch(data), "datalog")
-        self._sends.add(task)
-        task.add_done_callback(self._sends.discard)
+        spawn_task(self._patch(data), "datalog", self._sends)
 
     # --- Firebase -----------------------------------------------------------
 
@@ -206,11 +196,9 @@ class Datalog:
         """Points [ms, valeur] de path entre start et end (ms), triés. Le premier donne l'état
         au début de la période : la dernière valeur d'avant, ramenée à start."""
         path = path.strip("/")
-        inside = await self._request(
-            "GET", path, params={"orderBy": '"$key"', "startAt": f'"{start}"', "endAt": f'"{end}"'}
-        )
-        before = await self._request(
-            "GET", path, params={"orderBy": '"$key"', "endAt": f'"{start - 1}"', "limitToLast": "1"}
+        inside, before = await asyncio.gather(
+            self._request("GET", path, params={"orderBy": '"$key"', "startAt": f'"{start}"', "endAt": f'"{end}"'}),
+            self._request("GET", path, params={"orderBy": '"$key"', "endAt": f'"{start - 1}"', "limitToLast": "1"}),
         )
         points = sorted([int(key), value] for key, value in (inside or {}).items())
         if before and (not points or points[0][0] > start):
@@ -253,19 +241,11 @@ def describe(err: Exception) -> str:
 _datalog: Datalog | None = None
 
 
-def read_config() -> dict:
-    """datalog.toml ({} si absent)."""
-    try:
-        return tomllib.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {}
-
-
 def setup(devices: dict[str, Device]) -> Datalog | None:
     """Lit datalog.toml et s'abonne aux équipements ; None si non configuré."""
     global _datalog
     _datalog = None  # réglages incorrects : pas d'historique plutôt que l'ancien
-    conf = read_config()
+    conf = read_toml(CONFIG_FILE)
     _datalog = Datalog(conf, devices) if conf.get("url") else None
     return _datalog
 

@@ -35,7 +35,7 @@ class LoadBlocksTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "screens.toml"
             path.write_text("[[blocks]\n", encoding="utf-8")
-            with self.assertLogs("core.widgets", "ERROR"):
+            with self.assertLogs("core", "ERROR"):
                 self.assertEqual(load_blocks({}, path), [])
             path.write_text("[[blocks]]\ntitle = \"Salon\"\n", encoding="utf-8")
             with self.assertLogs("core.widgets", "ERROR"):

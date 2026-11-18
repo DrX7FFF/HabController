@@ -52,10 +52,7 @@ def _gamma(c: float) -> float:
 
 def rgb_to_xy(rgb: str) -> tuple[float, float]:
     """« #rrggbb » (sRGB) en coordonnées CIE xy."""
-    text = str(rgb).lstrip("#")
-    if len(text) != 6:
-        raise ValueError("rgb attend une couleur au format #rrggbb")
-    r, g, b = (_linear(int(text[i : i + 2], 16) / 255) for i in (0, 2, 4))
+    r, g, b = (_linear(c / 255) for c in core.light.rgb_bytes(rgb))
     x = r * 0.4124 + g * 0.3576 + b * 0.1805
     y = r * 0.2126 + g * 0.7152 + b * 0.0722
     z = r * 0.0193 + g * 0.1192 + b * 0.9505

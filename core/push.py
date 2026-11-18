@@ -59,7 +59,7 @@ class Push:
         self.questions: dict[str, Question] = {}
         self._session: aiohttp.ClientSession | None = None
         self._listen_task: asyncio.Task | None = None
-        self._sends: set[asyncio.Task] = set()  # hors de cancel_tasks : un retrait part même au rechargement
+        self._sends: set[asyncio.Task] = set()  # hors de base.tasks : un retrait part même au rechargement
 
     async def start(self) -> None:
         self._session = aiohttp.ClientSession(timeout=TIMEOUT)

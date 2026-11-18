@@ -5,7 +5,7 @@ import base64
 import logging
 import socket
 
-from core.base import DeviceError, NetworkDevice, Switchable
+from core.base import DeviceError, IPDevice, NetworkDevice, Switchable
 
 log = logging.getLogger(__name__)
 
@@ -41,25 +41,19 @@ async def read_response(reader: asyncio.StreamReader) -> bytes:
     return await reader.readexactly(size)
 
 
-class SamsungTV(Switchable, NetworkDevice):
+class SamsungTV(Switchable, IPDevice, NetworkDevice):
     """TV Samsung legacy : connexion permanente, allumée tant qu'elle répond (`on` suit la
     connexion, False quand elle ne répond pas). Ne peut être qu'éteinte par le réseau."""
 
     WIDGET = "onoff"
+    BRAND = "Samsung"
 
     def __init__(self, host: str, port: int = 55000, retry: float = 30):
-        super().__init__()
-        self._host = host
-        self._port = port
+        super().__init__(host, port)
         self._retry = retry
         self._writer: asyncio.StreamWriter | None = None
         SamsungTV.on.update(self, False)
 
-    def physical(self) -> str:
-        return f"Samsung {self._host}"
-
-    def details(self) -> dict:
-        return {"host": self._host}
 
     async def start(self) -> None:
         self._spawn(self._run())

@@ -102,10 +102,9 @@ async def head(repo: Path) -> str:
     return await git(repo, "rev-parse", "HEAD")
 
 
-async def behind(repo: Path, fetch: bool = True) -> int:
+async def behind(repo: Path) -> int:
     """Commits de la branche distante suivie pas encore tirés (après un fetch)."""
-    if fetch:
-        await git(repo, "fetch", "--quiet")
+    await git(repo, "fetch", "--quiet")
     return await _count(repo, "HEAD..@{u}")
 
 

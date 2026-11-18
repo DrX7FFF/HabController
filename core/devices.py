@@ -4,14 +4,13 @@ import keyword
 import logging
 import pkgutil
 import re
-import tomllib
 import unicodedata
 from pathlib import Path
 from types import ModuleType
 
 import drivers
 
-from core import CONFIG_DIR
+from core import CONFIG_DIR, read_toml
 from core.base import Device
 
 log = logging.getLogger(__name__)
@@ -187,10 +186,7 @@ def driver_for_model(models: list[str], path: Path) -> str:
 
     `models` : clés de la plus précise à la plus générale.
     """
-    try:
-        table = tomllib.loads(path.read_text(encoding="utf-8")).get("models", {})
-    except FileNotFoundError:
-        return ""
+    table = read_toml(path).get("models", {})
     for model in models:
         driver = table.get(model, "")
         if not driver:

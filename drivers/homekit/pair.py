@@ -24,9 +24,7 @@ class Pairing(pair.Pairing):
         for discovery in discoveries:
             desc = discovery.description
             if discovery.paired:
-                self.ui.say(
-                    f"{desc.name} : déjà appairé, ignoré (le réinitialiser pour l'appairer)."
-                )
+                self.ui.say(f"{desc.name} : déjà appairé, ignoré (le réinitialiser pour l'appairer).")
                 continue
             candidates.append(
                 pair.Candidate(
