@@ -20,10 +20,10 @@
 - Méthodes = actions sur l'objet : `cuisine.switch(True)`. Sans `await` : la
   commande part en tâche de fond, dans l'ordre, et le script n'attend pas.
 - Paramètre non pris en charge par l'équipement (ex. transition) : ignoré.
-- Équipement injoignable : ses attributs valent `None`. `Device` reçoit la
-  perte de connexion et appelle la remise à zéro ; chaque classe la surcharge
-  pour remettre ses attributs à `None`, puis appelle `super()` (héritage,
-  sans parcours).
+- Une seule déclaration par attribut : `Device` connaît les attributs d'état
+  de la classe et de ses parents ; l'état des pages, les valeurs suivies et la
+  remise à zéro en découlent, rien n'est réécrit dans chaque classe.
+- Équipement injoignable : ses attributs valent `None` (sauf les capacités).
 - Si l'équipement ou son attribut n'existe pas, c'est Python qui le signale.
 
 ## Hiérarchie
@@ -36,9 +36,9 @@
   home, refresh.
 
 ## Capacités
-- Une classe générique par catégorie. Ce qui dépend du modèle est un attribut
-  (`rgb_capable`, `battery_powered`), renseigné par le pilote, à l'appairage
-  si possible.
+- Une classe générique par catégorie. Ce qui dépend du modèle est une capacité
+  (`rgb_capable = Capability[bool]()`, `battery_powered`), renseignée par le
+  pilote, à l'appairage si possible, gardée hors connexion.
 - Une action non prise en charge écrit un avertissement dans le journal, par
   exemple « salon_light ne prend pas en charge RGB ».
 
@@ -50,4 +50,5 @@
 
 ## Générique accepté
 - Détection des fonctions d'événement dans les automatisations.
-- Noms d'attributs dans le paramétrage (datalog.toml).
+- Noms d'attributs dans le paramétrage (datalog.toml, reports).
+- État de surveillance des valeurs (tracked, disabled, absent).

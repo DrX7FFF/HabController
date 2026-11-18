@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
 
-from core.base import EventFloat, EventSource, EventZone, NetworkDevice, State, known
+from core.base import EventFloat, EventSource, EventZone, NetworkDevice, State
 from drivers.homekit import (
     ERRORS,
     PairingError,
@@ -99,6 +99,7 @@ class FP2(NetworkDevice):
         find_timeout: float = FIND_TIMEOUT,
         zonemapping: dict[int, str] | None = None,
     ):
+        self._zones: dict[str, bool] = {}  # présence par zone : nom -> occupée
         super().__init__()
         self._find_timeout = find_timeout
         self._aliases = {
@@ -108,19 +109,12 @@ class FP2(NetworkDevice):
         }
         self._subscribed: set[Key] = set()  # abonnements actifs sur la connexion courante
         self._mapping = Mapping()
-        self._zones: dict[str, bool] = {}  # présence par zone : "zone.<nom>" -> occupée
         self._pairing = None  # défini une fois la première lecture faite
         self._backoff = RETRY_MIN
 
     @property
     def zones(self) -> "Zones":
         return Zones(self)
-
-    def _change(self, key: str, old, new, when: int):
-        prefix, _, zone = key.partition(".")
-        if prefix == "zone":
-            return "zone", EventZone(self, when, zone, old, new)
-        return super()._change(key, old, new, when)
 
     # --- cycle de vie -------------------------------------------------------
 
@@ -187,7 +181,7 @@ class FP2(NetworkDevice):
                 await asyncio.sleep(pairing.poll_interval.total_seconds())
                 async with asyncio.timeout(POLL_TIMEOUT):
                     await self._read(pairing)
-                self._notify()
+                self._seen()
         finally:
             for stop in stops:
                 stop()
@@ -248,19 +242,24 @@ class FP2(NetworkDevice):
             if attr == "illuminance":
                 FP2.illuminance.update(self, value)
             else:
-                self._zones[attr] = bool(value)
+                self._set_zone(attr.removeprefix("zone."), bool(value))
+
+    def _set_zone(self, zone: str, present: bool) -> None:
+        old = self._zones.get(zone)
+        self._zones[zone] = present
+        self._updated(
+            f"zone.{zone}",
+            old,
+            present,
+            lambda when, old, new: self._fire("zone", EventZone(self, when, zone, old, new)),
+        )
 
     def state(self) -> dict:
-        state = super().state()
-        if not state.get("connected"):
-            return state
-        return state | known(illuminance=self.illuminance) | self._zones
-
-    def measures(self) -> dict[str, str]:
-        return {"illuminance": "tracked"} | super().measures()
+        """Plus la présence de chaque zone, « zone.<nom> » (noms du datalog)."""
+        return super().state() | {f"zone.{zone}": present for zone, present in self._zones.items()}
 
     def _reset(self) -> None:
-        FP2.illuminance.update(self, None)
+        self._zones = {}
         super()._reset()
 
     # --- événements de la bibliothèque (appelés dans la boucle asyncio) ------
@@ -268,7 +267,6 @@ class FP2(NetworkDevice):
     def _on_event(self, updates: dict[Key, dict]) -> None:
         if updates:  # un dictionnaire vide signale seulement une reconnexion
             self._apply(updates)
-            self._notify()
 
     def _on_availability(self, available: bool) -> None:
         if available == self._connected:
@@ -302,7 +300,7 @@ class Zones:
         self._device = device
 
     def __getattr__(self, name: str) -> bool | None:
-        return self._device.state().get(f"zone.{name}")
+        return self._device._zones.get(name)
 
     def __getitem__(self, index: int) -> bool | None:
         return self.__getattr__(str(self._device._aliases.get(index, index)))

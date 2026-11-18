@@ -702,7 +702,7 @@ class ZigbeeDevice(NetworkDevice):
             return
         self._received()
         self._on_attribute(event.cluster_id, event.attribute_name, event.value)
-        self._notify()
+        self._seen()
 
     def _on_ota(self, event: OtaImageAvailableEvent) -> None:
         """Recherche de firmware de zigpy : le plus récent est proposé (rien n'est installé)."""

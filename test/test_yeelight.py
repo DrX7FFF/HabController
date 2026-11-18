@@ -29,7 +29,7 @@ class FakeBulb:
 class YeelightOnTest(unittest.IsolatedAsyncioTestCase):
     def make(self):
         bulb = YeelightBulb(host="192.0.2.1")
-        bulb._connected = bulb._synced = True
+        bulb._set_connected(True, synced=True)
         bulb._bulb = FakeBulb()  # type: ignore[assignment]
         return bulb
 
@@ -40,7 +40,7 @@ class YeelightOnTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bulb.state(), {"connected": True, "on": True, "brightness": 40})
         bulb._merge({"power": "off"})
         self.assertIs(bulb.on, False)
-        bulb._connected = False
+        bulb._set_connected(False)
         self.assertEqual(bulb.state(), {"connected": False})
 
     async def test_set_on(self):
@@ -89,7 +89,7 @@ class YeelightOnTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_unreachable_is_logged(self):
         bulb = self.make()
-        bulb._connected = False
+        bulb._set_connected(False)
         with self.assertLogs("core.base", "WARNING") as logs:
             bulb.set_rgb("#ff0000", 80)
             await self.idle()

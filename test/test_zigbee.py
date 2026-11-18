@@ -179,29 +179,30 @@ class PlugStateTest(unittest.TestCase):
         plug._scales = {"active_power": 1, "voltage": 1, "current": 1 / 1000, "energy": 1 / 100}
         return plug
 
-    def test_values_scaled_and_hidden_while_unreachable(self):
+    def test_values_scaled_and_cleared_while_unreachable(self):
         plug = self.make()
+        plug._set_connected(True, synced=True)
         plug._on_attribute(ON_OFF, "on_off", True)
         plug._on_attribute(ELECTRICAL, "rms_current", 45)
         plug._on_attribute(METERING, "current_summ_delivered", 10702)
-        self.assertEqual(plug.state(), {"connected": False})
-        plug._connected = plug._synced = True
         self.assertEqual(
             plug.state(),
             {"connected": True, "on": True, "current": 0.045, "energy": 107.02},
         )
+        plug._set_connected(False)
+        self.assertEqual(plug.state(), {"connected": False})
 
     def test_untracked_value_ignored(self):
         plug = Plug(IEEE)
         plug._scales = {"active_power": 1}
         plug._on_attribute(ELECTRICAL, "rms_voltage", 234)
         plug._on_attribute(ELECTRICAL, "active_power", 12)
-        plug._connected = plug._synced = True
+        plug._set_connected(True, synced=True)
         self.assertEqual(plug.state(), {"connected": True, "active_power": 12})
 
     def test_on_follows_zcl_on_off(self):
         plug = self.make()
-        plug._connected = plug._synced = True
+        plug._set_connected(True, synced=True)
         plug._on_attribute(ON_OFF, "on_off", 0)
         self.assertIs(plug.on, False)
 
@@ -209,7 +210,7 @@ class PlugStateTest(unittest.TestCase):
         plug = self.make()
         plug._scales = {}
         plug._on_attribute(ELECTRICAL, "active_power", 12)
-        plug._connected = plug._synced = True
+        plug._set_connected(True, synced=True)
         self.assertNotIn("active_power", plug.state())
 
 
@@ -293,7 +294,7 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
         light._on_attribute(0x0006, "on_off", 1)
         light._on_attribute(0x0008, "current_level", 127)
         light._on_attribute(0x0300, "color_temperature", 370)
-        light._connected = light._synced = True
+        light._set_connected(True, synced=True)
         self.assertEqual(
             light.state(), {"connected": True, "on": True, "brightness": 50, "color_temp": 2703}
         )
@@ -312,7 +313,7 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
     def white_light(self, caps):
         """Ampoule à clusters marche/arrêt, intensité, couleur ; color_capabilities = caps."""
         light = Light(IEEE)
-        light._connected = light._synced = True
+        light._set_connected(True, synced=True)
         self.sent = []
         clusters = {}
         for cluster_id in (0x0006, 0x0008, 0x0300):

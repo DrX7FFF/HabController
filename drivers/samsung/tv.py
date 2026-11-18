@@ -5,7 +5,7 @@ import base64
 import logging
 import socket
 
-from core.base import DeviceError, NetworkDevice, Switchable, known
+from core.base import DeviceError, NetworkDevice, Switchable
 
 log = logging.getLogger(__name__)
 
@@ -103,12 +103,9 @@ class SamsungTV(Switchable, NetworkDevice):
             if response == ACCESS_DENIED:
                 log.error("%s : « %s » refusé par la TV (réglages de la TV)", self.id, APP)
 
-    def state(self) -> dict:
-        return super().state() | known(on=self.on)  # éteinte : on vaut False, pas None
-
     def _reset(self) -> None:
         super()._reset()
-        SamsungTV.on.update(self, False)
+        SamsungTV.on.update(self, False)  # éteinte : on vaut False, pas None
 
     # --- commandes ----------------------------------------------------------
 

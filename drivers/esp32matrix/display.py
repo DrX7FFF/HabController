@@ -13,7 +13,6 @@ from core.base import (
     NetworkDevice,
     State,
     Switchable,
-    known,
 )
 
 log = logging.getLogger(__name__)
@@ -103,20 +102,6 @@ class RGBMatrix(Switchable, NetworkDevice):
         assert self._writer is not None  # connecté
         self._writer.write(f"{command}\n".encode())
         await self._writer.drain()
-
-    def state(self) -> dict:
-        state = super().state()
-        if not state.get("connected"):
-            return state
-        return state | known(auto=self.auto, pattern=self.pattern)
-
-    def measures(self) -> dict[str, str]:
-        return {"auto": "tracked", "pattern": "tracked"} | super().measures()
-
-    def _reset(self) -> None:
-        RGBMatrix.auto.update(self, None)
-        RGBMatrix.pattern.update(self, None)
-        super()._reset()
 
     # --- actions : l'afficheur renvoie son état après chaque commande -------
 

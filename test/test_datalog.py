@@ -1,3 +1,4 @@
+import time
 import asyncio
 import os
 import sys
@@ -20,8 +21,10 @@ class FakeDevice(Device):
         return dict(self._state)
 
     def update(self, state):
-        self._state = state
-        self._notify()
+        if state != self._state:
+            self._state = state
+            self.changed_at = time.time_ns() // 1_000_000
+            self._broadcast()
 
 
 CONF = {

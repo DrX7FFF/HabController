@@ -4,7 +4,8 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from functools import partial
+from abc import ABC, abstractmethod
+from functools import cache, partial
 from typing import Any, Generic, TypeVar, overload
 
 log = logging.getLogger(__name__)
@@ -127,11 +128,6 @@ async def clear_listeners() -> None:
         await asyncio.gather(*running, return_exceptions=True)
 
 
-def known(**values: Any) -> dict:
-    """Valeurs d'état déjà reçues (None : pas encore lue, ou injoignable)."""
-    return {name: value for name, value in values.items() if value is not None}
-
-
 def on_value(value: bool | str | int) -> bool:
     """Valeur demandée pour l'attribut `on` : True ou False."""
     if isinstance(value, bool):
@@ -166,8 +162,18 @@ class State(Generic[T]):
     def update(self, obj: "Device", value: T | None) -> None:
         old = obj.__dict__.get(self.name, self.default)
         obj.__dict__[self.name] = value
-        if value != old:
-            obj._notify()
+        obj._updated(self.name, old, value)
+
+
+class Capability(State[T]):
+    """Ce que le modèle sait faire (rgb_capable…) : renseigné par le pilote, gardé hors
+    connexion."""
+
+
+@cache
+def states(cls: type) -> tuple[State, ...]:
+    """Attributs d'état de la classe et de ses parents, dans l'ordre de déclaration."""
+    return tuple(s for c in reversed(cls.__mro__) for s in vars(c).values() if isinstance(s, State))
 
 
 # État de surveillance d'une mesure (voir Device.measures) -> pourquoi elle ne sera jamais reçue
@@ -178,12 +184,12 @@ REASONS = {
 }
 
 
-class Device:
+class Device(ABC):
     """Base commune des pilotes : identité, état et commandes."""
 
     WIDGET = ""  # widget du tableau de bord : sensor, plug, onoff ou light ; "" : aucun
     connected = State[bool]()  # joignable (et état lu) ; None : sans connexion suivie
-    battery_powered = State[bool](default=False)  # sur pile, renseigné par le pilote
+    battery_powered = Capability[bool](default=False)  # sur pile, renseigné par le pilote
     battery = State[int]()  # %, équipement sur pile
     event_connected = EventSource[EventBool]()
     event_battery = EventSource[EventInt]()
@@ -193,17 +199,18 @@ class Device:
         self._listeners: list[Callable[[dict], None]] = []
         self._ready_listeners: list[Callable[[], None]] = []
         self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre
-        self._last: dict = {}  # dernière valeur vue par attribut, gardée hors connexion
-        self._keys: set[str] | None = None  # attributs présents dans le dernier état diffusé
+        self._last: dict = {}  # dernière valeur annoncée par attribut, gardée hors connexion
         self.changed_at: int | None = None  # ms depuis l'époque Unix, dernier changement d'état
         self.last_seen: int | None = None  # ms, dernière mise à jour reçue (même identique)
         self._evt_listeners: dict[str, list[Callable]] = {}  # clé d'EventSource -> fonctions abonnées
         self._evt_lock = asyncio.Lock()  # fonctions abonnées : une à la fois, dans l'ordre
 
     def _reset(self) -> None:
-        """Équipement injoignable : chaque classe remet ses attributs d'état à None, puis
-        appelle super()."""
-        Device.battery.update(self, None)
+        """Équipement injoignable : attributs d'état à leur valeur par défaut, sans annonce
+        (connected et capacités gardés)."""
+        for state in states(type(self)):
+            if state is not Device.connected and not isinstance(state, Capability):
+                self.__dict__.pop(state.name, None)
 
     def configure(self, dev_id: str) -> None:
         """Appelé par le chargeur, avant start() : identifiant."""
@@ -231,36 +238,35 @@ class Device:
         self.last_seen = time.time_ns() // 1_000_000
         self._fire("action", EventAction(self, self.last_seen, name, value))
 
-    def _notify(self) -> None:
-        """À appeler après toute mise à jour de l'état ; ne diffuse que les vrais changements.
-
-        Une seule comparaison, par attribut : les attributs changés déclenchent leur événement,
-        et l'état est diffusé s'il y en a, ou si un attribut est apparu ou a disparu (connexion).
-        Le changement est horodaté (changed_at) avant d'être diffusé. last_seen est mis à jour à
-        chaque appel tant que l'équipement est joignable (une perte de connexion n'est pas reçue).
-        """
-        state = self.state()
+    def _updated(self, name: str, old: Any, new: Any, announce: Callable | None = None) -> None:
+        """Appelé par State.update : valeur reçue (last_seen) ; si elle change, l'état est
+        diffusé (sauf injoignable : il le sera à la connexion), et l'événement déclenché si elle
+        diffère de la dernière annoncée. announce(when, old, new) : remplace l'événement Event
+        de l'attribut."""
         now = time.time_ns() // 1_000_000
-        if state.get("connected"):
+        if self.connected:
             self.last_seen = now
-        changes = [
-            (key, self._last.get(key), value)
-            for key, value in state.items()
-            if key not in self._last or self._last[key] != value
-        ]
-        if not changes and set(state) == self._keys:
+        if new == old:
             return
-        self._last.update(state)
-        self._keys = set(state)
         self.changed_at = now
+        if self.connected is not False or name == "connected":
+            self._broadcast()
+        if new is not None and (name not in self._last or self._last[name] != new):
+            if announce:
+                announce(now, self._last.get(name), new)
+            else:
+                self._fire(name, Event(self, now, self._last.get(name), new))
+            self._last[name] = new
+
+    def _seen(self) -> None:
+        """Message reçu sans valeur changée."""
+        if self.connected:
+            self.last_seen = time.time_ns() // 1_000_000
+
+    def _broadcast(self) -> None:
+        state = self.state()
         for callback in self._listeners:
             callback(state)
-        for key, old, value in changes:
-            self._fire(*self._change(key, old, value, now))
-
-    def _change(self, key: str, old: Any, new: Any, when: int) -> tuple[str, Any]:
-        """Événement d'un attribut changé : (clé d'EventSource, event)."""
-        return key, Event(self, when, old, new)
 
     def _listen(self, key: str, func: Listener) -> Listener:
         if not inspect.iscoroutinefunction(func):
@@ -310,9 +316,13 @@ class Device:
 
     def measures(self) -> dict[str, str]:
         """État de surveillance de chaque attribut : tracked (peut être reçu), disabled (non
-        suivi, voir reports), absent (l'appareil ne le fournit pas). Chaque classe ajoute les
-        siens, puis appelle super()."""
-        return {"connected": "tracked"} | ({"battery": "tracked"} if self.battery_powered else {})
+        suivi, voir reports), absent (l'appareil ne le fournit pas)."""
+        return {
+            state.name: "tracked"
+            for state in states(type(self))
+            if not isinstance(state, Capability)
+            and (state is not Device.battery or self.battery_powered)
+        }
 
     def check_measure(self, name: str) -> str:
         """Pourquoi la mesure `name` ne sera jamais reçue ("" si elle peut l'être), d'après son
@@ -320,8 +330,14 @@ class Device:
         return REASONS.get(self.measures().get(name, ""), "mesure inconnue")
 
     def state(self) -> dict:
-        """État courant, lu en mémoire : ne doit jamais interroger l'équipement."""
-        raise NotImplementedError
+        """État envoyé aux pages et au datalog : les attributs connus (None : omis), sans les
+        capacités."""
+        return {
+            state.name: value
+            for state in states(type(self))
+            if not isinstance(state, Capability)
+            and (value := state.__get__(self, type(self))) is not None
+        }
 
     def _background(self, label: str, command: Callable[[], Awaitable[None]]) -> None:
         """Lance command() en tâche de fond, après les commandes précédentes de l'équipement.
@@ -345,8 +361,7 @@ class NetworkDevice(Device):
 
     def __init__(self):
         super().__init__()
-        self._connected = False
-        self._synced = False  # état lu au moins une fois depuis la connexion courante
+        self._connected = False  # liaison établie (connected : liaison établie et état lu)
         Device.connected.update(self, False)  # avant tout abonnement : rien n'est annoncé
         self._tasks: set[asyncio.Task] = set()  # tâches du pilote, annulées par stop()
 
@@ -378,23 +393,14 @@ class NetworkDevice(Device):
             else:
                 log.warning("%s : déconnecté%s", self.id, f" ({reason})" if reason else "")
         self._connected = connected
-        self._synced = connected and synced
-        if not self._synced:
+        if not (connected and synced):
             self._reset()
-        Device.connected.update(self, self._synced)
-        self._notify()
+        Device.connected.update(self, connected and synced)
 
     def _check_reachable(self) -> None:
-        """DeviceError si l'équipement n'est pas connecté et synchronisé."""
-        if not (self._connected and self._synced):
+        """DeviceError si l'équipement n'est pas joignable (connecté et état lu)."""
+        if not self.connected:
             raise DeviceError(f"{self.id} : injoignable")
-
-    def state(self) -> dict:
-        """État envoyé aux pages et au datalog : {"connected": False} si injoignable, sinon
-        connected et les valeurs reçues ; chaque classe ajoute les siennes."""
-        if not (self._connected and self._synced):
-            return {"connected": False}
-        return {"connected": True} | known(battery=self.battery)
 
 
 class Switchable(Device):
@@ -404,22 +410,11 @@ class Switchable(Device):
     on = State[bool]()
     event_on = EventSource[EventBool]()
 
-    def state(self) -> dict:
-        state = super().state()
-        return state | known(on=self.on) if state.get("connected") else state
-
-    def measures(self) -> dict[str, str]:
-        return {"on": "tracked"} | super().measures()
-
-    def _reset(self) -> None:
-        Switchable.on.update(self, None)
-        super()._reset()
-
     def switch(self, on: bool, transition: int | None = None) -> None:
         self._background(f"switch({on!r})", lambda: self._switch(on_value(on), transition))
 
     def toggle(self, transition: int | None = None) -> None:
         self._background("toggle", lambda: self._switch(not self.on, transition))
 
-    async def _switch(self, on: bool, transition: int | None) -> None:
-        raise NotImplementedError
+    @abstractmethod
+    async def _switch(self, on: bool, transition: int | None) -> None: ...

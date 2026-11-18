@@ -5,7 +5,7 @@ from datetime import datetime
 
 from miio import DeviceException, RoborockVacuum
 
-from core.base import Device, DeviceError, State, known, spawn_task
+from core.base import Device, DeviceError, State, spawn_task
 from core.datalog import device_path, record
 
 HISTORY_PERIOD = 3600  # s, le robot garde ses 20 derniers nettoyages
@@ -29,9 +29,6 @@ class Roborock(Device):
 
     def details(self) -> dict:
         return {"host": self._host}
-
-    def state(self) -> dict:
-        return known(last_clean=self.last_clean)
 
     async def start(self) -> None:
         self.refresh()

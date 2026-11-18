@@ -6,9 +6,9 @@ correctif zha-quirks. L'appareil dort : il n'est jamais interrogé."""
 
 import math
 from collections.abc import Mapping
-from typing import ClassVar, TypedDict
+from typing import Any, Callable, ClassVar, TypedDict
 
-from core.base import Device
+from core.base import Device, State
 from drivers.zigbee import ZigbeeDevice, find_cluster, raw_change, setup_reporting, tracked
 
 POWER = 0x0001
@@ -25,17 +25,16 @@ def lux(value: int) -> int:
     return round(10 ** ((value - 1) / 10000)) if value else 0
 
 
-# (cluster, attribut ZCL) -> (état, conversion de la valeur brute)
-MEASURES = {
-    (TEMPERATURE, "measured_value"): ("temperature", lambda v: v / 100),
-    (HUMIDITY, "measured_value"): ("humidity", lambda v: v / 100),
-    (PRESSURE, "measured_value"): ("pressure", lambda v: v),
-    (ILLUMINANCE, "measured_value"): ("illuminance", lux),
-    (OCCUPANCY, "occupancy"): ("presence", lambda v: bool(v & 1)),
-    (ON_OFF, "on_off"): ("open", bool),  # contact de porte : allumé = ouvert
-    (POWER, "battery_percentage_remaining"): ("battery", lambda v: round(v / 2)),
+# valeur de reports -> (cluster, attribut ZCL)
+ZCL = {
+    "temperature": (TEMPERATURE, "measured_value"),
+    "humidity": (HUMIDITY, "measured_value"),
+    "pressure": (PRESSURE, "measured_value"),
+    "illuminance": (ILLUMINANCE, "measured_value"),
+    "presence": (OCCUPANCY, "occupancy"),
+    "open": (ON_OFF, "on_off"),  # contact de porte : allumé = ouvert
+    "battery": (POWER, "battery_percentage_remaining"),
 }
-ZCL = {key: zcl for zcl, (key, _) in MEASURES.items()}  # état -> (cluster, attribut ZCL)
 # Envoi spontané : état -> (intervalle min s, max s, écart de reports -> écart en valeur brute)
 # (open : envoyé par le capteur de lui-même)
 REPORTS = {
@@ -62,6 +61,11 @@ class Sensor(ZigbeeDevice):
     WIDGET = "sensor"
     # valeurs suivies par défaut, propres à chaque variante
     DEFAULTS: ClassVar[Mapping[str, object]] = {"battery": 1}
+    # (cluster, attribut ZCL) -> (attribut d'état, conversion de la valeur brute) ; complété
+    # par chaque variante
+    MEASURES: ClassVar[dict[tuple[int, str], tuple[State, Callable[[Any], Any]]]] = {
+        ZCL["battery"]: (Device.battery, lambda v: round(v / 2)),
+    }
 
     def __init__(self, ieee: str, reports: SensorReports | None = None):
         super().__init__(ieee)
@@ -83,12 +87,7 @@ class Sensor(ZigbeeDevice):
         return find_cluster(zdev, ZCL[key][0], output=True)
 
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
-        if (measure := MEASURES.get((cluster_id, name))) and value is not None:
-            key, convert = measure
-            if key in self.reports:
-                self._measure(key, convert(value))
-
-    def _measure(self, key: str, value) -> None:
-        """Valeur reçue : chaque variante met à jour ses attributs, puis appelle super()."""
-        if key == "battery":
-            Device.battery.update(self, value)
+        if (measure := self.MEASURES.get((cluster_id, name))) and value is not None:
+            state, convert = measure
+            if state.name in self.reports:
+                state.update(self, convert(value))

@@ -3,7 +3,7 @@
 import logging
 from typing import TypedDict
 
-from core.base import EventFloat, EventSource, State, Switchable, known
+from core.base import EventFloat, EventSource, State, Switchable
 from drivers.zigbee import (
     ZigbeeDevice,
     find_cluster,
@@ -69,6 +69,14 @@ class Plug(Switchable, ZigbeeDevice):
     event_voltage = EventSource[EventFloat]()
     event_current = EventSource[EventFloat]()
     event_energy = EventSource[EventFloat]()
+    # (cluster, attribut ZCL) -> attribut d'état
+    BY_ZCL = {
+        (ON_OFF, "on_off"): Switchable.on,
+        (ELECTRICAL, "active_power"): active_power,
+        (ELECTRICAL, "rms_voltage"): voltage,
+        (ELECTRICAL, "rms_current"): current,
+        (METERING, "current_summ_delivered"): energy,
+    }
 
     def __init__(
         self, ieee: str, poll: float | None = None, reports: PlugReports | None = None
@@ -76,7 +84,6 @@ class Plug(Switchable, ZigbeeDevice):
         super().__init__(ieee, poll)
         self.reports = tracked(DEFAULTS, reports)
         self._scales: dict[str, float] = {}  # mesure suivie -> facteur, si la prise l'a
-        self._by_zcl = {(cluster_id, attr): key for key, (cluster_id, attr, _, _) in ZCL.items()}
 
     # --- état ---------------------------------------------------------------
 
@@ -119,44 +126,13 @@ class Plug(Switchable, ZigbeeDevice):
                 self._on_attribute(cluster_id, name, value)
 
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
-        key = self._by_zcl.get((cluster_id, name))
-        if key not in self.reports:
+        state = self.BY_ZCL.get((cluster_id, name))
+        if state is None or state.name not in self.reports:
             return
-        if key == "on":
+        if state is Plug.on:
             Plug.on.update(self, bool(value))
-            return
-        if key not in self._scales:
-            return
-        value = round(value * self._scales[key], 3)
-        match key:
-            case "active_power":
-                Plug.active_power.update(self, value)
-            case "voltage":
-                Plug.voltage.update(self, value)
-            case "current":
-                Plug.current.update(self, value)
-            case "energy":
-                Plug.energy.update(self, value)
-
-    def state(self) -> dict:
-        state = super().state()
-        if not state.get("connected"):
-            return state
-        return state | known(
-            active_power=self.active_power,
-            voltage=self.voltage,
-            current=self.current,
-            energy=self.energy,
-        )
-
-    def measures(self) -> dict[str, str]:
-        tracked = dict.fromkeys(("active_power", "voltage", "current", "energy"), "tracked")
-        return tracked | super().measures()
-
-    def _reset(self) -> None:
-        for state in (Plug.active_power, Plug.voltage, Plug.current, Plug.energy):
-            state.update(self, None)
-        super()._reset()
+        elif state.name in self._scales:
+            state.update(self, round(value * self._scales[state.name], 3))
 
     # --- commandes ----------------------------------------------------------
 
