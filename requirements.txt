@@ -10,3 +10,5 @@ aiohomekit
 google-auth[requests]
 python-miio
 click<8.2  # python-miio 0.5.12 ne fonctionne pas avec click 8.2
+aiohttp
+zeroconf
