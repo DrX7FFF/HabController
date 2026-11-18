@@ -5,10 +5,10 @@ import logging
 import os
 import sys
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from functools import partial
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketState
@@ -75,14 +75,18 @@ pairings = pair.protocols()  # {protocole: classe Pairing}
 admin_lock = asyncio.Lock()  # une opération d'administration à la fois (appairage, sauvegarde…)
 server = None  # uvicorn.Server lancé par ./habctrl : arrêté pour redémarrer (voir restart())
 restart_requested = False
-clients: set[asyncio.Queue] = set()  # une file de messages par page connectée
+QUEUE_SIZE = 1000  # messages en attente pour une page au-delà desquels elle est décrochée
+clients: dict[asyncio.Queue, asyncio.Task] = {}  # file de messages de chaque page connectée -> son envoi
 live: set[asyncio.Queue] = set()  # pages en Direct : reçoivent les enregistrements du datalog
 installing: asyncio.Task | None = None  # installation d'un firmware en cours
 
 
-def broadcast(message: dict, queues: set[asyncio.Queue] = clients) -> None:
+def broadcast(message: dict, queues=clients) -> None:
     for queue in queues:
-        queue.put_nowait(message)
+        try:
+            queue.put_nowait(message)
+        except asyncio.QueueFull:  # page décrochée : son envoi s'arrête et sa connexion est fermée
+            clients[queue].cancel()
 
 
 def measures(dev) -> dict | None:
@@ -556,19 +560,22 @@ async def read_loop(ws: WebSocket, queue: asyncio.Queue) -> None:
 @app.websocket("/ws")
 async def websocket(ws: WebSocket):
     await ws.accept()
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(QUEUE_SIZE)
     queue.put_nowait(init_message())  # avant l'inscription : même ordre
-    clients.add(queue)
-    sender = asyncio.create_task(write_loop(ws, queue))
-    sender.add_done_callback(lambda t: t.cancelled() or t.exception())  # évite un avertissement
+    sender = clients[queue] = asyncio.create_task(write_loop(ws, queue))
+    tasks = (sender, asyncio.create_task(read_loop(ws, queue)))
     try:
-        await read_loop(ws, queue)  # ne rend la main qu'à la déconnexion
-    except WebSocketDisconnect:
-        pass
+        # fin au premier des deux : page déconnectée, envoi arrêté (erreur ou file pleine)
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
-        clients.discard(queue)
+        del clients[queue]
         live.discard(queue)
-        sender.cancel()
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        if ws.client_state == WebSocketState.CONNECTED:
+            with suppress(Exception):  # connexion déjà rompue
+                await ws.close()
 
 
 # --- Appairage : WebSocket /ws/pair?protocol=…&duration=… -------------------
