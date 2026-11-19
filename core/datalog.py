@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
+from typing import Any, TypeIs
 
 import aiohttp
 from google.auth.exceptions import GoogleAuthError
@@ -122,7 +123,7 @@ class Datalog:
 
     # --- enregistrement -----------------------------------------------------
 
-    def on_state(self, device: Device, state: dict) -> None:
+    def on_state(self, device: Device, state: dict[str, object]) -> None:
         if not clock_ok():  # avant self.last : la valeur sera enregistrée une fois à l'heure
             return
         at = device.changed_at or now_ms()
@@ -137,7 +138,7 @@ class Datalog:
         if data:
             self.send(data)
 
-    def _should_record(self, path: str, value, hysteresis) -> bool:
+    def _should_record(self, path: str, value: object, hysteresis: float | None) -> bool:
         if path not in self.last:
             return True
         last = self.last[path]
@@ -145,7 +146,7 @@ class Datalog:
             return abs(value - last) >= hysteresis
         return value != last
 
-    def record(self, path: str, value, at: int | None) -> None:
+    def record(self, path: str, value: object, at: int | None) -> None:
         if not clock_ok():
             return
         path = path.strip("/")
@@ -156,7 +157,7 @@ class Datalog:
         """callback([[chemin, ms, valeur], ...]) à chaque enregistrement (graphiques en direct)."""
         self._listeners.append(callback)
 
-    def send(self, data: dict) -> None:
+    def send(self, data: dict[str, object]) -> None:
         points = [[k.rpartition("/")[0], int(k.rpartition("/")[2]), v] for k, v in data.items()]
         for callback in self._listeners:
             callback(points)
@@ -174,15 +175,20 @@ class Datalog:
                 await asyncio.to_thread(self._credentials.refresh, Request())
             return self._credentials.token
 
-    async def _request(self, method: str, path: str, **kwargs):
+    async def _request(
+        self, method: str, path: str, params: dict[str, str] | None = None, json: object = None
+    ) -> Any:
+        """Réponse JSON de Firebase (dict, ou None si le chemin est vide)."""
         assert self._session is not None, "Datalog.start() non appelé"
         headers = {"Authorization": f"Bearer {await self._token()}"}
         url = f"{self.url}/{path}.json"
-        async with self._session.request(method, url, headers=headers, **kwargs) as response:
+        async with self._session.request(
+            method, url, headers=headers, params=params, json=json
+        ) as response:
             response.raise_for_status()
             return await response.json()
 
-    async def _patch(self, data: dict) -> None:
+    async def _patch(self, data: dict[str, object]) -> None:
         """Écrit plusieurs chemins en une requête (PATCH à la racine)."""
         try:
             await self._request("PATCH", "", json=data)
@@ -237,7 +243,7 @@ def device_path(dev_id: str, attr: str) -> str:
     return f"devices/{dev_id}/{attr.replace('.', '/')}"
 
 
-def is_number(value) -> bool:
+def is_number(value: object) -> TypeIs[int | float]:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
@@ -253,7 +259,7 @@ def setup(devices: dict[str, Device]) -> Datalog | None:
     return _datalog
 
 
-def record(path: str, value, *, at: int | None = None) -> None:
+def record(path: str, value: object, *, at: int | None = None) -> None:
     """Enregistre value sous <path>/<at> (ms ; maintenant par défaut). Ne bloque pas."""
     if _datalog is None:
         log.debug("datalog non configuré : %s ignoré", path)

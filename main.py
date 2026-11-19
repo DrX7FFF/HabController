@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import inspect
 import json
 import logging
 import os
@@ -17,7 +18,7 @@ from pydantic import BaseModel, ValidationError
 from core import CONFIG_DIR, ROOT, TEMP_DIR, datalog, git, pair, push, sync
 from core.automation import check as check_automations
 from core.automation import fire_app, load_automations, unload_automations
-from core.base import cancel, describe, now_ms, spawn_task
+from core.base import Device, cancel, describe, now_ms, spawn_task
 from core.charts import downsample, load_charts
 from core.devices import load_devices, summarize, wait_ready, write_summary
 from core.firmware import updates
@@ -317,11 +318,14 @@ class CallMessage(BaseModel):
 
 
 def apply_call(cmd: CallMessage) -> None:
-    """Action demandée par une page : méthode de l'équipement, en tâche de fond."""
+    """Action demandée par une page : méthode publique du pilote qui part en tâche de fond (ni
+    celles de Device, cycle de vie et fiche, ni une requête async)."""
     dev = devices.get(cmd.device)
     if dev is None:
         raise LookupError("équipement inconnu")
-    if cmd.method.startswith("_") or not callable(method := getattr(dev, cmd.method, None)):
+    method = getattr(dev, cmd.method, None)
+    if (cmd.method.startswith("_") or hasattr(Device, cmd.method) or not callable(method)
+            or inspect.iscoroutinefunction(method)):
         raise ValueError(f"{cmd.device} n'a pas l'action « {cmd.method} »")
     method(*cmd.args)
 

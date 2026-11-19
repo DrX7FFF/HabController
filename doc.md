@@ -111,6 +111,11 @@ async def eclairage(event: EventBool):
     else:
         extinction.start()                # extinction 5 min après le dernier départ
 ```
+- **Téléphone** (appli ntfy, topic affiché sur la page Administration) : `notify(texte)` envoie
+  une notification ; `ask(texte, {"Libellé": action ou None})` une notification à boutons (trois
+  au plus) : l'action du bouton choisi est appelée (fonction simple ou async) et la notification
+  retirée ; `cancel()` sur la question renvoyée la retire. Au rechargement des automatisations,
+  les questions en attente sont retirées.
 - **Application** : `@app_start` appelle une fonction async au démarrage, automatisations chargées
   et avant la connexion des équipements (aussi au rechargement complet, `devices/`) ;
   `@app_reload` au rechargement des seules automatisations. Une variable annotée
@@ -192,7 +197,7 @@ title = "Filament Temp&Hum"   # par défaut : l'id de l'équipement
 
 Le widget suit le type de l'équipement : capteur (capteurs Zigbee), FP2 (une pastille par zone, jaune si occupée, grise sinon, et la luminosité), prise (marche/arrêt
 et mesures), lampe (marche/arrêt, puis intensité, température et couleur si suivies), marche/
-arrêt (TV, WLED, afficheur RGB). Un widget affiche toutes les mesures suivies de l'équipement (`tracked`), vides
+arrêt (TV, WLED, afficheur RGB), aspirateur (dernier nettoyage et commandes). Un widget affiche toutes les mesures suivies de l'équipement (`tracked`), vides
 tant qu'aucune valeur n'est reçue ; une mesure non suivie (`disabled`) ou absente de l'appareil
 n'apparaît pas. Tant que l'équipement n'est pas prêt (appareil Zigbee pas encore rattaché), le
 bloc n'a que son titre.
@@ -269,7 +274,8 @@ filament = Climate(ieee="…", reports={"humidity": 0.2})
 - `None` : valeur non suivie, absente de l'état ; l'appareil reçoit l'ordre de ne plus
   l'envoyer (certains firmwares l'ignorent : le pilote l'écarte de toute façon).
 
-Une clé inconnue du pilote est refusée (signalée par l'éditeur, et au chargement). Un
+Une clé inconnue du pilote, ou une valeur autre qu'un nombre, `True` ou `None`, est refusée
+(signalée par l'éditeur, et au chargement). Un
 attribut que l'appareil refuse d'envoyer est signalé dans le journal à sa configuration.
 
 ### Ampoules — `yeelight.bulb`, `zigbee.light`
@@ -427,7 +433,7 @@ fp2 = FP2(zonemapping={0: "Global", 1: "salon"})
 Chaque zone est repérée par son « Sensor Index » (caractéristique Aqara), comme dans
 node-red-contrib-fp2 ; l'index 0 est la présence globale. `zonemapping` donne un alias aux
 index : `fp2.zones.salon` ou `fp2.zones[1]` (l'index est traduit en alias s'il en a un) ; sans
-alias : `fp2.zones[3]`. Nom dans l'état et le datalog : `zone.<alias>`. Déclencheur :
+alias : `fp2.zones[3]`. Un alias absent de `zonemapping` (faute de frappe) lève `AttributeError`. Nom dans l'état et le datalog : `zone.<alias>`. Déclencheur :
 `@fp2.event_zone`, `event.zonename` est l'alias de la zone, ou son index (`"3"`) si elle n'en a
 pas. Capteur : toute commande est refusée.
 
@@ -465,6 +471,22 @@ Actions : `switch(on)`, `toggle()`.
 Connexion WebSocket permanente (`/ws`) : le WLED envoie son état à chaque changement, même
 venu d'ailleurs (appli, bouton). Coupée, une nouvelle tentative a lieu toutes les `retry`
 secondes.
+
+### Aspirateur Roborock — `roborock`
+
+```python
+aspirateur = Roborock(host="192.168.1.116", token="…")   # token : voir token-roborock.md
+```
+
+| Attribut     | Type | Signification                                                    |
+|--------------|------|------------------------------------------------------------------|
+| `last_clean` | dict | dernier nettoyage : start, area (m²), duration (min), complete   |
+
+Actions : `clean()`, `pause()`, `home()`, `refresh()` (relit `last_clean`). Requêtes, à attendre
+(`await`) : `history()` (nettoyages gardés par le robot), `last_complete()` (début du dernier
+nettoyage terminé, None s'il n'y en a pas) ; robot injoignable : `DeviceError`. Toutes les
+heures, les plages de nettoyage sont enregistrées dans le datalog (`devices/<id>/on` : true au
+début, false à la fin). Pas de connexion suivie : `connected` reste vide.
 
 ### Afficheur RGB — `esp32matrix.display`
 
