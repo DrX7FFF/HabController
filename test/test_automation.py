@@ -9,6 +9,7 @@ import time
 import types
 import unittest
 from pathlib import Path
+from typing import Any, override
 from unittest import mock
 
 # configuration de test (test/config/), jamais celle de l'installation
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from test_fp2 import FakePairing, make_fp2, presence_key, until
 
+import drivers.all
 from core import automation, base
 from core.base import Device, DeviceError, State, Switchable, spawn_task
 
@@ -52,6 +54,7 @@ class FakeBulb(Switchable):
     def set_bright(self, value):
         self._background(f"set_bright({value})", lambda: self._command("bright", value))
 
+    @override
     async def _switch(self, on, transition):
         await self._command("on", on)
 
@@ -170,7 +173,7 @@ class AttributeTest(AutomationTestCase):
     async def test_refused_command_is_a_warning(self):
         bulb = FakeBulb("salon")
         with self.assertLogs("core.base", "WARNING") as logs:
-            bulb.switch("oups")  # type: ignore[arg-type]
+            bulb.switch("oups")  # pyright: ignore[reportArgumentType] (refus testé)
             await self.idle()
         self.assertIn("refusée", logs.output[0])
 
@@ -280,7 +283,7 @@ class LoadTest(AutomationTestCase):
 class AppTest(AutomationTestCase):
     """KeepOnReload, @app_start, @app_reload : scripts écrits dans un dossier temporaire."""
 
-    def load(self, files: dict[str, str], reload: bool):
+    def load(self, files: dict[str, str], reload: bool) -> dict[str, Any]:
         def fake_import(name):  # exécute le fichier comme un vrai module de automations/
             mod = types.ModuleType(name)
             exec((Path(self.tmp) / f"{name.split('.')[1]}.py").read_text(), mod.__dict__)
@@ -302,7 +305,8 @@ class AppTest(AutomationTestCase):
 
     async def asyncSetUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.addCleanup(lambda: [sys.modules.pop(n) for n in list(sys.modules) if n.startswith("automations.")])
+        self.addCleanup(lambda: [sys.modules.pop(n) for n in list(sys.modules)
+                                 if n.startswith("automations.")])
 
     SCRIPT = "from core.automation import *\nstate: KeepOnReload = 'défaut'\nother = 'défaut'\n"
 
@@ -369,7 +373,7 @@ class PresenceRuleTest(AutomationTestCase):
         self.salon.configure("salon")  # normalement fait par load_devices()
         self.cuisine.configure("cuisine")
         self.commands = {"salon": [], "cuisine": []}
-        self.fail: dict[str, Exception] = {}
+        self.failures: dict[str, Exception] = {}
         for dev in (self.salon, self.cuisine):
             patcher = mock.patch.object(dev, "_switch", self.fake_switch(dev))
             patcher.start()
@@ -383,9 +387,9 @@ class PresenceRuleTest(AutomationTestCase):
         await self.idle()
 
     def fake_switch(self, dev):
-        async def fake(on, transition=None):
-            if dev.id in self.fail:
-                raise self.fail[dev.id]
+        async def fake(on, _transition=None):
+            if dev.id in self.failures:
+                raise self.failures[dev.id]
             self.commands[dev.id].append(("on", on))
 
         return fake
@@ -424,7 +428,7 @@ class PresenceRuleTest(AutomationTestCase):
         self.assertEqual(self.commands, before)
 
     async def test_one_unreachable_bulb_does_not_block_the_other(self):
-        self.fail["salon"] = DeviceError("injoignable")
+        self.failures["salon"] = DeviceError("injoignable")
         with self.assertLogs("core.base", "WARNING"):
             self.pairing.emit("event", {presence_key(0): {"value": 1}})
             await self.idle()
@@ -433,8 +437,6 @@ class PresenceRuleTest(AutomationTestCase):
 
 class DriverEventsTest(unittest.TestCase):
     def test_each_attribute_has_its_event(self):
-        import drivers.all
-
         for name in drivers.all.__all__:
             cls = getattr(drivers.all, name)
             for attr in dir(cls):
@@ -541,7 +543,7 @@ class EventTest(AutomationTestCase):
         bulb = EventBulb("lampe")
 
         @bulb.event_on
-        async def fails(event):
+        async def fails(_event):
             raise DeviceError("injoignable")
 
         with self.assertLogs("core.base", "WARNING"):
@@ -591,7 +593,7 @@ class EventTest(AutomationTestCase):
         salon, cuisine = FakeBulb("salon"), FakeBulb("cuisine")
 
         @fp.event_bright
-        async def handler(event):
+        async def handler(_event):
             salon.switch(True)
             cuisine.switch(True)
 
@@ -606,8 +608,8 @@ class EventTest(AutomationTestCase):
         fp, bulb = FakeBulb("fp2"), FakeBulb("salon")
 
         @fp.event_bright
-        async def handler(event):
-            bulb.switch("oups")  # type: ignore[arg-type]
+        async def handler(_event):
+            bulb.switch("oups")  # pyright: ignore[reportArgumentType] (refus testé)
 
         with self.assertLogs("core.base", "WARNING") as logs:
             fp.update(bright=1)
@@ -618,7 +620,7 @@ class EventTest(AutomationTestCase):
         fp = FakeBulb("fp2")
 
         @fp.event_bright
-        async def handler(event):
+        async def handler(_event):
             return {}["absent"]
 
         with self.assertLogs("core.base", "ERROR") as logs:
@@ -633,7 +635,7 @@ class EventTest(AutomationTestCase):
         started = asyncio.Event()
 
         @fp.event_bright
-        async def slow(event):
+        async def slow(_event):
             bulb.switch(True)  # commande de l'équipement : va à son terme
             started.set()
             await asyncio.sleep(10)  # automatisation en cours : annulée
@@ -648,12 +650,12 @@ class EventTest(AutomationTestCase):
         bulb = EventBulb("lampe")
         bulb.measures = lambda: {"on": "disabled", "bright": "tracked"}
 
-        @bulb.event_on
-        @bulb.event_bright
-        @bulb.event_action
-        async def rule(event):
+        async def rule(event: object):
             pass
 
+        bulb.event_on(rule)
+        bulb.event_bright(rule)
+        bulb.event_action(rule)
         with self.assertLogs("core.automation", "WARNING") as logs:
             automation.check()
         self.assertEqual(len(logs.output), 1)
@@ -662,7 +664,7 @@ class EventTest(AutomationTestCase):
     def test_sync_function_refused(self):
         bulb = EventBulb("lampe")
         with self.assertRaises(TypeError):
-            bulb.event_on(lambda event: None)  # type: ignore[arg-type]
+            bulb.event_on(lambda _event: None)  # pyright: ignore[reportArgumentType] (refus testé)
 
 
 if __name__ == "__main__":

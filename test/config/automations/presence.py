@@ -12,4 +12,3 @@ async def eclairage(event: EventZone):
         return
     salon.switch(event.new)
     cuisine.switch(event.new)
-    log.warning("Detection = %s", event.new)

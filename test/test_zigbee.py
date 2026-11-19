@@ -9,14 +9,18 @@ import unittest
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest import mock
 
 # configuration de test (test/config/), jamais celle de l'installation
 os.environ["HABCTRL_CONFIG"] = str(Path(__file__).resolve().parent / "config")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from test_fp2 import ScriptedDialog
+from test_fp2 import ScriptedDialog, fake
+from zigpy.application import ControllerApplication as ZigpyApplication
+from zigpy.device import Device as ZigpyDevice
 from zigpy.types import EUI64
+from zigpy.zcl import OtaImageAvailableEvent
 
 import drivers.zigbee.pair as zigbee_pair
 import drivers.zigbee.plug as zigbee_plug
@@ -86,7 +90,7 @@ class ReportsTest(unittest.IsolatedAsyncioTestCase):
 
     def test_unknown_value_refused(self):
         with self.assertRaises(ValueError):
-            Contact(IEEE, reports={"temperature": 1})  # type: ignore[typeddict-unknown-key]
+            Contact(IEEE, reports={"temperature": 1})  # pyright: ignore[reportArgumentType] (refus testé)
 
     async def test_refused_attribute_logged(self):
         cluster = mock.Mock(cluster_id=0x0B04, bind=mock.AsyncMock())
@@ -111,7 +115,7 @@ class ReportsTest(unittest.IsolatedAsyncioTestCase):
             for attr, cfg in reports.items():
                 sent[cluster, attr] = cfg
 
-        async def read(cluster, names):
+        async def read(cluster, _names):
             return (scales or {}).get(cluster, {})
 
         module = sys.modules[type(device).__module__]
@@ -220,10 +224,10 @@ class PlugStateTest(unittest.TestCase):
 class PlugCommandTest(unittest.IsolatedAsyncioTestCase):
     async def test_on_sends_zcl_command(self):
         plug = Plug(IEEE)
-        plug.zdev = SimpleNamespace()
+        plug.zdev = fake(ZigpyDevice)
         sent = []
 
-        async def command(cluster, name):
+        async def command(_cluster, name):
             sent.append(name)
 
         with (
@@ -242,7 +246,7 @@ class SensorTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_connected_by_first_message_and_converted(self):
         sensor = Climate(IEEE)
-        sensor.zdev = SimpleNamespace(skip_configuration=True)
+        sensor.zdev = fake(ZigpyDevice, skip_configuration=True)
         self.assertEqual(sensor.state(), {"connected": False})
         self.report(sensor, 0x0402, "measured_value", 2150)
         self.report(sensor, 0x0001, "battery_percentage_remaining", 170)
@@ -250,13 +254,13 @@ class SensorTest(unittest.IsolatedAsyncioTestCase):
         self.report(sensor, 0x0006, "on_off", 1)
         self.assertEqual(sensor.state(), {"connected": True, "temperature": 21.5, "battery": 85})
         motion = Motion(IEEE)
-        motion.zdev = SimpleNamespace(skip_configuration=True)
+        motion.zdev = fake(ZigpyDevice, skip_configuration=True)
         self.report(motion, 0x0400, "measured_value", 10001)
         self.assertEqual(motion.illuminance, 10)
 
     async def test_button_relays_quirk_events(self):
         button = Button(IEEE)
-        button.zdev = SimpleNamespace(skip_configuration=True)
+        button.zdev = fake(ZigpyDevice, skip_configuration=True)
         got = []
 
         @button.event_action
@@ -276,7 +280,7 @@ class SensorTest(unittest.IsolatedAsyncioTestCase):
         endpoint = SimpleNamespace(in_clusters={0x0402: mock.Mock()}, out_clusters={})
         zdev = SimpleNamespace(endpoints={0: None, 1: endpoint})
         with mock.patch.object(zigbee, "ZigpyDevice", SimpleNamespace):
-            sensor._attach(SimpleNamespace(devices={sensor.ieee: zdev}))
+            sensor._attach(fake(ZigpyApplication, devices={sensor.ieee: zdev}))
         self.assertFalse(sensor._tasks)
 
     async def test_ready_on_attach(self):
@@ -286,7 +290,7 @@ class SensorTest(unittest.IsolatedAsyncioTestCase):
         seen = []
         sensor.subscribe_ready(lambda: seen.append(sensor.ready()))
         with mock.patch.object(zigbee, "ZigpyDevice", SimpleNamespace):
-            sensor._attach(SimpleNamespace(devices={sensor.ieee: zdev}))
+            sensor._attach(fake(ZigpyApplication, devices={sensor.ieee: zdev}))
         sensor._detach()
         self.assertEqual(seen, [False, True, False])
 
@@ -308,8 +312,11 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_setting_missing_feature_refused(self):
         light = Light(IEEE)
-        light.zdev = SimpleNamespace()
-        with mock.patch("drivers.zigbee.light.find_cluster", return_value=None), self.assertRaises(ValueError):
+        light.zdev = fake(ZigpyDevice)
+        with (
+            mock.patch("drivers.zigbee.light.find_cluster", return_value=None),
+            self.assertRaises(ValueError),
+        ):
             await light._set_rgb("#ff0000", None, None)
 
     def white_light(self, caps):
@@ -323,14 +330,14 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
             cluster.get.return_value = caps
 
             def command(name, cluster_id=cluster_id):
-                async def send(*args):
+                async def send(*_args):
                     self.sent.append((cluster_id, name))
                 return send
 
             for name in ("on", "move_to_level_with_on_off", "move_to_color_temp"):
                 setattr(cluster, name, command(name))
             clusters[cluster_id] = cluster
-        light.zdev = SimpleNamespace()
+        light.zdev = fake(ZigpyDevice)
         patcher = mock.patch("drivers.zigbee.light.find_cluster", lambda _z, c: clusters[c])
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -398,7 +405,8 @@ class FirmwareTest(unittest.IsolatedAsyncioTestCase):
 
     def event(self, *versions):
         images = tuple(SimpleNamespace(version=v) for v in versions)
-        return SimpleNamespace(
+        return fake(
+            OtaImageAvailableEvent,
             images_result=SimpleNamespace(upgrades=images),
             query_cmd=SimpleNamespace(current_file_version=0x4200382A),
         )
@@ -421,7 +429,7 @@ class FirmwareTest(unittest.IsolatedAsyncioTestCase):
             progress(0, 10, 50.0)
             return zigbee.Status.SUCCESS
 
-        self.light.zdev = SimpleNamespace(update_firmware=update)
+        self.light.zdev = fake(ZigpyDevice, update_firmware=update)
         changes = []
         self.updates.on_change = lambda: changes.append(dict(self.updates.list()))
         with (
@@ -439,7 +447,7 @@ class FirmwareTest(unittest.IsolatedAsyncioTestCase):
     async def test_install_refused(self):
         self.light._on_ota(self.event(0x42007530))
         update = mock.AsyncMock(return_value=zigbee.Status.FAILURE)
-        self.light.zdev = SimpleNamespace(update_firmware=update)
+        self.light.zdev = fake(ZigpyDevice, update_firmware=update)
         with mock.patch.object(zigbee, "save_snapshot") as snapshot:
             self.assertFalse(await self.updates.install("globe"))
         snapshot.assert_not_called()
@@ -450,7 +458,7 @@ class FirmwareTest(unittest.IsolatedAsyncioTestCase):
     def test_reattach_after_reinterview(self):
         """Après une mise à jour, zigpy remplace l'objet de l'appareil : le pilote s'y rattache."""
         coordinator = zigbee.Coordinator()
-        coordinator.app = SimpleNamespace()
+        coordinator.app = fake(ZigpyApplication)
         coordinator._devices[self.light.ieee] = self.light
         with mock.patch.object(self.light, "_attach") as attach:
             coordinator.device_reinterviewed(SimpleNamespace(ieee=self.light.ieee))
@@ -510,10 +518,10 @@ class UnusedTest(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(patcher.stop)
 
     def test_unused(self):
-        unused = self.coordinator.unused(self.app)
+        unused = self.coordinator.unused(cast(ZigpyApplication, self.app))
         self.assertEqual([zdev.ieee for zdev in unused], [EUI64.convert(OTHER)])
         self.coordinator.paired.add(EUI64.convert(OTHER))  # appairé depuis le démarrage
-        self.assertEqual(self.coordinator.unused(self.app), [])
+        self.assertEqual(self.coordinator.unused(cast(ZigpyApplication, self.app)), [])
 
     async def test_remove_unused(self):
         with mock.patch.object(zigbee, "save_snapshot") as snapshot:
@@ -560,7 +568,7 @@ class SummaryTest(unittest.IsolatedAsyncioTestCase):
     def lines(self):
         return self.out.read_text(encoding="utf-8").splitlines()
 
-    DEVICES = [
+    DEVICES = (
         "",
         "lampe:",
         "  driver : yeelight.bulb",
@@ -569,14 +577,14 @@ class SummaryTest(unittest.IsolatedAsyncioTestCase):
         "prise:",
         "  driver : zigbee.plug",
         f"  ieee   : {IEEE}",
-    ]
+    )
 
     async def test_written_once_key_open(self):
         with self.assertLogs("core.devices", "WARNING") as logs:
             task = asyncio.create_task(summarize(self.devices, self.out))
             await asyncio.sleep(0)
             self.assertFalse(self.out.exists())  # attend la clé
-            self.coordinator.app = self.app
+            self.coordinator.app = cast(ZigpyApplication, self.app)
             self.coordinator._ready.set()
             await asyncio.wait_for(task, 1)
         self.assertEqual(
@@ -589,8 +597,8 @@ class SummaryTest(unittest.IsolatedAsyncioTestCase):
                 f'      <id> = Plug(ieee="{OTHER}")  # Zigbee : Fab, modèle LOM002',
                 "  Zigbee 11:22:33:44:55:66:77:88:",
                 "    declaration : unknown driver, to declare by hand",
-            ]
-            + self.DEVICES,
+                *self.DEVICES,
+            ],
         )
         self.assertEqual(len(logs.output), 1)
         self.assertIn(f"2 anomalie(s) d'appairage, voir {self.out}", logs.output[0])
@@ -603,7 +611,7 @@ class SummaryTest(unittest.IsolatedAsyncioTestCase):
     async def test_key_never_requested(self):
         self.coordinator._task = None
         await asyncio.wait_for(summarize(self.devices, self.out), 1)
-        self.assertEqual(self.lines(), ["unlinked : none"] + self.DEVICES)
+        self.assertEqual(self.lines(), ["unlinked : none", *self.DEVICES])
 
 
 class DetailsTest(unittest.TestCase):
@@ -623,7 +631,8 @@ class DetailsTest(unittest.TestCase):
             in_clusters={}, out_clusters={}, profile_id=0xA1E0, device_type=0x0061
         )
         sensor = Climate(IEEE, reports={"humidity": 0.2, "battery": None})
-        sensor.zdev = SimpleNamespace(
+        sensor.zdev = fake(
+            ZigpyDevice,
             manufacturer="SONOFF", model="SNZB-02D",
             endpoints={0: SimpleNamespace(), 1: endpoint, 242: green_power},
             find_cluster=lambda _cid, _type: ota,
@@ -654,8 +663,9 @@ class DetailsTest(unittest.TestCase):
         self.assertEqual(sensor.check_measure("battery"), "non suivie (reports)")
         self.assertEqual(sensor.check_measure("temperatur"), "mesure inconnue")
         humidity = SimpleNamespace(cluster_id=0x0405, ep_attribute="humidity")
-        endpoint = SimpleNamespace(in_clusters={0x0405: humidity}, out_clusters={}, profile_id=0x0104)
-        sensor.zdev = SimpleNamespace(endpoints={1: endpoint})  # rattaché : clusters connus
+        endpoint = SimpleNamespace(in_clusters={0x0405: humidity}, out_clusters={},
+                                   profile_id=0x0104)
+        sensor.zdev = fake(ZigpyDevice, endpoints={1: endpoint})  # rattaché : clusters connus
         self.assertEqual(sensor.check_measure("humidity"), "")
         self.assertEqual(sensor.check_measure("temperature"), "l'appareil ne la fournit pas")
 
@@ -668,8 +678,9 @@ class DetailsTest(unittest.TestCase):
             "pressure": "disabled", "temperature": "tracked",
         })
         humidity = SimpleNamespace(cluster_id=0x0405, ep_attribute="humidity")
-        endpoint = SimpleNamespace(in_clusters={0x0405: humidity}, out_clusters={}, profile_id=0x0104)
-        sensor.zdev = SimpleNamespace(endpoints={1: endpoint})
+        endpoint = SimpleNamespace(in_clusters={0x0405: humidity}, out_clusters={},
+                                   profile_id=0x0104)
+        sensor.zdev = fake(ZigpyDevice, endpoints={1: endpoint})
         self.assertTrue(sensor.ready())
         self.assertEqual(sensor.measures(), {
             "battery": "absent", "connected": "tracked", "humidity": "tracked",
@@ -735,7 +746,7 @@ class FakeApp:
     def _remove_db_listeners(self):
         self.listener = None
 
-    async def shutdown(self, *, db=True):
+    async def shutdown(self, **_options):
         self.stuck.set()
         await asyncio.Event().wait()
 
@@ -749,7 +760,7 @@ class CloseSessionTest(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(zigbee, "CLOSE_WAIT", 0.05),
             self.assertLogs("drivers.zigbee", "WARNING") as logs,
         ):
-            await zigbee.close_session(app)
+            await zigbee.close_session(cast(ZigpyApplication, app))
         self.assertTrue(app._dblistener.closed)
         self.assertIsNone(app.listener)
         self.assertIn("FakeApp.shutdown", logs.output[0])
@@ -758,13 +769,13 @@ class CloseSessionTest(unittest.IsolatedAsyncioTestCase):
         app = FakeApp()
         app.shutdown = mock.AsyncMock()
         with self.assertNoLogs("drivers.zigbee", "WARNING"):
-            await zigbee.close_session(app)
+            await zigbee.close_session(cast(ZigpyApplication, app))
         app.shutdown.assert_awaited_once_with(db=False)
         self.assertTrue(app._dblistener.closed)
 
     async def test_cancelled_while_stuck(self):
         app = FakeApp()
-        task = asyncio.create_task(zigbee.close_session(app))
+        task = asyncio.create_task(zigbee.close_session(cast(ZigpyApplication, app)))
         await app.stuck.wait()
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):

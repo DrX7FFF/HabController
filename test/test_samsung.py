@@ -10,13 +10,9 @@ from pathlib import Path
 os.environ["HABCTRL_CONFIG"] = str(Path(__file__).resolve().parent / "config")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from test_fp2 import until
+
 from drivers.samsung.tv import SamsungTV, auth_packet, key_packet
-
-
-async def until(condition, limit=2.0):
-    async with asyncio.timeout(limit):
-        while not condition():
-            await asyncio.sleep(0.005)
 
 
 class SamsungTVTest(unittest.IsolatedAsyncioTestCase):

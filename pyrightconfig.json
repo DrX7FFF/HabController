@@ -2,15 +2,7 @@
   "typeCheckingMode": "standard",
   "reportMissingTypeStubs": false,
   "executionEnvironments": [
-    {
-      "root": "test",
-      "extraPaths": ["."],
-      "reportArgumentType": false,
-      "reportAttributeAccessIssue": false,
-      "reportOptionalMemberAccess": false,
-      "reportOptionalSubscript": false,
-      "reportIncompatibleMethodOverride": false
-    },
+    { "root": "test", "extraPaths": ["."] },
     { "root": "." }
   ]
 }

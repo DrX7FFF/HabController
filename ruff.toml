@@ -8,3 +8,7 @@ select = [
 # PLR0913 et suivantes : seuils de complexité arbitraires ; PLW0603 : l'état du programme
 # (main.py) et les instances uniques (datalog, push) sont des variables de module
 ignore = ["PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "PLW0603"]
+
+[lint.per-file-ignores]
+# un script d'automatisation importe tout de core.automation (voir doc.md)
+"test/config/automations/*" = ["F403", "F405"]

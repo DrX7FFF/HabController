@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib
+import logging
 import os
 import pkgutil
 import stat
@@ -13,13 +14,18 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast, override
 from unittest import mock
 
 # configuration de test (test/config/), jamais celle de l'installation
 os.environ["HABCTRL_CONFIG"] = str(Path(__file__).resolve().parent / "config")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from aiohomekit import Controller
 from aiohomekit.exceptions import AccessoryDisconnectedError, AccessoryNotFoundError
+from aiohomekit.model.categories import Categories
+from aiohomekit.model.feature_flags import FeatureFlags
+from aiohomekit.model.status_flags import StatusFlags
 from aiohomekit.zeroconf import HomeKitService
 
 import drivers
@@ -31,8 +37,16 @@ from drivers import homekit
 from drivers.homekit import fp2
 from drivers.homekit import pair as homekit_pair
 
+# journaux attendus sans assertLogs : pas d'affichage (assertLogs les voit toujours)
+logging.getLogger().addHandler(logging.NullHandler())
+
 BASE = "-0000-1000-8000-0026BB765291"
 IEEE = "a4:c1:38:d6:d7:c6:db:f6"  # adresse d'une prise Zigbee
+
+
+def fake[T](_cls: type[T], **attrs: object) -> T:
+    """Objet simulé tenant lieu d'un `cls` (seuls les attributs `attrs` existent)."""
+    return cast(T, SimpleNamespace(**attrs))
 
 
 def char(iid, short, value, perms):
@@ -150,8 +164,11 @@ class FakePairing:
 
 
 async def until(condition, limit=2.0):
+    """Attend que condition() soit vraie (au plus `limit` s)."""
     async with asyncio.timeout(limit):
-        while not condition():
+        while True:
+            if condition():
+                return
             await asyncio.sleep(0.005)
 
 
@@ -456,11 +473,11 @@ class HomekitFilesTest(unittest.IsolatedAsyncioTestCase):
             name="FP2",
             id="AA:BB:CC:DD:EE:FF",
             model="PS-S02D",
-            feature_flags=0,
-            status_flags=0,
+            feature_flags=FeatureFlags(0),
+            status_flags=StatusFlags(0),
             config_num=1,
             state_num=1,
-            category=2,
+            category=Categories.BRIDGE,
             protocol_version="1.1",
             type="_hap._tcp.local.",
             address="192.168.1.50",
@@ -471,7 +488,7 @@ class HomekitFilesTest(unittest.IsolatedAsyncioTestCase):
             async_find=mock.AsyncMock(return_value=SimpleNamespace(description=description)),
             load_pairing=mock.Mock(return_value="pairing"),
         )
-        self.assertEqual(await homekit.connect(controller, "fp2", 5), "pairing")
+        self.assertEqual(await homekit.connect(cast(Controller, controller), "fp2", 5), "pairing")
         controller.async_find.assert_awaited_once_with("AA:BB:CC:DD:EE:FF", 5)
         alias, data = controller.load_pairing.call_args.args
         self.assertEqual(alias, "fp2")
@@ -588,7 +605,7 @@ class LoadDevicesTest(unittest.TestCase):
             "fp2 = FP2(zonemapping={1: 'salon'})\n"
             f"prise = Plug(ieee='{IEEE}')\n",
         )
-        self.write("groupe", f"from {self.package}.salon import prise\n")  # importé : compté une fois
+        self.write("groupe", f"from {self.package}.salon import prise\n")  # compté une fois
         self.write("_ignore", "raise RuntimeError\n")
         devices = core_devices.load_devices(self.package)
         self.assertEqual(set(devices), {"fp2", "prise"})
@@ -627,11 +644,11 @@ def service(model="PS-S02D"):
         name="FP2-1234",
         id="AA:BB:CC:DD:EE:FF",
         model=model,
-        feature_flags=0,
-        status_flags=0,
+        feature_flags=FeatureFlags(0),
+        status_flags=StatusFlags(0),
         config_num=7,
         state_num=1,
-        category=2,
+        category=Categories.BRIDGE,
         protocol_version="1.1",
         type="_hap._tcp.local.",
         address="192.168.1.50",
@@ -670,19 +687,22 @@ class DriverForModelTest(unittest.TestCase):
             core_devices.load_driver(driver)
 
 
-class ScriptedDialog:
+class ScriptedDialog(core_pair.Dialog):
     """Dialogue de l'appairage sans page : réponses données d'avance, messages gardés."""
 
     def __init__(self, *answers: str):
         self.answers = list(answers)
         self.out: list[str] = []
 
+    @override
     def say(self, text: str) -> None:
         self.out.append(text)
 
+    @override
     def wait(self, seconds: int) -> None:
         pass
 
+    @override
     async def ask(self, prompt: str, choices=None, secret: bool = False) -> str:
         self.out.append(prompt)
         return self.answers.pop(0)

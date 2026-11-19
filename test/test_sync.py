@@ -110,7 +110,8 @@ class SaveTest(RepoTest):
         with self.assertRaisesRegex(git.GitError, "1 fichier.*push refusé.*télécharger"):
             await git.backup(self.repo)
         self.assertEqual(await git.pull(self.repo, merge=True), ["autre.toml"])
-        self.assertEqual(await git.backup(self.repo), "0 fichier(s) commité(s), 2 commit(s) poussé(s)")
+        self.assertEqual(await git.backup(self.repo),
+                         "0 fichier(s) commité(s), 2 commit(s) poussé(s)")
         run(self.other, "git", "pull", "-q")
         self.assertTrue((self.other / "local.toml").exists())
 

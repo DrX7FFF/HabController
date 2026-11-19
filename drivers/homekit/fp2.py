@@ -111,7 +111,7 @@ class FP2(NetworkDevice):
         self._subscribed: set[Key] = set()  # abonnements actifs sur la connexion courante
         self._mapping = Mapping()
         self._pairing = None  # défini une fois la première lecture faite
-        self._backoff = RETRY_MIN
+        self._backoff: float = RETRY_MIN
 
     @property
     def zones(self) -> "Zones":

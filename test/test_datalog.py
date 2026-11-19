@@ -153,9 +153,11 @@ class RecordFunctionTest(DatalogTestCase):
         self.assertIn("envoi rétabli", logs.output[1])
 
     async def test_nothing_recorded_before_time_sync(self):
-        sync_file = mock.Mock(**{"exists.return_value": False})
+        sync_file = mock.Mock(exists=mock.Mock(return_value=False))
         with (
-            mock.patch.multiple(datalog, _clock_ok=False, _clock_warned=False, SYNC_FILE=sync_file),
+            mock.patch.object(datalog, "_clock_ok", False),
+            mock.patch.object(datalog, "_clock_warned", False),
+            mock.patch.object(datalog, "SYNC_FILE", sync_file),
             self.assertLogs("core.datalog", "INFO") as logs,
         ):
             self.prise.update({"on": True})
@@ -207,7 +209,8 @@ class ReadTest(DatalogTestCase):
         self.assertEqual(points, [[100, 9.0], [200, 1.0], [300, 2.0]])
         (_, path, inside), (_, _, before) = self.requests
         self.assertEqual(path, "devices/prise/active_power")
-        self.assertEqual(inside["params"], {"orderBy": '"$key"', "startAt": '"100"', "endAt": '"400"'})
+        self.assertEqual(inside["params"],
+                         {"orderBy": '"$key"', "startAt": '"100"', "endAt": '"400"'})
         self.assertEqual(
             before["params"], {"orderBy": '"$key"', "endAt": '"99"', "limitToLast": "1"}
         )
