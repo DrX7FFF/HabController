@@ -11,8 +11,8 @@
 // Firmwares : un bouton par équipement à qui un firmware plus récent est proposé
 // (POST /api/firmware/<id>) ; une installation à la fois (les autres boutons sont désactivés),
 // avec sa progression. Liste, avancement et résultat : état du serveur.
-// Protocoles, erreurs de la configuration en cours (parties ignorées, listées sous « Recharger »)
-// et notifications (listées en tête de page) : état du serveur, reçu par le WebSocket /ws.
+// Protocoles et erreurs de la configuration en cours (parties ignorées, listées sous
+// « Recharger ») : état du serveur, reçu par le WebSocket /ws.
 // Notifications push : topic ntfy à saisir dans l'appli du téléphone ; « Ping » envoie une
 // notification de test (POST /api/push/ping), l'heure de réception de son Pong s'affiche.
 
@@ -180,7 +180,6 @@ export function mount(page) {
     configErrors.hidden = !errors.length;
   }
 
-  const others = page.querySelector("#notifications");
   const firmwareNone = page.querySelector("#firmware-none");
   const firmwareList = page.querySelector("#firmware-list");
   const firmwareResult = page.querySelector("#firmware-result");
@@ -239,10 +238,6 @@ export function mount(page) {
     }
     if (m.firmware) listFirmware(m.firmware);
     if (m.push) showPush(m.push);
-    if (m.notifications) {
-      others.replaceChildren(...m.notifications.map(n => el("li", { textContent: n.text })));
-      others.hidden = !m.notifications.length;
-    }
   });
 
   // Attend le message init du programme redémarré (date de démarrage changée), puis recharge la page.

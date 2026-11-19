@@ -9,9 +9,9 @@ import logging
 import shutil
 import sqlite3
 import sys
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
-from typing import ClassVar
+from typing import ClassVar, override
 
 import zhaquirks
 from bellows.ash import AshException
@@ -30,6 +30,7 @@ from zigpy.config import (
 from zigpy.device import Device as ZigpyDevice
 from zigpy.endpoint import Endpoint
 from zigpy.exceptions import RadioException, ZigbeeException
+from zigpy.ota import OtaImageWithMetadata
 from zigpy.profiles import zha, zll
 from zigpy.types import EUI64
 from zigpy.zcl import (
@@ -187,8 +188,8 @@ async def close_database(app: ZigpyApplication) -> None:
     app._remove_db_listeners()
     try:
         await asyncio.wait_for(app._dblistener.shutdown(), CLOSE_WAIT)
-    except Exception as err:  # base bloquée ou abîmée : on ne peut rien de plus
-        log.warning("Base Zigbee : fermeture impossible (%s)", type(err).__name__)
+    except Exception:  # base bloquée ou abîmée : on ne peut rien de plus
+        log.exception("Base Zigbee : fermeture impossible")
 
 
 def restore_snapshot() -> None:
@@ -267,13 +268,20 @@ async def read(cluster, names: list[str]) -> dict:
     return {name: value for name, value in success.items() if not isinstance(value, Status)}
 
 
-def tracked(defaults: Mapping, reports: Mapping | None) -> dict:
+def tracked(
+    defaults: Mapping[str, object], reports: Mapping[str, object] | None
+) -> dict[str, float]:
     """Valeurs suivies {état: écart} : défauts du pilote, remplacés par la déclaration
-    (`reports`) ; None : non suivie (absente du résultat)."""
+    (`reports`) ; True : tout-ou-rien ; None : non suivie (absente du résultat)."""
     if unknown := set(reports or {}) - set(defaults):
         raise ValueError(f"reports : {', '.join(sorted(unknown))} inconnu de ce pilote")
-    merged = {**defaults, **(reports or {})}
-    return {key: change for key, change in merged.items() if change is not None}
+    result: dict[str, float] = {}
+    for key, change in {**defaults, **(reports or {})}.items():
+        if isinstance(change, int | float):
+            result[key] = change
+        elif change is not None:
+            raise ValueError(f"reports : {key} attend un nombre, True ou None")
+    return result
 
 
 def raw_change(change: float) -> int:
@@ -376,7 +384,9 @@ class Coordinator:
                 self._launch()
             assert self._task is not None
             ready = asyncio.ensure_future(self._ready.wait())
-            await asyncio.wait({ready, self._task}, timeout=READY_WAIT, return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait(
+                {ready, self._task}, timeout=READY_WAIT, return_when=asyncio.FIRST_COMPLETED
+            )
             ready.cancel()
             if self.app is None:
                 raise RadioException("clé Zigbee inaccessible, voir le journal")
@@ -497,13 +507,14 @@ class ZigbeeDevice(NetworkDevice):
         except (AssertionError, ValueError) as err:
             raise ValueError(f"adresse IEEE invalide « {ieee} »") from err
         self.poll = self.POLL if poll is None else poll
-        self.reports: dict = {}  # mesures suivies : tracked(DEFAULTS, déclaration), fixé par le pilote
-        self.zdev = None  # objet zigpy de l'équipement, tant que la clé est ouverte
-        self._unsubscribe: list = []
-        self._ota_image = None  # firmware plus récent trouvé par zigpy, à installer à la demande
+        self.reports: dict[str, float] = {}  # tracked(DEFAULTS, déclaration), fixé par le pilote
+        self.zdev: ZigpyDevice | None = None  # objet zigpy de l'équipement, clé ouverte
+        self._unsubscribe: list[Callable[[], object]] = []
+        self._ota_image: OtaImageWithMetadata | None = None  # plus récent, installé sur demande
 
     # --- cycle de vie -------------------------------------------------------
 
+    @override
     async def start(self) -> None:
         coordinator.register(self)
 
@@ -520,8 +531,10 @@ class ZigbeeDevice(NetworkDevice):
         version = ota.get("current_file_version") if ota is not None else None
         return f"0x{version:08x}" if version else ""
 
+    @override
     def physical(self) -> str:
-        """Adresse IEEE, et version du firmware si zigpy la connaît (équipement à mise à jour OTA)."""
+        """Adresse IEEE, et version du firmware si zigpy la connaît (équipement à mise à jour
+        OTA)."""
         firmware = self._firmware()
         return f"Zigbee {self.ieee}" + (f" (firmware {firmware})" if firmware else "")
 
@@ -532,10 +545,12 @@ class ZigbeeDevice(NetworkDevice):
         state = "disabled" if value is None else "tracked" if value is True else f"tracked {value}"
         return state + (" (forced)" if value != self.DEFAULTS[key] else "")
 
+    @override
     def ready(self) -> bool:
         """Rattaché : les mesures absentes de l'appareil sont connues."""
         return self.zdev is not None
 
+    @override
     def measures(self) -> dict[str, str]:
         """Comme Device, plus : mesure non suivie (reports), ou absente de l'appareil (connu
         une fois rattaché)."""
@@ -547,6 +562,7 @@ class ZigbeeDevice(NetworkDevice):
                 measures[key] = "disabled"
         return measures
 
+    @override
     def details(self) -> dict:
         """Identité et parties annoncées à l'appairage, firmware, et état de chaque mesure :
         tracked ou disabled (voir _measure_state), absent (l'appareil ne l'a pas), unmanaged
@@ -573,7 +589,7 @@ class ZigbeeDevice(NetworkDevice):
             key: "absent" if watch[key] == "absent" else self._measure_state(key)
             for key in self.DEFAULTS
         }
-        used = {c.cluster_id for key in self.DEFAULTS if (c := self._cluster(zdev, key)) is not None}
+        used = {c.cluster_id for k in self.DEFAULTS if (c := self._cluster(zdev, k)) is not None}
         clusters = {cid: c for ep in endpoints.values() for cid, c in ep.in_clusters.items()}
         for cid, cluster in sorted(clusters.items()):
             if cid not in used and is_measure(cid):
@@ -583,6 +599,7 @@ class ZigbeeDevice(NetworkDevice):
             info["proprietary"] = ", ".join(proprietary)
         return info
 
+    @override
     async def stop(self) -> None:
         updates.withdraw(self.id)
         await coordinator.unregister(self)
@@ -609,7 +626,9 @@ class ZigbeeDevice(NetworkDevice):
                 # un quirk (attribute_updated) : zigpy n'émet qu'un des deux par valeur reçue
                 for event in (AttributeReportedEvent, AttributeUpdatedEvent):
                     self._unsubscribe.append(cluster.on_event(event.event_type, self._on_event))
-                self._unsubscribe.append(cluster.on_event(OtaImageAvailableEvent.event_type, self._on_ota))
+                self._unsubscribe.append(
+                    cluster.on_event(OtaImageAvailableEvent.event_type, self._on_ota)
+                )
         if self.poll:
             self._spawn(self._poll_loop(zdev, self.poll))
 
@@ -621,7 +640,7 @@ class ZigbeeDevice(NetworkDevice):
             task.cancel()
         self.zdev = None
         self._ready_changed()
-        self._set_connected(False, silent=True)  # clé fermée (journalisé par le coordinateur) ou arrêt
+        self._set_connected(False, silent=True)  # clé fermée (journalisé à part) ou arrêt
 
     async def _poll_loop(self, zdev, poll: float) -> None:
         configured = False
@@ -644,7 +663,7 @@ class ZigbeeDevice(NetworkDevice):
 
     def _cluster(self, zdev, key: str):
         """Cluster de l'équipement qui fournit la mesure `key` de DEFAULTS, ou None."""
-        return
+        raise NotImplementedError
 
     async def _read(self, zdev) -> None:
         """Lit tout l'état de l'équipement."""
@@ -660,7 +679,6 @@ class ZigbeeDevice(NetworkDevice):
             return
         self._received()
         self._on_attribute(event.cluster_id, event.attribute_name, event.value)
-        self._seen()
 
     def _on_ota(self, event: OtaImageAvailableEvent) -> None:
         """Recherche de firmware de zigpy : le plus récent est proposé (rien n'est installé)."""

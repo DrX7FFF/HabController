@@ -4,6 +4,7 @@ chaque changement (« state on=1 auto=1 pattern="Plasma" »)."""
 import asyncio
 import logging
 import shlex
+from typing import override
 
 from core.base import (
     DeviceError,
@@ -35,7 +36,7 @@ class RGBMatrix(Switchable, IPDevice, NetworkDevice):
         self._ping = ping
         self._writer: asyncio.StreamWriter | None = None
 
-
+    @override
     async def start(self) -> None:
         self._spawn(self._run())
 
@@ -110,6 +111,7 @@ class RGBMatrix(Switchable, IPDevice, NetworkDevice):
     def previous_pattern(self) -> None:
         self._background("previous_pattern", lambda: self._command("p"))
 
+    @override
     async def _switch(self, on: bool, transition: int | None) -> None:
         await self._command("on" if on else "off")
 

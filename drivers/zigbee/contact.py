@@ -8,8 +8,11 @@ class ContactReports(SensorReports, total=False):
     open: bool | None
 
 
+DEFAULTS: ContactReports = {"open": True, "battery": 1}
+
+
 class Contact(Sensor):
-    DEFAULTS = {"open": True, "battery": 1}
+    DEFAULTS = DEFAULTS
     open = State[bool]()
     event_open = EventSource[EventBool]()
     MEASURES = Sensor.MEASURES | {ZCL["open"]: (open, bool)}

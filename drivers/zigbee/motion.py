@@ -9,8 +9,11 @@ class MotionReports(SensorReports, total=False):
     illuminance: float | None  # % (écart relatif)
 
 
+DEFAULTS: MotionReports = {"presence": True, "illuminance": 2, "battery": 1}
+
+
 class Motion(Sensor):
-    DEFAULTS = {"presence": True, "illuminance": 2, "battery": 1}
+    DEFAULTS = DEFAULTS
     presence = State[bool]()
     illuminance = State[int]()  # lx
     event_presence = EventSource[EventBool]()

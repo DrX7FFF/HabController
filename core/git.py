@@ -36,7 +36,7 @@ def _env() -> dict:
     return env
 
 
-async def git(repo: Path, *args: str, timeout: float = TIMEOUT) -> str:
+async def git(repo: Path, *args: str) -> str:
     """Sortie de la commande ; GitError si elle échoue (message de git) ou ne répond pas."""
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -47,11 +47,11 @@ async def git(repo: Path, *args: str, timeout: float = TIMEOUT) -> str:
         raise GitError(f"git introuvable ({err})") from err
     name = next(a for a in args if not a.startswith("-") and "=" not in a)
     try:
-        out, err = await asyncio.wait_for(proc.communicate(), timeout)
+        out, err = await asyncio.wait_for(proc.communicate(), TIMEOUT)
     except TimeoutError:
         proc.kill()
         await proc.wait()
-        raise GitError(f"git {name} : pas de réponse après {timeout:.0f} s") from None
+        raise GitError(f"git {name} : pas de réponse après {TIMEOUT} s") from None
     if proc.returncode:
         output = (out + err).decode(errors="replace")
         raise GitError(f"git {name} : {_summary(output) or proc.returncode}", output)

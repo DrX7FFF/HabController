@@ -6,7 +6,7 @@ correctif zha-quirks. L'appareil dort : il n'est jamais interrogé."""
 
 import math
 from collections.abc import Callable, Mapping
-from typing import Any, ClassVar, TypedDict
+from typing import Any, ClassVar, TypedDict, override
 
 from core.base import Device, State
 from drivers.zigbee import (
@@ -27,7 +27,7 @@ OCCUPANCY = 0x0406
 
 
 def lux(value: int) -> int:
-    """Luminosité ZCL (10000 × log10(lx) + 1, 0 = trop faible) en lux."""
+    """Luminosité ZCL (10000 * log10(lx) + 1, 0 = trop faible) en lux."""
     return round(10 ** ((value - 1) / 10000)) if value else 0
 
 
@@ -78,6 +78,7 @@ class Sensor(ZigbeeDevice):
         self.reports = tracked(self.DEFAULTS, reports)
         Device.battery_powered.update(self, True)
 
+    @override
     async def _configure(self, zdev) -> None:
         # non suivie (ou d'une autre variante) : le capteur doit cesser de l'envoyer
         for key, (low, high, convert) in REPORTS.items():
@@ -89,9 +90,11 @@ class Sensor(ZigbeeDevice):
                 cfg = (low, high, raw_change(convert(self.reports[key])))
             await setup_reporting(self.id, cluster, {attr: cfg})
 
+    @override
     def _cluster(self, zdev, key: str):
         return find_cluster(zdev, ZCL[key][0], output=True)
 
+    @override
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
         if (measure := self.MEASURES.get((cluster_id, name))) and value is not None:
             state, convert = measure

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from typing import override
 
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import WebSocketException
@@ -25,7 +26,7 @@ class WLED(Switchable, IPDevice, NetworkDevice):
         self._retry = retry
         self._ws: ClientConnection | None = None
 
-
+    @override
     async def start(self) -> None:
         self._spawn(self._run())
 
@@ -57,6 +58,7 @@ class WLED(Switchable, IPDevice, NetworkDevice):
 
     # --- commandes ----------------------------------------------------------
 
+    @override
     async def _switch(self, on: bool, transition: int | None) -> None:
         self._check_reachable()
         assert self._ws is not None  # connecté

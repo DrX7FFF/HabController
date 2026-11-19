@@ -1,6 +1,6 @@
 """Pilote ampoule Zigbee."""
 
-from typing import TypedDict
+from typing import TypedDict, override
 
 import core.light
 from core.base import DeviceError
@@ -94,6 +94,7 @@ class Light(core.light.Light, ZigbeeDevice):
 
     # --- état ---------------------------------------------------------------
 
+    @override
     def _cluster(self, zdev, key: str):
         """Cluster du réglage `key`, ou None si l'ampoule ne l'a pas (cluster absent, ou
         couleur non déclarée dans color_capabilities, lu depuis le cache de la base zigpy)."""
@@ -118,10 +119,12 @@ class Light(core.light.Light, ZigbeeDevice):
                     cfgs[attr] = (low, high, change)
         return list(clusters.values())
 
+    @override
     async def _configure(self, zdev) -> None:
         for cluster, reports in self._reports(zdev):
             await setup_reporting(self.id, cluster, reports)
 
+    @override
     async def _read(self, zdev) -> None:
         for cluster, reports in self._reports(zdev):
             names = [attr for attr, cfg in reports.items() if cfg is not None]
@@ -130,11 +133,13 @@ class Light(core.light.Light, ZigbeeDevice):
             for name, value in (await read(cluster, names)).items():
                 self._on_attribute(cluster.cluster_id, name, value)
 
+    @override
     def _attach(self, app) -> None:
         super()._attach(app)
         if self.zdev is not None:
             Light.rgb_capable.update(self, self._cluster(self.zdev, "rgb") is not None)
 
+    @override
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
         setting = SETTING_OF.get(name)
         if setting is None or setting not in self.reports or value is None:
@@ -169,18 +174,22 @@ class Light(core.light.Light, ZigbeeDevice):
             raise ValueError(f"{self.id} ne gère pas « {name} » (ampoule sans ce réglage)")
         return cluster
 
+    @override
     async def _switch(self, on: bool, transition: int | None) -> None:
         await self._command(self._setting("on"), "on" if on else "off")
         Light.on.update(self, on)
 
+    @override
     async def _set_brightness(self, brightness: int, transition: int | None) -> None:
         level = min(254, max(1, round(int(brightness) * 254 / 100)))
         await self._command(
-            self._setting("brightness"), "move_to_level_with_on_off", level, self._tenths(transition)
+            self._setting("brightness"), "move_to_level_with_on_off", level,
+            self._tenths(transition),
         )
         Light.on.update(self, True)
         Light.brightness.update(self, int(brightness))
 
+    @override
     async def _set_color_temp(
         self, color_temp: int, brightness: int | None, transition: int | None
     ) -> None:
@@ -191,6 +200,7 @@ class Light(core.light.Light, ZigbeeDevice):
         await self._command(cluster, "move_to_color_temp", mireds, self._tenths(transition))
         Light.color_temp.update(self, int(color_temp))
 
+    @override
     async def _set_rgb(self, rgb: str, brightness: int | None, transition: int | None) -> None:
         if brightness is not None:
             await self._set_brightness(brightness, transition)

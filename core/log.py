@@ -27,7 +27,8 @@ def _http_problem(record: logging.LogRecord) -> bool:
 
 def _uvicorn_server(record: logging.LogRecord) -> bool:
     """Journal général d'uvicorn (nommé « uvicorn.error » même pour ses INFO) : affiché
-    « uvicorn » ; ouverture et fermeture d'un WebSocket (une par page ouverte) : pas journalisées."""
+    « uvicorn » ; ouverture et fermeture d'un WebSocket (une par page ouverte) : pas
+    journalisées."""
     record.name = "uvicorn"
     message = str(record.msg)
     return "[accepted]" not in message and message not in ("connection open", "connection closed")

@@ -70,12 +70,12 @@ class Pairing:
     HINT = ""  # conseil affiché avec une erreur
     SECRET_ERRORS = False  # erreurs affichées sans leur texte (il pourrait contenir un code)
     CLEANUP = False  # sait retrouver et retirer les appareils inutilisés (unused, remove_unused)
-    previous = ""  # équipement logique auquel l'appareil était lié, s'il en change
-    dev_id = ""  # équipement logique appairé
-    declared: dict[str, Device] = {}  # équipements déclarés dans devices/
 
     def __init__(self, ui: Dialog):
         self.ui = ui
+        self.previous = ""  # équipement logique auquel l'appareil était lié, s'il en change
+        self.dev_id = ""  # équipement logique appairé
+        self.declared: dict[str, Device] = {}  # équipements déclarés dans devices/, relus par run()
 
     @property
     def models(self) -> Path:

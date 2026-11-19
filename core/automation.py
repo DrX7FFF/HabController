@@ -1,4 +1,4 @@
-"""Moteur des automatisations de Config/automations : chargement et minuteurs. Les
+"""Moteur des automatisations de HabConfig/automations : chargement et minuteurs. Les
 automatisations s'abonnent aux événements des équipements (@equipement.event_…, core.base)
 et de l'application (@app_start, @app_reload) ; variables gardées au rechargement : KeepOnReload ;
 notifications push sur le téléphone : notify, ask (core.push).
@@ -7,11 +7,13 @@ Un script n'importe que ce module : `from core.automation import *` (voir __all_
 
 import asyncio
 import importlib
-import inspect
 import logging
 import sys
 from collections.abc import Callable
+from types import ModuleType
 from typing import Annotated, Any
+
+import annotationlib
 
 from core import CONFIG_DIR, push
 from core.base import (
@@ -31,7 +33,7 @@ from core.base import (
 )
 from core.push import ask, notify
 
-_log = logging.getLogger(__name__)  # moteur : system.log
+_logger = logging.getLogger(__name__)  # moteur : system.log
 log = logging.getLogger("automations")  # scripts : automations.log, avec le nom du fichier
 __all__ = [
     "DeviceError",
@@ -81,14 +83,12 @@ async def fire_app(name: str) -> None:
         try:
             await func()
         except Exception:
-            _log.exception("%s.%s : erreur", func.__module__.rpartition(".")[2], func.__name__)
+            _logger.exception("%s.%s : erreur", func.__module__.rpartition(".")[2], func.__name__)
 
 
-def _kept_names(module) -> list[str]:
-    try:
-        annotations = inspect.get_annotations(module)
-    except Exception:  # annotation invalide (évaluée à la demande en Python 3.14)
-        return []
+def _kept_names(module: ModuleType) -> list[str]:
+    # FORWARDREF : une annotation invalide d'une autre variable ne fait pas échouer la lecture
+    annotations = annotationlib.get_annotations(module, format=annotationlib.Format.FORWARDREF)
     return [name for name, ann in annotations.items() if ann in (KeepOnReload, "KeepOnReload")]
 
 
@@ -123,7 +123,7 @@ class Timer:
             if asyncio.iscoroutine(result):
                 await result
         except (DeviceError, ValueError) as err:
-            _log.warning("%s : %s : %s", self.name, type(err).__name__, err)
+            _logger.warning("%s : %s : %s", self.name, type(err).__name__, err)
 
 
 def check() -> None:
@@ -133,7 +133,7 @@ def check() -> None:
         if key in ("zone", "action"):
             continue
         if reason := device.check_measure(key):
-            _log.warning(
+            _logger.warning(
                 "%s.%s : %s.event_%s : %s, jamais déclenchée",
                 func.__module__.rpartition(".")[2], func.__name__, device.id, key, reason,
             )
@@ -155,7 +155,7 @@ def load_automations(reload: bool = False) -> None:
             remove_listeners(module)
             for funcs in _app.values():
                 funcs[:] = [f for f in funcs if f.__module__ != module]
-            _log.exception("automations/%s : fichier ignoré", path.name)
+            _logger.exception("automations/%s : fichier ignoré", path.name)
             continue
         saved = _kept.pop(module, {})
         for name in _kept_names(mod):

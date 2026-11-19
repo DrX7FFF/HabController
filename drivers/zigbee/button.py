@@ -1,6 +1,7 @@
 """Pilote bouton Zigbee."""
 
 import logging
+from typing import override
 
 from zigpy.endpoint import Endpoint
 
@@ -12,8 +13,9 @@ log = logging.getLogger(__name__)
 
 
 class Button(Sensor):
-    event_action = EventSource[EventAction]()  # action : nom donné par le correctif zha-quirks du modèle
+    event_action = EventSource[EventAction]()  # action : nommée par le correctif zha-quirks
 
+    @override
     def _attach(self, app) -> None:
         super()._attach(app)
         if self.zdev is None:
@@ -25,6 +27,7 @@ class Button(Sensor):
                 cluster.add_listener(self)
                 self._unsubscribe.append(lambda cluster=cluster: cluster.remove_listener(self))
 
+    @override
     async def _configure(self, zdev) -> None:
         await super()._configure(zdev)
         # appuis envoyés par le cluster du fabricant (ex. Philips), aux seuls destinataires liés

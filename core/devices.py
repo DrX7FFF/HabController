@@ -132,7 +132,7 @@ def write_summary(devices: dict[str, Device], path: Path) -> int:
         report[dev_id] = info
     lines = []
     for key, value in report.items():
-        lines += yaml({key: value}, 0) + [""]
+        lines += [*yaml({key: value}, 0), ""]
     path.write_text("\n".join(lines), encoding="utf-8")
     return unpaired + orphans
 

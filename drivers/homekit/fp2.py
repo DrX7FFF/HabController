@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import override
 
 from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 from aiohomekit.uuid import normalize_uuid
@@ -118,9 +119,11 @@ class FP2(NetworkDevice):
 
     # --- cycle de vie -------------------------------------------------------
 
+    @override
     def physical(self) -> str:
         return links().get(self.id, "")
 
+    @override
     def details(self) -> dict:
         try:
             data = read_pairing_file(self.id)
@@ -129,6 +132,7 @@ class FP2(NetworkDevice):
         info = {"pairing id": data["hap"]["AccessoryPairingID"]}
         return info | {field: str(data[field]) for field in DETAILS if field in data}
 
+    @override
     def check_measure(self, name: str) -> str:
         prefix, _, zone = name.partition(".")
         if prefix != "zone" or not zone:
@@ -138,6 +142,7 @@ class FP2(NetworkDevice):
             return ""
         return "zone inconnue (zonemapping)"
 
+    @override
     async def start(self) -> None:
         if self.physical():  # sinon reste injoignable, signalé par equipements.yaml
             self._spawn(self._run())
@@ -181,7 +186,6 @@ class FP2(NetworkDevice):
                 await asyncio.sleep(pairing.poll_interval.total_seconds())
                 async with asyncio.timeout(POLL_TIMEOUT):
                     await self._read(pairing)
-                self._seen()
         finally:
             for stop in stops:
                 stop()
@@ -251,13 +255,17 @@ class FP2(NetworkDevice):
             f"zone.{zone}",
             old,
             present,
-            lambda when, old, new: self._fire("zone", EventZone(self, when, zone, None if old is None else bool(old), bool(new))),
+            lambda when, old, new: self._fire(
+                "zone", EventZone(self, when, zone, None if old is None else bool(old), bool(new))
+            ),
         )
 
+    @override
     def state(self) -> dict:
         """Plus la présence de chaque zone, « zone.<nom> » (noms du datalog)."""
         return super().state() | {f"zone.{zone}": present for zone, present in self._zones.items()}
 
+    @override
     def _reset(self) -> None:
         self._zones = {}
         super()._reset()
@@ -294,16 +302,21 @@ class FP2(NetworkDevice):
 
 
 class Zones:
+    """Présence par zone, None tant qu'elle n'est pas connue : `fp2.zones.salon` (alias de
+    zonemapping, AttributeError s'il n'y est pas) ou `fp2.zones[1]` (index)."""
+
     __slots__ = ("_device",)
 
     def __init__(self, device: FP2):
         self._device = device
 
     def __getattr__(self, name: str) -> bool | None:
+        if name not in self._device._aliases.values():
+            raise AttributeError(f"{self._device.id} : zone « {name} » absente de zonemapping")
         return self._device._zones.get(name)
 
     def __getitem__(self, index: int) -> bool | None:
-        return self.__getattr__(str(self._device._aliases.get(index, index)))
+        return self._device._zones.get(str(self._device._aliases.get(index, index)))
 
 
 Driver = FP2  # convention : le chargeur cherche ce nom

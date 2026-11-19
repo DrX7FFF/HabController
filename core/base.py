@@ -6,15 +6,15 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from functools import cache, partial
-from typing import cast, overload
+from typing import cast, overload, override
 
 log = logging.getLogger(__name__)
 
 type Handler = Callable[..., Awaitable[None]]  # fonction abonnée à un événement
 type Background = Coroutine[object, object, None]  # travail lancé en tâche de fond
 
-tasks: set[asyncio.Task[None]] = set()  # tâches de fond (commandes, automatisations), annulées à l'arrêt
-_listeners: list[tuple["Device", str, Handler]] = []  # abonnements event_ : (équipement, clé, fonction)
+tasks: set[asyncio.Task[None]] = set()  # tâches de fond (commandes, automatisations…)
+_listeners: list[tuple["Device", str, Handler]] = []  # event_ : (équipement, clé, fonction)
 _listener_tasks: set[asyncio.Task[None]] = set()  # fonctions abonnées en cours
 
 
@@ -22,7 +22,14 @@ def now_ms() -> int:
     return time.time_ns() // 1_000_000
 
 
-def spawn_task(coro: Background, name: str, group: set[asyncio.Task[None]] | None = None) -> asyncio.Task[None]:
+def describe(err: Exception) -> str:
+    """Texte d'une erreur pour le journal : son message, à défaut son type."""
+    return str(err) or type(err).__name__
+
+
+def spawn_task(
+    coro: Background, name: str, group: set[asyncio.Task[None]] | None = None
+) -> asyncio.Task[None]:
     """Tâche de fond (dans tasks, et dans `group`) ; erreur inattendue journalisée."""
     task = asyncio.get_running_loop().create_task(coro, name=name)
     for owner in (tasks, group) if group is not None else (tasks,):
@@ -93,7 +100,8 @@ type Listener[E] = Callable[[E], Awaitable[None]]
 
 class EventSource[E]:
     """Événement d'un équipement, déclaré par son pilote : `@equipement.event_x` abonne une
-    fonction async(event: E). Clé : le nom sans « event_ » (attribut d'état, « zone » ou « action »)."""
+    fonction async(event: E). Clé : le nom sans « event_ » (attribut d'état, « zone » ou
+    « action »)."""
 
     def __init__(self):
         self.key = ""
@@ -114,7 +122,7 @@ class EventSource[E]:
 
 
 def listeners() -> list[tuple["Device", str, Handler]]:
-    """Abonnements evt_ en cours : (équipement, clé d'EventSource, fonction)."""
+    """Abonnements event_ en cours : (équipement, clé d'EventSource, fonction)."""
     return list(_listeners)
 
 
@@ -129,8 +137,8 @@ async def clear_listeners() -> None:
     await cancel(_listener_tasks)
 
 
-def on_value(value: bool | str | int) -> bool:
-    """Valeur demandée pour l'attribut `on` : True ou False."""
+def on_value(value: object) -> bool:
+    """Valeur demandée pour l'attribut `on` (venue d'une page : tout type) : True ou False."""
     if isinstance(value, bool):
         return value
     raise ValueError("on attend True ou False")
@@ -174,7 +182,8 @@ class Capability[T](State[T]):
 @cache
 def states(cls: type) -> "tuple[State[object], ...]":
     """Attributs d'état de la classe et de ses parents, dans l'ordre de déclaration."""
-    return tuple(cast("State[object]", s) for c in reversed(cls.__mro__) for s in vars(c).values() if isinstance(s, State))
+    found = (s for c in reversed(cls.__mro__) for s in vars(c).values() if isinstance(s, State))
+    return tuple(cast("State[object]", s) for s in found)
 
 
 # État de surveillance d'une mesure (voir Device.measures) -> pourquoi elle ne sera jamais reçue
@@ -185,10 +194,10 @@ REASONS = {
 }
 
 
-class Device(ABC):
+class Device:
     """Base commune des pilotes : identité, état et commandes."""
 
-    WIDGET = ""  # widget du tableau de bord : sensor, plug, onoff ou light ; "" : aucun
+    WIDGET = ""  # widget de la page Commandes (web/pages/dashboard.js) ; "" : aucun
     connected = State[bool]()  # joignable (et état lu) ; None : sans connexion suivie
     battery_powered = Capability[bool](default=False)  # sur pile, renseigné par le pilote
     battery = State[int]()  # %, équipement sur pile
@@ -200,9 +209,8 @@ class Device(ABC):
         self._listeners: list[Callable[[dict[str, object]], None]] = []
         self._ready_listeners: list[Callable[[], None]] = []
         self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre
-        self._last: dict[str, object] = {}  # dernière valeur annoncée par attribut, gardée hors connexion
+        self._last: dict[str, object] = {}  # dernière valeur annoncée, gardée hors connexion
         self.changed_at: int | None = None  # ms depuis l'époque Unix, dernier changement d'état
-        self.last_seen: int | None = None  # ms, dernière mise à jour reçue (même identique)
         self._evt_lock = asyncio.Lock()  # fonctions abonnées : une à la fois, dans l'ordre
 
     def _reset(self) -> None:
@@ -235,17 +243,18 @@ class Device(ABC):
     def _emit(self, name: str, value: object = None) -> None:
         """Événement ponctuel (bouton : single, double, hold…) : rien dans l'état, transmis tel
         quel avec sa valeur éventuelle (ex. angle de rotation)."""
-        self.last_seen = now_ms()
-        self._fire("action", EventAction(self, self.last_seen, name, value))
+        self._fire("action", EventAction(self, now_ms(), name, value))
 
     def _updated(
-        self, name: str, old: object, new: object, announce: Callable[[int, object, object], None] | None = None
+        self,
+        name: str,
+        old: object,
+        new: object,
+        announce: Callable[[int, object, object], None] | None = None,
     ) -> None:
-        """Appelé par State.update : valeur reçue (last_seen) ; si elle change, l'état est
-        diffusé (sauf injoignable : il le sera à la connexion), et l'événement déclenché si elle
-        diffère de la dernière annoncée. announce(when, old, new) : remplace l'événement Event
-        de l'attribut."""
-        self._seen()
+        """Appelé par State.update : si la valeur change, l'état est diffusé (sauf injoignable :
+        il le sera à la connexion), et l'événement déclenché si elle diffère de la dernière
+        annoncée. announce(when, old, new) : remplace l'événement Event de l'attribut."""
         if new == old:
             return
         self.changed_at = now = now_ms()
@@ -257,11 +266,6 @@ class Device(ABC):
             else:
                 self._fire(name, Event(self, now, self._last.get(name), new))
             self._last[name] = new
-
-    def _seen(self) -> None:
-        """Message reçu sans valeur changée."""
-        if self.connected:
-            self.last_seen = now_ms()
 
     def _broadcast(self) -> None:
         state = self.state()
@@ -337,14 +341,16 @@ class Device(ABC):
             and (value := state.__get__(self, type(self))) is not None
         }
 
-    def _background(self, label: str, command: Callable[[], Awaitable[None]]) -> None:
+    def _background(self, label: str, command: Callable[[], Awaitable[object]]) -> None:
         """Lance command() en tâche de fond, après les commandes précédentes de l'équipement.
 
         Équipement injoignable ou commande refusée : journalisé, rien ne remonte au script.
         """
         spawn_task(self._background_task(label, command), f"{self.id}.{label}")
 
-    async def _background_task(self, label: str, command: Callable[[], Awaitable[None]]) -> None:
+    async def _background_task(
+        self, label: str, command: Callable[[], Awaitable[object]]
+    ) -> None:
         async with self._lock:
             try:
                 await command()
@@ -363,6 +369,7 @@ class NetworkDevice(Device):
         Device.connected.update(self, False)  # avant tout abonnement : rien n'est annoncé
         self._tasks: set[asyncio.Task[None]] = set()  # tâches du pilote, annulées par stop()
 
+    @override
     async def stop(self) -> None:
         await cancel(self._tasks)
 
@@ -401,9 +408,11 @@ class IPDevice(Device):
         self._host = host
         self._port = port
 
+    @override
     def physical(self) -> str:
         return f"{self.BRAND} {self._host}"
 
+    @override
     def details(self) -> dict[str, object]:
         return {"host": self._host}
 

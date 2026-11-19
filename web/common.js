@@ -37,10 +37,9 @@ export const wsUrl = path =>
 // Tout l'état du serveur affiché par les onglets (voir main.py). Une connexion pour tous les
 // onglets, reconnectée 2 s après sa perte. Fermée quand la page est masquée depuis 15 min
 // (message { type: "idle" }, sans bandeau), rouverte dès qu'elle redevient visible. Le dernier
-// message init, tenu à jour des messages state, measures, notifications, firmware et push, est rejoué
+// message init, tenu à jour des messages state, measures, firmware et push, est rejoué
 // à chaque nouvel abonné ; la perte de connexion lui est signalée par un message
 // { type: "closed" } et par le bandeau commun #lost.
-// Notifications en attente : pastille rouge sur l'onglet Administration (textes en info-bulle).
 
 const IDLE = 15 * 60_000;
 const listeners = new Set();
@@ -52,17 +51,6 @@ let idleTimer = null;
 
 function dispatch(m) {
   listeners.forEach(fn => fn(m));
-}
-
-function badge(notifications) {
-  const link = document.querySelector('nav a[href="/administration"]');
-  let dot = link.querySelector(".badge");
-  if (!dot) {
-    dot = el("span", { className: "badge" });
-    link.append(dot);
-  }
-  dot.hidden = !notifications.length;
-  link.title = notifications.map(n => n.text).join("\n");
 }
 
 function connect() {
@@ -77,14 +65,11 @@ function connect() {
       init.blocks.filter(b => b.device === m.device).forEach(b => { b.state = m.state; });
     } else if (m.type === "measures" && init) {
       init.blocks.filter(b => b.device === m.device).forEach(b => { b.measures = m.measures; });
-    } else if (m.type === "notifications" && init) {
-      init.notifications = m.notifications;
     } else if (m.type === "firmware" && init) {
       init.firmware = m.firmware;
     } else if (m.type === "push" && init) {
       init.push = m.push;
     }
-    if (m.notifications) badge(m.notifications);
     dispatch(m);
   };
   ws.onclose = () => {

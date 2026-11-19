@@ -1,4 +1,4 @@
-"""Lecture des graphiques de Config/dashboard/charts.toml."""
+"""Lecture des graphiques de HabConfig/dashboard/charts.toml."""
 
 import logging
 from pathlib import Path

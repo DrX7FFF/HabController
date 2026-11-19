@@ -1,7 +1,8 @@
 """Ampoule, quel que soit le protocole : base commune des pilotes d'ampoule.
 
-Le pilote met les attributs à jour à la réception (`Light.on.update(self, valeur)`) et fournit _switch(), _set_brightness(),
-_set_color_temp() et _set_rgb() ; les méthodes publiques partent en tâche de fond."""
+Le pilote met les attributs à jour à la réception (`Light.on.update(self, valeur)`) et fournit
+_switch(), _set_brightness(), _set_color_temp() et _set_rgb() ; les méthodes publiques partent en
+tâche de fond."""
 
 import logging
 from abc import ABC, abstractmethod
@@ -44,7 +45,9 @@ class Light(Switchable, ABC):
             lambda: self._set_color_temp(color_temp, brightness, transition),
         )
 
-    def set_rgb(self, rgb: str, brightness: int | None = None, transition: int | None = None) -> None:
+    def set_rgb(
+        self, rgb: str, brightness: int | None = None, transition: int | None = None
+    ) -> None:
         if not self.rgb_capable:
             log.warning("%s ne prend pas en charge RGB", self.id)
             return

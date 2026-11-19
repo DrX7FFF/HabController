@@ -22,7 +22,7 @@ class Updatable(Protocol):
 class Firmwares:
     def __init__(self):
         self.on_change: Callable[[], None] = lambda: None
-        self._offers: dict[str, tuple[Updatable, str, str]] = {}  # id : (équipement, actuel, proposé)
+        self._offers: dict[str, tuple[Updatable, str, str]] = {}  # id : (équipement, versions)
         self.running: str | None = None  # équipement en cours d'installation
         self.progress = 0  # %, de l'installation en cours
         self.last = ""  # résultat de la dernière installation
@@ -39,7 +39,8 @@ class Firmwares:
             self.on_change()
 
     def list(self) -> dict:
-        offers = [{"device": i, "current": c, "version": v} for i, (_, c, v) in self._offers.items()]
+        offers = [{"device": i, "current": c, "version": v}
+                  for i, (_, c, v) in self._offers.items()]
         return {"offers": sorted(offers, key=lambda o: o["device"]), "running": self.running,
                 "progress": self.progress, "last": self.last}
 

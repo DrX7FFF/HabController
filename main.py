@@ -17,13 +17,12 @@ from pydantic import BaseModel, ValidationError
 from core import CONFIG_DIR, ROOT, TEMP_DIR, datalog, git, pair, push, sync
 from core.automation import check as check_automations
 from core.automation import fire_app, load_automations, unload_automations
-from core.base import cancel, spawn_task
+from core.base import cancel, describe, now_ms, spawn_task
 from core.charts import downsample, load_charts
 from core.devices import load_devices, summarize, wait_ready, write_summary
 from core.firmware import updates
 from core.log import collect_errors
 from core.log import setup as setup_logging
-from core.notifications import Notifications
 from core.widgets import load_blocks
 
 setup_logging()
@@ -31,10 +30,8 @@ log = logging.getLogger("habctrl")
 
 CONFIG_PACKAGES = ("devices", "automations")  # paquets Python de la configuration
 SUMMARY = TEMP_DIR / "equipements.yaml"  # équipements et leur appareil physique
-BOOT = int(time.time() * 1000)  # démarrage du programme : la page voit qu'il a redémarré
+BOOT = now_ms()  # démarrage du programme : la page voit qu'il a redémarré
 BUSY = "une autre opération d'administration est en cours (appairage, rechargement, firmware…)"
-# en attente : pastille sur l'onglet Administration, envoyées aux pages à chaque changement
-notifications = Notifications(lambda: broadcast(notifications_message()))
 
 
 # Erreurs de configuration (ce qui est en erreur est ignoré), par partie rechargeable (voir
@@ -76,7 +73,7 @@ admin_lock = asyncio.Lock()  # une opération d'administration à la fois (appai
 server = None  # uvicorn.Server lancé par ./habctrl : arrêté pour redémarrer (voir restart())
 restart_requested = False
 QUEUE_SIZE = 1000  # messages en attente pour une page au-delà desquels elle est décrochée
-clients: dict[asyncio.Queue, asyncio.Task] = {}  # file de messages de chaque page connectée -> son envoi
+clients: dict[asyncio.Queue, asyncio.Task] = {}  # file de messages d'une page -> son envoi
 live: set[asyncio.Queue] = set()  # pages en Direct : reçoivent les enregistrements du datalog
 installing: asyncio.Task | None = None  # installation d'un firmware en cours
 
@@ -117,7 +114,7 @@ def pairing_list() -> list[dict]:
 def init_message() -> dict:
     return {"type": "init", "boot": BOOT, "blocks": snapshot(), "charts": charts,
             "errors": config_errors(), "pairings": pairing_list(),
-            "notifications": notifications.list(), "firmware": updates.list(),
+            "firmware": updates.list(),
             "push": push_state()}
 
 
@@ -129,10 +126,6 @@ def set_pong(value: int | None) -> None:
     global pong
     pong = value
     broadcast({"type": "push", "push": push_state()})
-
-
-def notifications_message() -> dict:
-    return {"type": "notifications", "notifications": notifications.list()}
 
 
 updates.on_change = lambda: broadcast({"type": "firmware", "firmware": updates.list()})
@@ -147,7 +140,8 @@ def on_device_ready(dev) -> None:
 
 
 def start_automations(reload: bool = False) -> None:
-    """Charge automations/ et les abonne aux équipements chargés (reload : voir load_automations)."""
+    """Charge automations/ et les abonne aux équipements chargés (reload : voir
+    load_automations)."""
     with collect_errors() as errs:
         load_automations(reload)
     errors["automations"] = errs
@@ -159,8 +153,8 @@ async def start_datalog() -> None:
     with collect_errors() as errs:
         try:
             history = datalog.setup(devices)
-        except Exception as err:  # datalog.toml incorrect
-            log.error("datalog : réglages incorrects (%s), pas d'historique", datalog.describe(err))
+        except Exception:  # datalog.toml incorrect
+            log.exception("datalog : réglages incorrects, pas d'historique")
             history = None
         if history:
             history.subscribe(lambda points: broadcast({"type": "datalog", "points": points}, live))
@@ -201,7 +195,7 @@ async def start() -> None:
         results = await asyncio.gather(
             *(d.start() for d in devices.values()), return_exceptions=True
         )
-        for dev, result in zip(devices.values(), results):
+        for dev, result in zip(devices.values(), results, strict=True):
             if isinstance(result, Exception):
                 log.error("%s : démarrage impossible", dev.id, exc_info=result)
     errors["devices"] += errs
@@ -216,7 +210,7 @@ async def stop() -> None:
     if history:
         await history.stop()
     results = await asyncio.gather(*(d.stop() for d in devices.values()), return_exceptions=True)
-    for dev, result in zip(devices.values(), results):
+    for dev, result in zip(devices.values(), results, strict=True):
         if isinstance(result, Exception):
             log.error("%s : arrêt en erreur", dev.id, exc_info=result)
 
@@ -298,7 +292,7 @@ async def reload() -> list[str]:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     global boot_commit
     await notifier.start()
     await start()
@@ -455,8 +449,8 @@ async def read_history(path: str, start: int, end: int):
         raise HTTPException(status_code=503, detail="datalog non configuré")
     try:
         points = await history.read(path, start, end)
-    except Exception as err:  # réseau, clé, droits
-        raise HTTPException(status_code=502, detail=f"datalog : {datalog.describe(err)}") from err
+    except datalog.ERRORS as err:
+        raise HTTPException(status_code=502, detail=f"datalog : {describe(err)}") from err
     if kinds[path] == "number":
         points = downsample(points)
     return {"path": path, "points": points}
@@ -471,7 +465,7 @@ async def ping():
     set_pong(None)
     if ping_question:
         ping_question.cancel()
-    ping_question = notifier.ask("🏓 Test de ping", {"Pong": lambda: set_pong(int(time.time() * 1000))})
+    ping_question = notifier.ask("🏓 Test de ping", {"Pong": lambda: set_pong(now_ms())})
 
 
 # --- Firmwares (core/firmware.py) : installation de celui proposé pour un équipement --------
@@ -500,26 +494,21 @@ async def install_firmware(dev_id: str):
 
 # --- WebSocket : événements dans les deux sens -------------------------------
 # Tout ce que les pages affichent de l'état du serveur passe par ici (REST : actions et lectures
-# à la demande seulement).
-# serveur -> page : à la connexion, puis à chaque rechargement de la configuration,
-#                   {"type": "init", "boot" (démarrage du programme, ms),
-#                    "blocks": [{title, widget, device, state, measures}] (measures : état de
-#                    surveillance de chaque mesure, null tant que l'équipement n'est pas prêt),
-#                    "charts": [...], "errors": [...] (configuration : parties ignorées),
-#                    "pairings": [{protocol, label, duration, max_duration, cleanup}],
-#                    "notifications": [{id, text, level, since (ms)}],
-#                    "firmware": {"offers": [{device, current, version}], "running" (id ou null),
-#                                 "progress" (%), "last" (résultat de la dernière installation)}} ;
-#                   puis {"type": "state", "device", "state"} à chaque changement d'un équipement,
-#                   {"type": "measures", "device", "measures"} quand il devient prêt ou cesse
-#                   de l'être,
-#                   {"type": "datalog", "points": [[chemin, ms, valeur], ...]} à chaque
-#                   enregistrement du datalog, aux pages en Direct (graphiques),
-#                   {"type": "notifications", "notifications": [...]} à chaque changement,
-#                   {"type": "firmware", "firmware": {...}} à chaque changement (liste, avancement),
-#                   et {"type": "error", "device", "detail"} pour une commande refusée
-# page -> serveur : {"type": "call", "device", "method", "args"} (action de l'équipement),
-#                   {"type": "live", "on"} pour recevoir ou non les messages datalog
+# à la demande seulement). Messages (champ type) du serveur vers la page :
+# - init, à la connexion et à chaque rechargement de la configuration : boot (démarrage du
+#   programme, ms), blocks (title, widget, device, state, measures : état de surveillance de
+#   chaque mesure, null tant que l'équipement n'est pas prêt), charts, errors (configuration :
+#   parties ignorées), pairings (protocol, label, duration, max_duration, cleanup), firmware,
+#   push ;
+# - state (device, state) : un équipement a changé ;
+# - measures (device, measures) : un équipement devient prêt ou cesse de l'être ;
+# - datalog (points : liste de chemin, ms, valeur) : enregistrement, aux pages en Direct ;
+# - firmware (offers : device, current, version ; running ; progress en % ; last : résultat
+#   de la dernière installation) : liste ou avancement changé ;
+# - push (topic, pong : réception de la réponse au ping, ms) : ping envoyé ou réponse reçue ;
+# - error (device, detail) : commande refusée.
+# De la page vers le serveur : call (device, method, args) : action de l'équipement ; live (on) :
+# recevoir ou non les messages datalog.
 
 
 def handle_message(message: dict, queue: asyncio.Queue) -> str | None:
@@ -722,7 +711,7 @@ def index():
     return FileResponse(WEB_DIR / "index.html")
 
 
-# Contenu de web/ servi à la racine : en dernier, pour que les routes ci-dessus restent prioritaires.
+# Contenu de web/ servi à la racine : en dernier, les routes ci-dessus restent prioritaires.
 app.mount("/", StaticFiles(directory=WEB_DIR), name="web")
 
 

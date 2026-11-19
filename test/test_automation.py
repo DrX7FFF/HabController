@@ -77,17 +77,12 @@ class AutomationTestCase(unittest.IsolatedAsyncioTestCase):
 
 
 class DeviceTest(AutomationTestCase):
-    async def test_last_seen_updated_by_same_value(self):
+    async def test_same_value_is_not_a_change(self):
         bulb = FakeBulb("salon")
         bulb.update(connected=True, bright=1)
-        changed, bulb.last_seen = bulb.changed_at, 0
-        bulb.update(bright=1)  # valeur reçue identique : vue, sans changement
-        self.assertGreater(bulb.last_seen, 0)
+        changed = bulb.changed_at
+        bulb.update(bright=1)
         self.assertEqual(bulb.changed_at, changed)
-        bulb.update(connected=False)
-        bulb.last_seen = 0
-        bulb.update(connected=False)  # injoignable : rien de reçu
-        self.assertEqual(bulb.last_seen, 0)
 
     async def test_state_broadcast_only_on_change(self):
         bulb, states = FakeBulb("salon"), []
@@ -122,7 +117,7 @@ class AttributeTest(AutomationTestCase):
     """Attributs en lecture (fp2.illuminance), actions en méthodes (salon.switch(True))."""
 
     def test_read_is_live_state_none_when_unknown(self):
-        fp = make_fp2()
+        fp = make_fp2(zonemapping={2: "cuisine"})
         fp._apply_values({"illuminance": 42.5, "zone.cuisine": True, "zone.3": False})
         fp._set_connected(True, synced=True)
         self.assertEqual(fp.illuminance, 42.5)
@@ -136,6 +131,8 @@ class AttributeTest(AutomationTestCase):
         fp._set_connected(True, synced=True)
         fp._apply_values({"illuminance": 10.0})
         self.assertEqual(fp.illuminance, 10.0)
+        with self.assertRaises(AttributeError):
+            _ = fp.zones.cuisinne  # faute de frappe : signalée par Python
 
     def test_readonly_attribute_refuses_assignment(self):
         fp = make_fp2()
@@ -262,6 +259,7 @@ class LoadTest(AutomationTestCase):
             bulb.event_bright(rule)
             if module == "automations.b":
                 raise NameError("erreur dans le script")
+            return types.ModuleType(module)
 
         with tempfile.TemporaryDirectory() as tmp:
             for name in ("a.py", "b.py", "c.py"):
@@ -516,10 +514,10 @@ class EventTest(AutomationTestCase):
             seen.append((event.action, event.value, event.time))
 
         bulb._emit("single")
-        first = bulb.last_seen
         bulb._emit("rotate", 45)
         await self.idle()
-        self.assertEqual(seen, [("single", None, first), ("rotate", 45, bulb.last_seen)])
+        self.assertEqual([s[:2] for s in seen], [("single", None), ("rotate", 45)])
+        self.assertLessEqual(seen[0][2], seen[1][2])
 
     async def test_device_events_run_in_order(self):
         bulb, seen = EventBulb("lampe"), []

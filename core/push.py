@@ -14,7 +14,7 @@ from collections.abc import Callable
 import aiohttp
 
 from core import CONFIG_DIR
-from core.base import spawn_task
+from core.base import describe, spawn_task
 
 log = logging.getLogger(__name__)
 __all__ = ["ask", "notify"]
@@ -59,7 +59,7 @@ class Push:
         self.questions: dict[str, Question] = {}
         self._session: aiohttp.ClientSession | None = None
         self._listen_task: asyncio.Task | None = None
-        self._sends: set[asyncio.Task] = set()  # hors de base.tasks : un retrait part même au rechargement
+        self._sends: set[asyncio.Task] = set()  # hors de base.tasks : part même au rechargement
 
     async def start(self) -> None:
         self._session = aiohttp.ClientSession(timeout=TIMEOUT)
@@ -83,8 +83,8 @@ class Push:
         try:
             async with self._session.request(method, url, json=data) as response:
                 response.raise_for_status()
-        except Exception as err:
-            log.warning("push : envoi impossible (%s)", str(err) or type(err).__name__)
+        except (aiohttp.ClientError, TimeoutError) as err:
+            log.warning("push : envoi impossible (%s)", describe(err))
 
     def delete(self, sequence_id: str) -> None:
         """Retire la notification du téléphone."""
@@ -139,9 +139,9 @@ class Push:
                         if message.get("event") == "message":
                             since = message["id"]
                             self.answer(message.get("message", ""))
-            except Exception as err:
+            except (aiohttp.ClientError, TimeoutError, ValueError) as err:
                 if not failing:
-                    log.warning("push : abonnement coupé (%s)", str(err) or type(err).__name__)
+                    log.warning("push : abonnement coupé (%s)", describe(err))
                 failing = True
             await asyncio.sleep(RETRY)
 

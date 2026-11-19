@@ -11,6 +11,7 @@ Un contrôle renvoie {"pending": bool, "text": str} ; une erreur git lève git.G
 import hashlib
 import os
 import time
+from contextlib import suppress
 from pathlib import Path
 
 from core import git
@@ -48,10 +49,8 @@ def snapshot(directory: Path) -> dict[str, str]:
             rel = path.relative_to(directory).as_posix()
             if name.startswith(".") or rel.partition("/")[0] not in PARTS:
                 continue
-            try:
+            with suppress(OSError):  # supprimé entre-temps
                 files[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
-            except OSError:  # supprimé entre-temps
-                pass
     return files
 
 

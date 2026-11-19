@@ -8,11 +8,12 @@ from functools import partial
 from pathlib import Path
 
 import aiohttp
+from google.auth.exceptions import GoogleAuthError
 from google.auth.transport.requests import Request
 from google.oauth2.service_account import Credentials
 
 from core import CONFIG_DIR, read_toml, settings
-from core.base import Device, now_ms, spawn_task
+from core.base import Device, describe, now_ms, spawn_task
 
 log = logging.getLogger(__name__)
 __all__ = ["record"]
@@ -25,6 +26,8 @@ UNITS = {"h": 3600, "d": 86400, "y": 365 * 86400}
 PURGE_PERIOD = 86400  # s
 CONFIG_FILE = CONFIG_DIR / "datalog.toml"  # rechargeable seul, sans toucher aux équipements
 TIMEOUT = aiohttp.ClientTimeout(total=10)
+# réseau, clé du compte de service (absente, illisible, refusée), droits de la base
+ERRORS = (aiohttp.ClientError, TimeoutError, OSError, ValueError, GoogleAuthError)
 # créé par systemd-timesyncd à la première synchronisation NTP réussie depuis le démarrage
 SYNC_FILE = Path("/run/systemd/timesync/synchronized")
 
@@ -183,7 +186,7 @@ class Datalog:
         """Écrit plusieurs chemins en une requête (PATCH à la racine)."""
         try:
             await self._request("PATCH", "", json=data)
-        except Exception as err:  # réseau, clé, droits : on perd la valeur, sans insister
+        except ERRORS as err:  # réseau, clé, droits : on perd la valeur, sans insister
             if not self._failing:
                 log.warning("datalog : envoi impossible (%s), valeurs perdues", describe(err))
             self._failing = True
@@ -196,9 +199,12 @@ class Datalog:
         """Points [ms, valeur] de path entre start et end (ms), triés. Le premier donne l'état
         au début de la période : la dernière valeur d'avant, ramenée à start."""
         path = path.strip("/")
+        key = '"$key"'
         inside, before = await asyncio.gather(
-            self._request("GET", path, params={"orderBy": '"$key"', "startAt": f'"{start}"', "endAt": f'"{end}"'}),
-            self._request("GET", path, params={"orderBy": '"$key"', "endAt": f'"{start - 1}"', "limitToLast": "1"}),
+            self._request("GET", path, params={"orderBy": key, "startAt": f'"{start}"',
+                                               "endAt": f'"{end}"'}),
+            self._request("GET", path, params={"orderBy": key, "endAt": f'"{start - 1}"',
+                                               "limitToLast": "1"}),
         )
         points = sorted([int(key), value] for key, value in (inside or {}).items())
         if before and (not points or points[0][0] > start):
@@ -216,12 +222,13 @@ class Datalog:
                 log.info("datalog : %s, %d valeurs purgées", path, len(old))
 
     async def _purge_loop(self) -> None:
-        while not clock_ok():  # heure fausse : la limite de rétention le serait aussi
-            await asyncio.sleep(60)
         while True:
+            if not clock_ok():  # heure fausse : la limite de rétention le serait aussi
+                await asyncio.sleep(60)
+                continue
             try:
                 await self.purge()
-            except Exception as err:
+            except ERRORS as err:
                 log.warning("datalog : purge impossible (%s)", describe(err))
             await asyncio.sleep(PURGE_PERIOD)
 
@@ -232,10 +239,6 @@ def device_path(dev_id: str, attr: str) -> str:
 
 def is_number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def describe(err: Exception) -> str:
-    return str(err) or type(err).__name__
 
 
 _datalog: Datalog | None = None

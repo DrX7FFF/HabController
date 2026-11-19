@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
-from typing import cast
+from typing import cast, override
 
 from zigpy.types import EUI64
 
@@ -92,9 +92,11 @@ class Pairing(pair.Pairing):
     HINT = "Vérifier le port ([zigbee] de habctrl.toml) et le journal."
     CLEANUP = True
 
+    @override
     def session(self):
         return coordinator.session()
 
+    @override
     async def search(self, session, duration: int) -> list[pair.Candidate]:
         device = await wait_device(session, duration, self.ui)
         if device is None:
@@ -126,10 +128,12 @@ class Pairing(pair.Pairing):
             return
         await driver._configure(device)
 
+    @override
     async def link(self, session, candidate: pair.Candidate, dev_id: str) -> None:
         """L'appareil a rejoint le réseau : l'adresse dans la déclaration suffit."""
         coordinator.paired.add(cast(EUI64, candidate.uid))
 
+    @override
     def paired_ids(self, uid) -> list[str]:
         return [
             dev_id
@@ -137,6 +141,7 @@ class Pairing(pair.Pairing):
             if isinstance(device, ZigbeeDevice) and device.ieee == uid
         ]
 
+    @override
     async def target(self, uid) -> str:
         if known := self.paired_ids(uid):
             self.ui.say(f"Équipement reconnu, déclaré « {known[0]} ».")
@@ -145,14 +150,17 @@ class Pairing(pair.Pairing):
             self.ui.say(f"« {dev_id} » déjà existant, saisir un autre identifiant.")
         return dev_id
 
+    @override
     def done(self) -> None:
         save_snapshot()  # le réseau a changé : seule écriture de la copie
 
+    @override
     @classmethod
     async def unused(cls) -> list[str]:
         async with coordinator.session() as app:
             return [label(zdev) for zdev in coordinator.unused(app)]
 
+    @override
     @classmethod
     async def remove_unused(cls) -> list[str]:
         return await coordinator.remove_unused()

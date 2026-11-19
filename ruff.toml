@@ -1,3 +1,10 @@
+line-length = 100
+
 [lint]
-# voulu : les erreurs inattendues sont attrapées et journalisées ; DEFAULTS de classe ; exec des tests
-ignore = ["BLE001", "RUF012", "S102"]
+select = [
+  "E", "W", "F", "I", "UP", "B", "SIM", "RUF", "PL", "ASYNC", "PERF", "PIE", "RET", "C4",
+  "ARG", "ERA", "FURB", "LOG", "G", "T20", "BLE",
+]
+# PLR0913 et suivantes : seuils de complexité arbitraires ; PLW0603 : l'état du programme
+# (main.py) et les instances uniques (datalog, push) sont des variables de module
+ignore = ["PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "PLW0603"]

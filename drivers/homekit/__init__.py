@@ -27,6 +27,7 @@ ERRORS = (HomeKitException, HttpException, OSError)  # erreurs du protocole ou d
 PAIRING_DIR = CONFIG_PAIRING_DIR / "homekit"
 PIN = re.compile(r"\d{3}-\d{2}-\d{3}")
 ENDPOINT_KEYS = ("AccessoryIP", "AccessoryIPs", "AccessoryPort", "AccessoryAddress")
+ACCESSORY_INFORMATION = normalize_uuid(ServicesTypes.ACCESSORY_INFORMATION)
 # Service « Accessory Information » : caractéristique -> champ du fichier d'appairage
 INFO_CHARS = {
     normalize_uuid(Chars.NAME): "name",
@@ -80,18 +81,21 @@ def pairings() -> dict[str, dict]:
 
 def paired_ids(accessory_id: str) -> list[str]:
     """Équipements logiques déjà rattachés à cet accessoire (identifiant HomeKit, ex. A8:01:…)."""
-    return [i for i, d in pairings().items() if d["hap"]["AccessoryPairingID"].lower() == accessory_id]
+    return [i for i, d in pairings().items()
+            if d["hap"]["AccessoryPairingID"].lower() == accessory_id]
 
 
 def links() -> dict[str, str]:
     """Accessoires appairés : {id: description}."""
-    return {i: f"HomeKit {d['hap']['AccessoryPairingID']} ({d.get('manufacturer', '?')} {d.get('model', '?')})"
+    return {i: f"HomeKit {d['hap']['AccessoryPairingID']} "
+               f"({d.get('manufacturer', '?')} {d.get('model', '?')})"
             for i, d in pairings().items()}
 
 
 def link_models() -> dict[str, tuple[list[str], str]]:
     """Accessoires appairés : {id: (clés de models.toml, commentaire de déclaration)}."""
-    return {i: ([d.get("model", "")], f"HomeKit : {d.get('name', '?')}, modèle {d.get('model') or '?'}")
+    return {i: ([d.get("model", "")],
+                f"HomeKit : {d.get('name', '?')}, modèle {d.get('model') or '?'}")
             for i, d in pairings().items()}
 
 
@@ -128,7 +132,7 @@ async def accessory_info(pairing) -> dict:
         if accessory.get("aid") != 1:  # l'accessoire principal (les autres : passerelle)
             continue
         for service in accessory.get("services", []):
-            if normalize_uuid(str(service.get("type", ""))) != normalize_uuid(ServicesTypes.ACCESSORY_INFORMATION):
+            if normalize_uuid(str(service.get("type", ""))) != ACCESSORY_INFORMATION:
                 continue
             for char in service.get("characteristics", []):
                 field = INFO_CHARS.get(normalize_uuid(str(char.get("type", ""))))
@@ -165,7 +169,7 @@ async def pair_accessory(discovery, dev_id: str, pin: str) -> Path:
     finish = await discovery.async_start_pairing(dev_id)
     pairing = await finish(pin)
     try:
-        keys = {key: value for key, value in pairing.pairing_data.items() if key not in ENDPOINT_KEYS}
+        keys = {k: v for k, v in pairing.pairing_data.items() if k not in ENDPOINT_KEYS}
         save_pairing(dev_id, keys)  # d'abord les clés : l'appairage ne doit pas se perdre
         try:
             info = await accessory_info(pairing)

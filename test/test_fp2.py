@@ -557,13 +557,13 @@ class AddDeviceTest(unittest.TestCase):
             self.file.read_text(encoding="utf-8"), "from drivers.all import *\n\nprise = Plug()\n"
         )
 
-    def test_every_driver_exported_by_all(self):
+    def test_all_exports_the_drivers(self):
+        found = set()
         for info in pkgutil.walk_packages(drivers.__path__, "drivers."):
-            module = importlib.import_module(info.name)
-            if cls := getattr(module, "Driver", None):
-                with self.subTest(driver=info.name):
-                    self.assertIs(getattr(drivers.all, cls.__name__, None), cls)
-                    self.assertIn(cls.__name__, drivers.all.__all__)
+            if cls := getattr(importlib.import_module(info.name), "Driver", None):
+                self.assertIs(getattr(drivers.all, cls.__name__, None), cls)
+                found.add(cls.__name__)
+        self.assertEqual(set(drivers.all.__all__), found)
 
 
 class LoadDevicesTest(unittest.TestCase):

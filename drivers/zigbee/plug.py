@@ -1,7 +1,7 @@
 """Pilote prise Zigbee."""
 
 import logging
-from typing import TypedDict
+from typing import TypedDict, override
 
 from core.base import EventFloat, EventSource, State, Switchable
 from drivers.zigbee import (
@@ -27,6 +27,7 @@ ZCL = {
     "current": (ELECTRICAL, "rms_current", 5, 300),
     "energy": (METERING, "current_summ_delivered", 30, 600),
 }
+STATE_OF = {(cluster_id, attr): key for key, (cluster_id, attr, _, _) in ZCL.items()}
 # mesure : (multiplicateur, diviseur), attributs de son cluster ; valeur = brute * mult / div
 FACTORS = {
     "active_power": ("ac_power_multiplier", "ac_power_divisor"),
@@ -69,14 +70,6 @@ class Plug(Switchable, ZigbeeDevice):
     event_voltage = EventSource[EventFloat]()
     event_current = EventSource[EventFloat]()
     event_energy = EventSource[EventFloat]()
-    # (cluster, attribut ZCL) -> attribut d'état
-    BY_ZCL = {
-        (ON_OFF, "on_off"): Switchable.on,
-        (ELECTRICAL, "active_power"): active_power,
-        (ELECTRICAL, "rms_voltage"): voltage,
-        (ELECTRICAL, "rms_current"): current,
-        (METERING, "current_summ_delivered"): energy,
-    }
 
     def __init__(
         self, ieee: str, poll: float | None = None, reports: PlugReports | None = None
@@ -87,9 +80,11 @@ class Plug(Switchable, ZigbeeDevice):
 
     # --- état ---------------------------------------------------------------
 
+    @override
     def _cluster(self, zdev, key: str):
         return find_cluster(zdev, ZCL[key][0])
 
+    @override
     async def _configure(self, zdev) -> None:
         # facteur absent de l'appareil : fourni par son correctif zha-quirks, sinon 1
         scales = {}
@@ -114,6 +109,7 @@ class Plug(Switchable, ZigbeeDevice):
             if (cluster := find_cluster(zdev, cluster_id)) is not None:
                 await setup_reporting(self.id, cluster, cluster_reports)
 
+    @override
     async def _read(self, zdev) -> None:
         attrs: dict[int, list[str]] = {}
         for key in self.reports:
@@ -125,17 +121,19 @@ class Plug(Switchable, ZigbeeDevice):
             for name, value in (await read(cluster, names)).items():
                 self._on_attribute(cluster_id, name, value)
 
+    @override
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
-        state = self.BY_ZCL.get((cluster_id, name))
-        if state is None or state.name not in self.reports:
+        key = STATE_OF.get((cluster_id, name))
+        if key not in self.reports:
             return
-        if state is Plug.on:
+        if key == "on":
             Plug.on.update(self, bool(value))
-        elif state.name in self._scales:
-            state.update(self, round(value * self._scales[state.name], 3))
+        elif key in self._scales:
+            getattr(Plug, key).update(self, round(value * self._scales[key], 3))
 
     # --- commandes ----------------------------------------------------------
 
+    @override
     async def _switch(self, on: bool, transition: int | None) -> None:
         cluster = find_cluster(self.zdev, ON_OFF) if self.zdev is not None else None
         await self._command(cluster, "on" if on else "off")  # commandes ZCL « on » / « off »

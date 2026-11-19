@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from collections.abc import Coroutine
+from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import TypedDict, override
 
 from yeelight import (
@@ -32,33 +33,32 @@ class Effect(TypedDict):
 class YeelightBulb(Light, IPDevice, NetworkDevice):
     """Ampoule Yeelight : une connexion permanente, l'état vient des notifications."""
 
-    BRAND: str = "Yeelight"
-    _bulb: AsyncBulb  # créée par start()
+    BRAND = "Yeelight"
 
     def __init__(self, host: str, port: int = 55443, transition: int = 300):
         super().__init__(host, port)
-        self.transition: int = transition  # durée par défaut des transitions (ms)
+        self.transition = transition  # durée par défaut des transitions (ms)
+        self._bulb: AsyncBulb | None = None  # a besoin de la boucle asyncio : créée par start()
         Light.rgb_capable.update(self, True)
 
     # --- cycle de vie -------------------------------------------------------
 
     @override
     async def start(self) -> None:
-        # AsyncBulb a besoin de la boucle d'événements en cours : création ici, pas dans __init__.
         self._bulb = AsyncBulb(self._host, self._port, auto_on=False)
-        self._spawn(self._connect())
+        self._spawn(self._connect(self._bulb))
 
     @override
     async def stop(self) -> None:
         await super().stop()
-        if hasattr(self, "_bulb"):
+        if self._bulb:
             await self._bulb.async_stop_listening()
 
-    async def _connect(self) -> None:
+    async def _connect(self, bulb: AsyncBulb) -> None:
         # Après une première connexion réussie, la bibliothèque se reconnecte seule.
         while True:
             try:
-                await self._bulb.async_listen(self._on_update)
+                await bulb.async_listen(partial(self._on_update, bulb))
             except ERRORS as err:
                 log.warning("%s : connexion impossible (%s), nouvel essai", self.id, err)
                 await asyncio.sleep(RETRY_DELAY)
@@ -67,14 +67,14 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
 
     # --- état ---------------------------------------------------------------
 
-    def _on_update(self, props: dict[str, object]) -> None:
+    def _on_update(self, bulb: AsyncBulb, props: dict[str, object]) -> None:
         """Appelé par la bibliothèque : changement d'état ou de connexion."""
         # Chaque notification porte aussi KEY_CONNECTED=True : on ne réagit qu'aux changements.
         connected = bool(props.get(KEY_CONNECTED, self._connected))
         if connected != self._connected:
             self._set_connected(connected)
             if connected:
-                self._spawn(self._refresh())  # l'état a pu changer pendant la coupure
+                self._spawn(self._refresh(bulb))  # l'état a pu changer pendant la coupure
         self._merge(props)
 
     def _merge(self, props: dict[str, object]) -> None:
@@ -88,9 +88,9 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
         if props.get("rgb"):
             Light.rgb.update(self, f"#{int(str(props['rgb'])):06x}")
 
-    async def _refresh(self) -> None:
+    async def _refresh(self, bulb: AsyncBulb) -> None:
         try:
-            props: dict[str, object] = await self._bulb.async_get_properties(PROPERTIES)
+            props: dict[str, object] = await bulb.async_get_properties(PROPERTIES)
         except ERRORS as err:
             log.warning("%s : lecture de l'état impossible (%s)", self.id, err)
             return
@@ -104,13 +104,14 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
     @override
     async def _switch(self, on: bool, transition: int | None) -> None:
         fx = self._effect(transition)
-        await self._send(self._bulb.async_turn_on(**fx) if on else self._bulb.async_turn_off(**fx))
+        await self._send(lambda bulb: bulb.async_turn_on(**fx) if on else bulb.async_turn_off(**fx))
         Light.on.update(self, on)
 
     @override
     async def _set_brightness(self, brightness: int, transition: int | None) -> None:
         await self._power_on(transition)
-        await self._send(self._bulb.async_set_brightness(int(brightness), **self._effect(transition)))
+        fx = self._effect(transition)
+        await self._send(lambda bulb: bulb.async_set_brightness(int(brightness), **fx))
         Light.brightness.update(self, int(brightness))
 
     @override
@@ -119,9 +120,11 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
     ) -> None:
         if brightness is None:
             await self._power_on(transition)
-            await self._send(self._bulb.async_set_color_temp(int(color_temp), **self._effect(transition)))
+            fx = self._effect(transition)
+            await self._send(lambda bulb: bulb.async_set_color_temp(int(color_temp), **fx))
         else:
-            step = TemperatureTransition(int(color_temp), self._duration(transition), int(brightness))
+            duration = self._duration(transition)
+            step = TemperatureTransition(int(color_temp), duration, int(brightness))
             await self._scene(step)
             Light.on.update(self, True)
             Light.brightness.update(self, int(brightness))
@@ -132,7 +135,8 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
         red, green, blue = rgb_bytes(rgb)
         if brightness is None:
             await self._power_on(transition)
-            await self._send(self._bulb.async_set_rgb(red, green, blue, **self._effect(transition)))
+            fx = self._effect(transition)
+            await self._send(lambda bulb: bulb.async_set_rgb(red, green, blue, **fx))
         else:
             step = RGBTransition(red, green, blue, self._duration(transition), int(brightness))
             await self._scene(step)
@@ -146,17 +150,17 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
             await self._switch(True, transition)
 
     async def _scene(self, step: TemperatureTransition | RGBTransition) -> None:
-        await self._send(self._bulb.async_set_scene(SceneClass.CF, Flow(1, Flow.actions.stay, [step])))
+        flow = Flow(1, Flow.actions.stay, [step])
+        await self._send(lambda bulb: bulb.async_set_scene(SceneClass.CF, flow))
 
-    async def _send(self, command: Coroutine[object, object, object]) -> None:
+    async def _send(self, command: Callable[[AsyncBulb], Awaitable[object]]) -> None:
         """Envoie une commande de la bibliothèque ; DeviceError si l'ampoule est injoignable."""
+        if self._bulb is None or not self.connected:
+            raise DeviceError(f"{self.id} : injoignable")
         try:
-            self._check_reachable()
-            await command
+            await command(self._bulb)
         except ERRORS as err:
             raise DeviceError(f"{self.id} : {err}") from err
-        finally:
-            command.close()  # coroutine non attendue (injoignable) : pas d'avertissement
 
     def _duration(self, transition: int | None) -> int:
         return self.transition if transition is None else transition

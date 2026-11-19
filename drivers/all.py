@@ -12,7 +12,6 @@ from drivers.zigbee.contact import Contact
 from drivers.zigbee.light import Light
 from drivers.zigbee.motion import Motion
 from drivers.zigbee.plug import Plug
-from drivers.zigbee.sensor import Sensor
 
 __all__ = [
     "FP2",
@@ -26,6 +25,5 @@ __all__ = [
     "RGBMatrix",
     "Roborock",
     "SamsungTV",
-    "Sensor",
     "YeelightBulb",
 ]

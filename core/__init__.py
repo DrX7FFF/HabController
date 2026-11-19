@@ -1,4 +1,4 @@
-"""Emplacements des dossiers et lecture de Config/habctrl.toml."""
+"""Emplacements des dossiers et lecture de HabConfig/habctrl.toml."""
 
 import logging
 import os

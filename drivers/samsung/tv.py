@@ -4,6 +4,7 @@ import asyncio
 import base64
 import logging
 import socket
+from typing import override
 
 from core.base import DeviceError, IPDevice, NetworkDevice, Switchable
 
@@ -54,7 +55,7 @@ class SamsungTV(Switchable, IPDevice, NetworkDevice):
         self._writer: asyncio.StreamWriter | None = None
         SamsungTV.on.update(self, False)
 
-
+    @override
     async def start(self) -> None:
         self._spawn(self._run())
 
@@ -97,12 +98,14 @@ class SamsungTV(Switchable, IPDevice, NetworkDevice):
             if response == ACCESS_DENIED:
                 log.error("%s : « %s » refusé par la TV (réglages de la TV)", self.id, APP)
 
+    @override
     def _reset(self) -> None:
         super()._reset()
         SamsungTV.on.update(self, False)  # éteinte : on vaut False, pas None
 
     # --- commandes ----------------------------------------------------------
 
+    @override
     async def _switch(self, on: bool, transition: int | None) -> None:
         if on:
             raise ValueError(f"{self.id} : impossible de l'allumer par le réseau")

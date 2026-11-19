@@ -118,10 +118,6 @@ Git est lancé sans terminal : pousser et tirer demandent des identifiants enreg
 machine (clé SSH, ou `git config credential.helper store` avec un jeton GitHub), sinon l'erreur
 s'affiche.
 
-Notifications (`core/notifications.py`, envoyées aux pages par le WebSocket) : toute partie du
-programme peut en poser ou en retirer ; une pastille rouge sur l'onglet Administration signale
-qu'il y en a, listées en tête de la page. Aucune n'est posée pour l'instant (prévu pour les alertes).
-
 ## Restauration complète
 Cloner l'application et la configuration côte à côte, brancher la clé Zigbee, lancer. La base Zigbee est
 reprise de `pairing/zigbee.db` (écrite à chaque appairage) ; les appairages

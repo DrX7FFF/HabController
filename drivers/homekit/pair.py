@@ -2,6 +2,7 @@
 
 from dataclasses import fields
 from pathlib import Path
+from typing import override
 
 from core import pair
 from drivers import homekit
@@ -13,6 +14,7 @@ class Pairing(pair.Pairing):
     LABEL = "HomeKit"
     SECRET_ERRORS = True
 
+    @override
     async def search(self, session, duration: int) -> list[pair.Candidate]:
         self.ui.say(f"Recherche des accessoires HomeKit pendant {duration} s…")
         self.ui.wait(duration)
@@ -24,7 +26,8 @@ class Pairing(pair.Pairing):
         for discovery in discoveries:
             desc = discovery.description
             if discovery.paired:
-                self.ui.say(f"{desc.name} : déjà appairé, ignoré (le réinitialiser pour l'appairer).")
+                self.ui.say(f"{desc.name} : déjà appairé, ignoré (le réinitialiser pour "
+                            "l'appairer).")
                 continue
             candidates.append(
                 pair.Candidate(
@@ -37,6 +40,7 @@ class Pairing(pair.Pairing):
             )
         return candidates
 
+    @override
     async def link(self, session, candidate: pair.Candidate, dev_id: str) -> Path:
         return await pair_accessory(candidate.device, dev_id, await self.ask_pin())
 

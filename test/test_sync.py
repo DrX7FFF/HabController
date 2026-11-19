@@ -9,7 +9,6 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from core import git, sync
-from core.notifications import Notifications
 
 
 def run(cwd: Path, *args: str) -> None:
@@ -162,21 +161,6 @@ class PullTest(RepoTest):
         await git.git(self.repo, "fetch")
         with self.assertRaises(git.GitError):
             await git.pull(self.repo)
-
-
-class NotificationsTest(unittest.TestCase):
-    def test_set_keeps_date_clear_removes(self):
-        changes = []
-        n = Notifications(lambda: changes.append(n.list()))
-        n.set("a", "un")
-        since = n.get("a")["since"]
-        n.set("a", "deux", "error")
-        n.set("a", "deux", "error")  # sans changement : pas signalé
-        self.assertEqual(n.list(), [{"id": "a", "text": "deux", "level": "error", "since": since}])
-        n.clear("a")
-        n.clear("absent")
-        self.assertEqual(n.list(), [])
-        self.assertEqual(len(changes), 3)
 
 
 if __name__ == "__main__":

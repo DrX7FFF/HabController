@@ -10,8 +10,11 @@ class ClimateReports(SensorReports, total=False):
     pressure: float | None  # hPa
 
 
+DEFAULTS: ClimateReports = {"temperature": 0.1, "humidity": 1, "pressure": None, "battery": 1}
+
+
 class Climate(Sensor):
-    DEFAULTS = {"temperature": 0.1, "humidity": 1, "pressure": None, "battery": 1}
+    DEFAULTS = DEFAULTS
     temperature = State[float]()  # °C
     humidity = State[float]()  # %
     pressure = State[float]()  # hPa
