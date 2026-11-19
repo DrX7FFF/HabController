@@ -228,10 +228,10 @@ Déroulé et nettoyage des appareils Zigbee inutilisés : voir `README.md`.
 - **HomeKit** : la découverte mDNS écoute pendant la durée choisie ; les accessoires déjà
   appairés sont ignorés (les réinitialiser pour les appairer). L'accessoire est reconnu par son
   identifiant HomeKit (ex. après une réinitialisation). Le code HomeKit (XXX-XX-XXX) est saisi
-  masqué. L'appairage est enregistré dans `pairing/homekit/<id>.toml` (droits 600) : en tête, ce
-  que l'accessoire annonce (fabricant, modèle, n° de série, firmware) ; dans `[hap]`, les clés
-  d'appairage d'aiohomekit, à ne pas modifier. Il est portable : l'adresse IP n'y figure jamais,
-  elle est résolue par mDNS à chaque connexion. Copié sur une nouvelle installation, il reste
+  masqué. L'appairage est enregistré dans `pairing/homekit/<id>.json` (droits 600) : dans `hap`, les
+  clés d'appairage d'aiohomekit, à ne pas modifier ; dans `info`, ce que l'accessoire annonce
+  (fabricant, modèle, n° de série, firmware…). Il est portable : l'adresse IP enregistrée est
+  ignorée, elle est résolue par mDNS à chaque connexion. Copié sur une nouvelle installation, il reste
   valable tant que l'accessoire n'a pas été réinitialisé.
 - **Zigbee** : le réseau est ouvert pendant la durée choisie : mettre l'équipement en mode
   appairage (souvent un appui long). Le premier équipement qui termine son interview est

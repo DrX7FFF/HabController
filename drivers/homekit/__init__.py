@@ -4,7 +4,6 @@ import asyncio
 import json
 import os
 import re
-import tomllib
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -24,9 +23,6 @@ from core import PAIRING_DIR as CONFIG_PAIRING_DIR
 ERRORS = (HomeKitException, HttpException, OSError)  # erreurs du protocole ou du réseau
 PAIRING_DIR = CONFIG_PAIRING_DIR / "homekit"
 PIN = re.compile(r"\d{3}-\d{2}-\d{3}")
-ENDPOINT_KEYS = ("AccessoryIP", "AccessoryIPs", "AccessoryPort", "AccessoryAddress")
-# Service « Accessory Information » : champs du fichier d'appairage
-INFO_FIELDS = ("name", "manufacturer", "model", "serial", "firmware", "hardware")
 
 
 class PairingError(Exception):
@@ -36,17 +32,17 @@ class PairingError(Exception):
 def pairing_file(dev_id: str) -> Path:
     if not re.fullmatch(r"[\w-]+", dev_id):
         raise ValueError(f"identifiant invalide « {dev_id} »")
-    return PAIRING_DIR / f"{dev_id}.toml"
+    return PAIRING_DIR / f"{dev_id}.json"
 
 
 def read_pairing_file(dev_id: str) -> dict:
-    """Fichier d'appairage complet : informations, et clés aiohomekit sous « hap »."""
+    """Fichier d'appairage : {"hap": clés d'aiohomekit, "info": ce qu'annonce l'accessoire}."""
     path = pairing_file(dev_id)
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as err:
         raise PairingError(f"appairage absent ({path}) : l'appairer") from err
-    except tomllib.TOMLDecodeError as err:
+    except json.JSONDecodeError as err:
         raise PairingError(f"fichier d'appairage illisible ({path})") from err
     if not isinstance(data.get("hap"), dict) or "AccessoryPairingID" not in data["hap"]:
         raise PairingError(f"fichier d'appairage invalide ({path})")
@@ -61,7 +57,7 @@ def load_pairing(dev_id: str) -> dict:
 def pairings() -> dict[str, dict]:
     """Fichiers d'appairage lisibles de pairing/homekit/ : {id: contenu}."""
     found = {}
-    for path in sorted(PAIRING_DIR.glob("*.toml")):
+    for path in sorted(PAIRING_DIR.glob("*.json")):
         try:
             found[path.stem] = read_pairing_file(path.stem)
         except (PairingError, ValueError):
@@ -78,52 +74,33 @@ def paired_ids(accessory_id: str) -> list[str]:
 def links() -> dict[str, str]:
     """Accessoires appairés : {id: description}."""
     return {i: f"HomeKit {d['hap']['AccessoryPairingID']} "
-               f"({d.get('manufacturer', '?')} {d.get('model', '?')})"
+               f"({d['info'].get('Manufacturer', '?')} {d['info'].get('Model', '?')})"
             for i, d in pairings().items()}
 
 
 def link_models() -> dict[str, tuple[list[str], str]]:
     """Accessoires appairés : {id: (clés de models.toml, commentaire de déclaration)}."""
-    return {i: ([d.get("model", "")],
-                f"HomeKit : {d.get('name', '?')}, modèle {d.get('model') or '?'}")
+    return {i: ([d["info"].get("Model", "")],
+                f"HomeKit : {d['info'].get('Name', '?')}, modèle {d['info'].get('Model') or '?'}")
             for i, d in pairings().items()}
 
 
-def save_pairing(dev_id: str, keys: dict, info: dict | None = None) -> Path:
-    """Écrit l'appairage : `info` (champs de INFO_FIELDS) puis les clés `keys`."""
-    info = info or {}
-    lines = [
-        f"# Appairage HomeKit de « {dev_id} » : lien entre l'équipement logique",
-        "# (déclaré dans devices/) et l'accessoire physique. Écrit par l'appairage.",
-        "",
-    ]
-    lines += [
-        f"{field} = {json.dumps(str(info[field]), ensure_ascii=False)}"
-        for field in INFO_FIELDS
-        if info.get(field)
-    ]
-    lines += ["", "[hap]  # clés d'appairage d'aiohomekit : ne pas modifier"]
-    lines += [f"{key} = {json.dumps(value)}" for key, value in keys.items()]
+def save_pairing(dev_id: str, data: dict) -> Path:
+    """Écrit le fichier d'appairage (voir read_pairing_file), lisible du seul propriétaire."""
     path = pairing_file(dev_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.unlink(missing_ok=True)
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as out:
-        out.write("\n".join(lines) + "\n")
-    tmp.replace(path)
+        json.dump(data, out, indent=2, ensure_ascii=False)
     return path
 
 
 async def accessory_info(pairing) -> dict:
     """Ce que l'accessoire annonce dans son service « Accessory Information »."""
     accessories = Accessories.from_list(await pairing.list_accessories_and_characteristics())
-    accessory = accessories.aid_or_none(1)  # l'accessoire principal (les autres : passerelle)
-    if accessory is None or accessory.accessory_information is None:
-        return {}
-    values = (accessory.name, accessory.manufacturer, accessory.model,
-              accessory.serial_number, accessory.firmware_revision, accessory.hardware_revision)
-    return {field: value for field, value in zip(INFO_FIELDS, values, strict=True) if value}
+    service = accessories.aid(1).accessory_information  # l'accessoire principal
+    return {c.description: c.value for c in service.characteristics
+            if c.description and c.value is not None}
 
 
 @asynccontextmanager
@@ -148,25 +125,23 @@ async def discover(controller: Controller, listen: float = 10.0) -> list:
 
 
 async def pair_accessory(discovery, dev_id: str, pin: str) -> Path:
-    """Appaire l'accessoire et enregistre l'appairage (sans IP). Le code n'est jamais journalisé."""
+    """Appaire l'accessoire et enregistre l'appairage. Le code n'est jamais journalisé."""
     if not PIN.fullmatch(pin):
         raise ValueError("code attendu au format XXX-XX-XXX")
     finish = await discovery.async_start_pairing(dev_id)
     pairing = await finish(pin)
     try:
-        keys = {k: v for k, v in pairing.pairing_data.items() if k not in ENDPOINT_KEYS}
-        save_pairing(dev_id, keys)  # d'abord les clés : l'appairage ne doit pas se perdre
         try:
             info = await accessory_info(pairing)
         except ERRORS:
             info = {}  # facultatif : l'appairage reste valable sans
-        return save_pairing(dev_id, keys, info)
+        return save_pairing(dev_id, {"hap": pairing.pairing_data, "info": info})
     finally:
         await pairing.close()
 
 
 async def connect(controller: Controller, dev_id: str, wait: float = 30.0):
-    """Charge l'appairage de l'équipement ; l'adresse vient du mDNS, jamais du fichier."""
+    """Charge l'appairage de l'équipement ; l'adresse vient du mDNS, pas du fichier."""
     data = load_pairing(dev_id)
     discovery = await controller.async_find(data["AccessoryPairingID"], wait)
     description = discovery.description

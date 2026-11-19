@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib
+import json
 import logging
 import os
 import pkgutil
@@ -86,6 +87,20 @@ def accessories(indexes=(0, 1)):
             "characteristics": [
                 char(31, 0x23, "Light Sensor", ["pr"]),
                 char(32, 0x6B, 42.5, ["pr", "ev"]),
+            ],
+        }
+    )
+    services.append(
+        {
+            "iid": 1,
+            "type": f"{0x3E:08X}{BASE}",  # Accessory Information
+            "characteristics": [
+                char(2, 0x20, "Aqara", ["pr"]),
+                char(3, 0x21, "PS-S02D", ["pr"]),
+                char(4, 0x30, "SN123", ["pr"]),
+                char(5, 0x52, "1.2.3", ["pr"]),
+                char(6, 0x23, "Presence-Sensor-FP2", ["pr"]),
+                char(7, 0x14, None, ["pw"]),  # Identify : sans valeur
             ],
         }
     )
@@ -413,7 +428,7 @@ class HomekitFilesTest(unittest.IsolatedAsyncioTestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    async def test_pair_saves_without_ip_and_private(self):
+    async def test_pair_saves_private(self):
         pairing = FakePairing()
 
         async def finish(pin):
@@ -422,46 +437,29 @@ class HomekitFilesTest(unittest.IsolatedAsyncioTestCase):
 
         discovery = SimpleNamespace(async_start_pairing=mock.AsyncMock(return_value=finish))
         path = await homekit.pair_accessory(discovery, "fp2", "123-45-678")
-        saved = tomllib.loads(path.read_text())
-        self.assertEqual(saved["hap"]["AccessoryPairingID"], "AA:BB:CC:DD:EE:FF")
-        self.assertFalse(set(saved["hap"]) & set(homekit.ENDPOINT_KEYS))
+        saved = json.loads(path.read_text())
+        self.assertEqual(saved["hap"], pairing.pairing_data)
         self.assertEqual(homekit.load_pairing("fp2"), saved["hap"])
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         self.assertTrue(pairing.closed)
         discovery.async_start_pairing.assert_awaited_once_with("fp2")
 
     async def test_pair_records_accessory_info(self):
-        pairing = FakePairing()
-        info_service = {
-            "iid": 1,
-            "type": f"{0x3E:08X}{BASE}",
-            "characteristics": [
-                char(2, 0x20, "Aqara", ["pr"]),
-                char(3, 0x21, "PS-S02D", ["pr"]),
-                char(4, 0x30, "SN123", ["pr"]),
-                char(5, 0x52, "1.2.3", ["pr"]),
-                char(6, 0x23, "Presence-Sensor-FP2", ["pr"]),
-            ],
-        }
-        pairing.accessories[0]["services"].insert(0, info_service)
-
         async def finish(_pin):
-            return pairing
+            return FakePairing()
 
         discovery = SimpleNamespace(async_start_pairing=mock.AsyncMock(return_value=finish))
         path = await homekit.pair_accessory(discovery, "fp2", "123-45-678")
-        saved = tomllib.loads(path.read_text())
         self.assertEqual(
-            {k: saved[k] for k in ("manufacturer", "model", "serial", "firmware", "name")},
+            json.loads(path.read_text())["info"],
             {
-                "manufacturer": "Aqara",
-                "model": "PS-S02D",
-                "serial": "SN123",
-                "firmware": "1.2.3",
-                "name": "Presence-Sensor-FP2",
+                "Manufacturer": "Aqara",
+                "Model": "PS-S02D",
+                "Serial Number": "SN123",
+                "Firmware Revision": "1.2.3",
+                "Name": "Presence-Sensor-FP2",
             },
         )
-        self.assertNotIn("hardware", saved)  # absent de l'accessoire : pas de ligne vide
 
     async def test_pair_refuses_bad_pin(self):
         with self.assertRaises(ValueError):
@@ -469,7 +467,8 @@ class HomekitFilesTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_connect_takes_address_from_mdns(self):
         homekit.save_pairing(
-            "fp2", {"AccessoryPairingID": "AA:BB:CC:DD:EE:FF", "iOSDeviceLTSK": "sk"}
+            "fp2", {"hap": {"AccessoryPairingID": "AA:BB:CC:DD:EE:FF", "iOSDeviceLTSK": "sk"},
+                    "info": {}}
         )
         description = HomeKitService(
             name="FP2",
