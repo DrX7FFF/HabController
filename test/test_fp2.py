@@ -65,6 +65,7 @@ def accessories(indexes=(0, 1)):
     services = [
         {
             "iid": 100 + 4 * i,
+            "type": f"{0x86:08X}{BASE}",  # Occupancy Sensor
             "characteristics": [
                 char(101 + 4 * i, 0x23, f"Presence Sensor {i + 1}", ["pr"]),
                 char(102 + 4 * i, 0x71, 0, ["pr", "ev"]),
@@ -81,6 +82,7 @@ def accessories(indexes=(0, 1)):
     services.append(
         {
             "iid": 30,
+            "type": f"{0x84:08X}{BASE}",  # Light Sensor
             "characteristics": [
                 char(31, 0x23, "Light Sensor", ["pr"]),
                 char(32, 0x6B, 42.5, ["pr", "ev"]),

@@ -10,9 +10,7 @@ from pathlib import Path
 
 from aiohomekit import Controller
 from aiohomekit.exceptions import HomeKitException, HttpException
-from aiohomekit.model.characteristics import CharacteristicsTypes as Chars
-from aiohomekit.model.services import ServicesTypes
-from aiohomekit.uuid import normalize_uuid
+from aiohomekit.model import Accessories
 from aiohomekit.zeroconf import (
     HAP_TYPE_TCP,
     HAP_TYPE_UDP,
@@ -27,16 +25,8 @@ ERRORS = (HomeKitException, HttpException, OSError)  # erreurs du protocole ou d
 PAIRING_DIR = CONFIG_PAIRING_DIR / "homekit"
 PIN = re.compile(r"\d{3}-\d{2}-\d{3}")
 ENDPOINT_KEYS = ("AccessoryIP", "AccessoryIPs", "AccessoryPort", "AccessoryAddress")
-ACCESSORY_INFORMATION = normalize_uuid(ServicesTypes.ACCESSORY_INFORMATION)
-# Service « Accessory Information » : caractéristique -> champ du fichier d'appairage
-INFO_CHARS = {
-    normalize_uuid(Chars.NAME): "name",
-    normalize_uuid(Chars.MANUFACTURER): "manufacturer",
-    normalize_uuid(Chars.MODEL): "model",
-    normalize_uuid(Chars.SERIAL_NUMBER): "serial",
-    normalize_uuid(Chars.FIRMWARE_REVISION): "firmware",
-    normalize_uuid(Chars.HARDWARE_REVISION): "hardware",
-}
+# Service « Accessory Information » : champs du fichier d'appairage
+INFO_FIELDS = ("name", "manufacturer", "model", "serial", "firmware", "hardware")
 
 
 class PairingError(Exception):
@@ -100,7 +90,7 @@ def link_models() -> dict[str, tuple[list[str], str]]:
 
 
 def save_pairing(dev_id: str, keys: dict, info: dict | None = None) -> Path:
-    """Écrit l'appairage : `info` (champs de INFO_CHARS) puis les clés `keys`."""
+    """Écrit l'appairage : `info` (champs de INFO_FIELDS) puis les clés `keys`."""
     info = info or {}
     lines = [
         f"# Appairage HomeKit de « {dev_id} » : lien entre l'équipement logique",
@@ -109,7 +99,7 @@ def save_pairing(dev_id: str, keys: dict, info: dict | None = None) -> Path:
     ]
     lines += [
         f"{field} = {json.dumps(str(info[field]), ensure_ascii=False)}"
-        for field in INFO_CHARS.values()
+        for field in INFO_FIELDS
         if info.get(field)
     ]
     lines += ["", "[hap]  # clés d'appairage d'aiohomekit : ne pas modifier"]
@@ -127,18 +117,13 @@ def save_pairing(dev_id: str, keys: dict, info: dict | None = None) -> Path:
 
 async def accessory_info(pairing) -> dict:
     """Ce que l'accessoire annonce dans son service « Accessory Information »."""
-    info = {}
-    for accessory in await pairing.list_accessories_and_characteristics():
-        if accessory.get("aid") != 1:  # l'accessoire principal (les autres : passerelle)
-            continue
-        for service in accessory.get("services", []):
-            if normalize_uuid(str(service.get("type", ""))) != ACCESSORY_INFORMATION:
-                continue
-            for char in service.get("characteristics", []):
-                field = INFO_CHARS.get(normalize_uuid(str(char.get("type", ""))))
-                if field and char.get("value") not in (None, ""):
-                    info[field] = char["value"]
-    return info
+    accessories = Accessories.from_list(await pairing.list_accessories_and_characteristics())
+    accessory = accessories.aid_or_none(1)  # l'accessoire principal (les autres : passerelle)
+    if accessory is None or accessory.accessory_information is None:
+        return {}
+    values = (accessory.name, accessory.manufacturer, accessory.model,
+              accessory.serial_number, accessory.firmware_revision, accessory.hardware_revision)
+    return {field: value for field, value in zip(INFO_FIELDS, values, strict=True) if value}
 
 
 @asynccontextmanager
