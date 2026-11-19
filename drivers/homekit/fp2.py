@@ -6,8 +6,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import override
 
+from aiohomekit.model import Accessory
+from aiohomekit.model.characteristics import CharacteristicPermissions as Perms
 from aiohomekit.model.characteristics import CharacteristicsTypes as Types
-from aiohomekit.uuid import normalize_uuid
 
 from core.base import EventFloat, EventSource, EventZone, NetworkDevice, State
 from drivers.homekit import (
@@ -25,6 +26,8 @@ RETRY_MIN = 2  # s, entre deux tentatives de connexion (doublé à chaque échec
 RETRY_MAX = 60
 FIND_TIMEOUT = 30  # s, attente de l'accessoire sur le réseau (mDNS)
 POLL_TIMEOUT = 10  # s, au-delà la connexion est tenue pour morte
+
+SENSOR_INDEX = "C8622A33-826A-4DD3-9BE9-D496361F29BB"  # propre à Aqara
 
 Key = tuple[int, int]  # (aid, iid) : une caractéristique HomeKit
 
@@ -53,30 +56,20 @@ def build_mapping(accessories: list[dict], aliases: dict[int, str] | None = None
     Chaque service porte au plus un capteur suivi (présence ou luminosité, avec événements) et,
     pour la présence, son « Sensor Index » qui donne le nom de la zone.
     """
-    occupancy = normalize_uuid(Types.OCCUPANCY_DETECTED)
-    light_level = normalize_uuid(Types.LIGHT_LEVEL_CURRENT)
-    sensor_index = normalize_uuid("C8622A33-826A-4DD3-9BE9-D496361F29BB")  # propre à Aqara
     aliases = aliases or {}
     mapping = Mapping()
-    for accessory in accessories:
-        aid = int(accessory.get("aid", 0))
-        for service in accessory.get("services", []):
-            key = kind = index = None
-            for characteristic in service.get("characteristics", []):
-                code = normalize_uuid(str(characteristic.get("type", "")))
-                if code == sensor_index:
-                    try:
-                        index = int(characteristic.get("value"))
-                    except (TypeError, ValueError):
-                        index = None
-                elif code in (occupancy, light_level) and "ev" in characteristic.get("perms", []):
-                    key, kind = (aid, int(characteristic.get("iid", 0))), code
-            if key is None:
-                continue
-            if kind == light_level:
-                mapping.entities[key] = Entity("illuminance", float)
-            else:
-                mapping.entities[key] = Entity(_zone_name(index, key, aliases), bool)
+    tracked = [Types.OCCUPANCY_DETECTED, Types.LIGHT_LEVEL_CURRENT]
+    for accessory in map(Accessory.create_from_dict, accessories):
+        for service in accessory.services:
+            for char in service.characteristics.filter(tracked):
+                if Perms.events not in char.perms:
+                    continue
+                key = (accessory.aid, char.iid)
+                if char.type == Types.LIGHT_LEVEL_CURRENT:
+                    mapping.entities[key] = Entity("illuminance", float)
+                else:
+                    zone = _zone_name(service.value(SENSOR_INDEX), key, aliases)
+                    mapping.entities[key] = Entity(zone, bool)
     mapping.event_keys = set(mapping.entities)
     return mapping
 
