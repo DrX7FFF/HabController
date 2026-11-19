@@ -65,7 +65,6 @@ devices, errors["devices"] = read_devices()
 blocks, charts, errors["dashboard"] = read_dashboard(devices)
 boot_commit: str | None = None  # commit de HabController en marche
 history: datalog.Datalog | None = None
-summary: asyncio.Task | None = None
 notifier = push.setup()  # notifications push (ntfy.sh), indépendantes des rechargements
 pong: int | None = None  # réception (ms) de la réponse au dernier ping, None depuis le ping
 ping_question: push.Question | None = None  # dernier ping, retiré du téléphone au suivant
@@ -76,7 +75,6 @@ restart_requested = False
 QUEUE_SIZE = 1000  # messages en attente pour une page au-delà desquels elle est décrochée
 clients: dict[asyncio.Queue, asyncio.Task] = {}  # file de messages d'une page -> son envoi
 live: set[asyncio.Queue] = set()  # pages en Direct : reçoivent les enregistrements du datalog
-installing: asyncio.Task | None = None  # installation d'un firmware en cours
 
 
 def broadcast(message: dict, queues=clients) -> None:
@@ -185,7 +183,6 @@ async def after_start() -> None:
 async def start() -> None:
     """Abonne pages, datalog et automatisations aux équipements chargés, puis les démarre (le
     datalog d'abord : une automatisation peut enregistrer dès son chargement)."""
-    global summary
     for dev in devices.values():
         dev.subscribe(partial(on_device_change, dev.id))
         dev.subscribe_ready(partial(on_device_ready, dev))
@@ -200,14 +197,12 @@ async def start() -> None:
             if isinstance(result, Exception):
                 log.error("%s : démarrage impossible", dev.id, exc_info=result)
     errors["devices"] += errs
-    summary = asyncio.create_task(after_start())
+    spawn_task(after_start(), "résumé des équipements")
 
 
 async def stop() -> None:
-    if summary:
-        summary.cancel()
     await unload_automations()
-    await cancel()  # commandes et envois du datalog en cours
+    await cancel()  # résumé, commandes et envois du datalog en cours
     if history:
         await history.stop()
     results = await asyncio.gather(*(d.stop() for d in devices.values()), return_exceptions=True)
@@ -485,14 +480,14 @@ async def install(dev_id: str) -> None:
 
 @app.post("/api/firmware/{dev_id}", status_code=202)
 async def install_firmware(dev_id: str):
-    global installing
     if dev_id not in {o["device"] for o in updates.list()["offers"]}:
         raise HTTPException(status_code=404, detail="aucun firmware proposé pour cet équipement")
     if admin_lock.locked():
         raise HTTPException(status_code=409, detail=BUSY)
     await admin_lock.acquire()
-    installing = asyncio.create_task(install(dev_id))
-    installing.add_done_callback(lambda _: admin_lock.release())
+    spawn_task(install(dev_id), f"firmware {dev_id}").add_done_callback(
+        lambda _: admin_lock.release()
+    )
     return {}
 
 

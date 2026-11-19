@@ -211,7 +211,7 @@ class Device:
         self._lock = asyncio.Lock()  # les commandes d'un même équipement partent dans l'ordre
         self._last: dict[str, object] = {}  # dernière valeur annoncée, gardée hors connexion
         self.changed_at: int | None = None  # ms depuis l'époque Unix, dernier changement d'état
-        self._evt_lock = asyncio.Lock()  # fonctions abonnées : une à la fois, dans l'ordre
+        self._event_lock = asyncio.Lock()  # fonctions abonnées : une à la fois, dans l'ordre
 
     def _reset(self) -> None:
         """Équipement injoignable : attributs d'état à leur valeur par défaut, sans annonce
@@ -285,7 +285,7 @@ class Device:
                 spawn_task(self._run_listener(func, event, name), name, _listener_tasks)
 
     async def _run_listener(self, func: Handler, event: object, name: str) -> None:
-        async with self._evt_lock:  # les tâches démarrent dans l'ordre de création
+        async with self._event_lock:  # les tâches démarrent dans l'ordre de création
             try:
                 await func(event)
             except (DeviceError, ValueError) as err:

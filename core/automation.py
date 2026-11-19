@@ -9,7 +9,7 @@ import asyncio
 import importlib
 import logging
 import sys
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from types import ModuleType
 from typing import Annotated, Any
 
@@ -54,23 +54,24 @@ __all__ = [
 ]
 
 AUTOMATIONS_DIR = CONFIG_DIR / "automations"
-_running: set[asyncio.Task] = set()  # minuteurs en cours, annulés à unload
+_running: set[asyncio.Task[None]] = set()  # minuteurs en cours, annulés à unload
 
 # Annotation d'une variable de script (`presence: KeepOnReload = None`) : sa valeur est reprise au
 # rechargement des automatisations ; au démarrage, la valeur écrite dans le script.
 KeepOnReload = Annotated[Any, "KeepOnReload"]
-_kept: dict[str, dict[str, Any]] = {}  # module -> variable -> valeur, jusqu'au rechargement
-_app: dict[str, list[Callable]] = {"start": [], "reload": []}  # événements de l'application
+_kept: dict[str, dict[str, object]] = {}  # module -> variable -> valeur, jusqu'au rechargement
+type AppHandler = Callable[[], Awaitable[object]]
+_app: dict[str, list[AppHandler]] = {"start": [], "reload": []}  # événements de l'application
 
 
-def app_start(func: Callable) -> Callable:
+def app_start[F: AppHandler](func: F) -> F:
     """@app_start : func() (async) au démarrage, automatisations chargées, avant la connexion
     des équipements. Aussi au rechargement de devices/ (équipements redémarrés)."""
     _app["start"].append(func)
     return func
 
 
-def app_reload(func: Callable) -> Callable:
+def app_reload[F: AppHandler](func: F) -> F:
     """@app_reload : func() (async) au rechargement des seules automatisations, variables
     KeepOnReload reprises."""
     _app["reload"].append(func)
@@ -97,7 +98,7 @@ class Timer:
     action() est appelée (fonction simple ou async). Annulé au rechargement, comme les
     automatisations en cours."""
 
-    def __init__(self, delay: float, action: Callable[[], Any]):
+    def __init__(self, delay: float, action: Callable[[], object]):
         self.delay = delay  # s
         self.action = action
         self.name = f"{action.__module__.rpartition('.')[2]}.{action.__name__}"
@@ -168,7 +169,7 @@ async def unload_automations() -> None:
     commandes déjà envoyées aux équipements vont à leur terme : les équipements restent en
     marche (rechargement des seules automatisations). Les variables KeepOnReload sont relevées."""
     for name, mod in list(sys.modules.items()):
-        if name.startswith("automations.") and mod is not None:
+        if name.startswith("automations."):
             _kept[name] = {v: getattr(mod, v) for v in _kept_names(mod) if hasattr(mod, v)}
     for funcs in _app.values():
         funcs.clear()

@@ -28,8 +28,7 @@ Alertes : équipement qui ne vit plus, pile faible.
   - pile faible : battery < 20 %.
 - Seuils dans habctrl.toml ([alerts], avec exceptions par équipement).
 - Une alerte par anomalie, répétée au plus une fois par jour, et un message au retour à la normale.
-- Canal : journal + notification du système (core/notifications.py : pastille sur l'onglet
-  Administration) pour commencer, puis notification externe (mail, push…).
+- Canal : journal + notification push (notify, core/push.py).
 
 
 Mode HabVide (HabConfig, automations/presence.py : porte d'entrée, alloff()) :
