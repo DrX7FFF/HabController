@@ -1,6 +1,8 @@
 # HabController
 Habitation domotique home mad
 
+Version cible : Python 3.13
+
 ## Start
 ./habctrl
 

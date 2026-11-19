@@ -5,6 +5,7 @@ au premier équipement Zigbee et relancé si la clé décroche. L'appairage l'em
 (`coordinator.session()`) : le port série ne s'ouvre qu'une fois."""
 
 import asyncio
+import io
 import logging
 import shutil
 import sqlite3
@@ -169,10 +170,10 @@ async def close_session(app: ZigpyApplication) -> None:
     try:
         await asyncio.wait({stopping}, timeout=CLOSE_WAIT)
         if not stopping.done():
+            stack = io.StringIO()
+            stopping.print_stack(file=stack)
             log.warning(
-                "Clé Zigbee : arrêt bloqué depuis %s s, abandonné ; en attente dans :\n%s",
-                CLOSE_WAIT,
-                asyncio.format_call_graph(stopping),
+                "Clé Zigbee : arrêt bloqué depuis %s s, abandonné\n%s", CLOSE_WAIT, stack.getvalue()
             )
     finally:
         stopping.cancel()

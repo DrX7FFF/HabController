@@ -7,13 +7,12 @@ Un script n'importe que ce module : `from core.automation import *` (voir __all_
 
 import asyncio
 import importlib
+import inspect
 import logging
 import sys
 from collections.abc import Awaitable, Callable
 from types import ModuleType
 from typing import Annotated, Any
-
-import annotationlib
 
 from core import CONFIG_DIR, push
 from core.base import (
@@ -88,8 +87,7 @@ async def fire_app(name: str) -> None:
 
 
 def _kept_names(module: ModuleType) -> list[str]:
-    # FORWARDREF : une annotation invalide d'une autre variable ne fait pas échouer la lecture
-    annotations = annotationlib.get_annotations(module, format=annotationlib.Format.FORWARDREF)
+    annotations = inspect.get_annotations(module)
     return [name for name, ann in annotations.items() if ann in (KeepOnReload, "KeepOnReload")]
 
 

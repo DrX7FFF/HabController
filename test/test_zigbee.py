@@ -763,7 +763,7 @@ class CloseSessionTest(unittest.IsolatedAsyncioTestCase):
             await zigbee.close_session(cast(ZigpyApplication, app))
         self.assertTrue(app._dblistener.closed)
         self.assertIsNone(app.listener)
-        self.assertIn("FakeApp.shutdown", logs.output[0])
+        self.assertIn("in shutdown", logs.output[0])
 
     async def test_normal_shutdown(self):
         app = FakeApp()
