@@ -15,6 +15,7 @@ from core.base import (
     NetworkDevice,
     State,
     Switchable,
+    actionweb,
 )
 
 log = logging.getLogger(__name__)
@@ -101,13 +102,16 @@ class RGBMatrix(Switchable, IPDevice, NetworkDevice):
 
     # --- actions : l'afficheur renvoie son état après chaque commande -------
 
+    @actionweb
     def set_auto(self, auto: bool) -> None:
         """Enchaînement automatique des animations (False : pause)."""
         self._background(f"set_auto({auto!r})", lambda: self._command("play" if auto else "pause"))
 
+    @actionweb
     def next_pattern(self) -> None:
         self._background("next_pattern", lambda: self._command("n"))
 
+    @actionweb
     def previous_pattern(self) -> None:
         self._background("previous_pattern", lambda: self._command("p"))
 

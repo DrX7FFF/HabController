@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from functools import cache, partial
-from typing import cast, overload, override
+from typing import ClassVar, cast, overload, override
 
 log = logging.getLogger(__name__)
 
@@ -194,10 +194,17 @@ REASONS = {
 }
 
 
+def actionweb[F: Callable[..., None]](func: F) -> F:
+    """Méthode appelable par les pages ; arguments vérifiés strictement à la réception."""
+    vars(func)["actionweb"] = True
+    return func
+
+
 class Device:
     """Base commune des pilotes : identité, état et commandes."""
 
     WIDGET = ""  # widget de la page Commandes (web/pages/dashboard.js) ; "" : aucun
+    ACTIONS: ClassVar[frozenset[str]] = frozenset()  # méthodes @actionweb, relevées à la création
     connected = State[bool]()  # joignable (et état lu) ; None : sans connexion suivie
     battery_powered = Capability[bool](default=False)  # sur pile, renseigné par le pilote
     battery = State[int]()  # %, équipement sur pile
@@ -212,6 +219,13 @@ class Device:
         self._last: dict[str, object] = {}  # dernière valeur annoncée, gardée hors connexion
         self.changed_at: int | None = None  # ms depuis l'époque Unix, dernier changement d'état
         self._event_lock = asyncio.Lock()  # fonctions abonnées : une à la fois, dans l'ordre
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.ACTIONS = frozenset(
+            name for name in dir(cls)
+            if getattr(inspect.getattr_static(cls, name), "actionweb", False)
+        )
 
     def _reset(self) -> None:
         """Équipement injoignable : attributs d'état à leur valeur par défaut, sans annonce
@@ -424,9 +438,11 @@ class Switchable(Device, ABC):
     on = State[bool]()
     event_on = EventSource[EventBool]()
 
+    @actionweb
     def switch(self, on: bool, transition: int | None = None) -> None:
         self._background(f"switch({on!r})", lambda: self._switch(on_value(on), transition))
 
+    @actionweb
     def toggle(self, transition: int | None = None) -> None:
         self._background("toggle", lambda: self._switch(not self.on, transition))
 

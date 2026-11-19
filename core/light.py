@@ -7,7 +7,7 @@ tâche de fond."""
 import logging
 from abc import ABC, abstractmethod
 
-from core.base import Capability, EventInt, EventSource, EventStr, State, Switchable
+from core.base import Capability, EventInt, EventSource, EventStr, State, Switchable, actionweb
 
 log = logging.getLogger(__name__)
 
@@ -32,11 +32,13 @@ class Light(Switchable, ABC):
 
     # --- actions : en tâche de fond, l'ampoule est allumée si besoin -------------
 
+    @actionweb
     def set_brightness(self, brightness: int, transition: int | None = None) -> None:
         self._background(
             f"set_brightness({brightness})", lambda: self._set_brightness(brightness, transition)
         )
 
+    @actionweb
     def set_color_temp(
         self, color_temp: int, brightness: int | None = None, transition: int | None = None
     ) -> None:
@@ -45,6 +47,7 @@ class Light(Switchable, ABC):
             lambda: self._set_color_temp(color_temp, brightness, transition),
         )
 
+    @actionweb
     def set_rgb(
         self, rgb: str, brightness: int | None = None, transition: int | None = None
     ) -> None:

@@ -1,6 +1,5 @@
 import asyncio
 import importlib
-import inspect
 import json
 import logging
 import os
@@ -8,17 +7,18 @@ import sys
 import time
 from contextlib import asynccontextmanager, suppress
 from functools import partial
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketState
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, validate_call
 
 from core import CONFIG_DIR, ROOT, TEMP_DIR, datalog, git, pair, push, sync
 from core.automation import check as check_automations
 from core.automation import fire_app, load_automations, unload_automations
-from core.base import Device, cancel, describe, now_ms, spawn_task
+from core.base import cancel, describe, now_ms, spawn_task
 from core.charts import downsample, load_charts
 from core.devices import load_devices, summarize, wait_ready, write_summary
 from core.firmware import updates
@@ -307,22 +307,22 @@ app = FastAPI(lifespan=lifespan)
 
 
 class CallMessage(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    type: Literal["call"]
     device: str
-    method: str  # méthode publique de l'équipement (switch, set_brightness…)
+    method: str  # méthode @actionweb du pilote (switch, set_brightness…)
     args: list[bool | int | str] = []
 
 
 def apply_call(cmd: CallMessage) -> None:
-    """Action demandée par une page : méthode publique du pilote qui part en tâche de fond (ni
-    celles de Device, cycle de vie et fiche, ni une requête async)."""
+    """Action demandée par une page : seulement les méthodes @actionweb du pilote, arguments
+    vérifiés strictement d'après la signature de la méthode."""
     dev = devices.get(cmd.device)
     if dev is None:
         raise LookupError("équipement inconnu")
-    method = getattr(dev, cmd.method, None)
-    if (cmd.method.startswith("_") or hasattr(Device, cmd.method) or not callable(method)
-            or inspect.iscoroutinefunction(method)):
+    if cmd.method not in dev.ACTIONS:
         raise ValueError(f"{cmd.device} n'a pas l'action « {cmd.method} »")
-    method(*cmd.args)
+    validate_call(config=ConfigDict(strict=True))(getattr(dev, cmd.method))(*cmd.args)
 
 
 # --- Synchronisations (core/sync.py) : contrôle (GET) puis synchro (POST) ----

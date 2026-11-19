@@ -10,7 +10,7 @@ from miio.exceptions import DeviceException
 from miio.integrations.vacuum.roborock.vacuum import RoborockVacuum
 from miio.integrations.vacuum.roborock.vacuumcontainers import CleaningDetails
 
-from core.base import DeviceError, IPDevice, State, cancel, spawn_task
+from core.base import DeviceError, IPDevice, State, actionweb, cancel, spawn_task
 from core.datalog import device_path, record
 
 HISTORY_PERIOD = 3600  # s, le robot garde ses 20 derniers nettoyages
@@ -52,6 +52,7 @@ class Roborock(IPDevice):
                 record(path, False, at=int(c.end.timestamp() * 1000))
                 self._logged.add((c.start, c.end))
 
+    @actionweb
     def refresh(self) -> None:
         """Relit le dernier nettoyage (affiché par le widget)."""
         self._background("refresh", self._refresh)
@@ -70,12 +71,15 @@ class Roborock(IPDevice):
         except DeviceException as err:
             raise DeviceError(f"{self.id} : {err}") from err
 
+    @actionweb
     def clean(self) -> None:
         self._background("clean", lambda: self._call(self._vacuum.start))
 
+    @actionweb
     def pause(self) -> None:
         self._background("pause", lambda: self._call(self._vacuum.pause))
 
+    @actionweb
     def home(self) -> None:
         self._background("home", lambda: self._call(self._vacuum.home))
 
