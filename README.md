@@ -51,7 +51,8 @@ Dans une automatisation : `from devices.salon import salon, prise_salon`.
 Onglet **Administration** de l'application web (`/administration`) : un bouton par protocole
 (HomeKit : découverte mDNS, défaut 10 s ; Zigbee : réseau ouvert, défaut 120 s, avec la clé de
 HabController qui reste en marche), la durée de recherche est réglable. Un seul appairage à la
-fois ; fermer la page ou « Annuler » l'interrompt.
+fois, suivi en direct sur toutes les pages ouvertes (chacune peut répondre ou l'arrêter) ;
+seul « Arrêter » l'interrompt, fermer la page ne l'arrête pas.
 L'identifiant de l'équipement est demandé une fois l'appareil identifié ; un équipement déjà
 déclaré est gardé, sinon il est ajouté à la fin de `devices/devices.py` avec le pilote déduit du
 modèle (`drivers/<protocole>/models.toml`, Zigbee : ou du type d'appareil), à ranger ensuite

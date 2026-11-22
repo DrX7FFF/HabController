@@ -760,19 +760,19 @@ class PairRunTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('fp2 = FP2(zonemapping={0: "Global"})', text)
         self.assertIn("modèle PS-S02D", text)
         self.assertTrue(homekit.pairing_file("fp2").exists())
-        self.assertNotIn("Modèle inconnu", out)
+        self.assertIn("« fp2 » ajouté à devices/devices.py", out)
         # second appel (accessoire réinitialisé) : reconnu, Entrée refait le lien
         self.declared["fp2"] = fp2.FP2()
         ok, out = await self.run_pairing(self.discovery(), answer="")
         self.assertTrue(ok)
-        self.assertIn("« fp2 » déjà déclaré dans devices/, inchangé", out)
+        self.assertIn("déjà déclaré dans le code sous : « fp2 »", out)
         self.assertEqual(config_path.read_text(encoding="utf-8"), text)
 
     async def test_unknown_model_declares_nothing(self):
         ok, out = await self.run_pairing(self.discovery(model="Z9"))
         self.assertTrue(ok)
         self.assertFalse((self.devices / "devices.py").exists())
-        self.assertIn("Modèle inconnu", out)
+        self.assertIn("type/modèle non trouvé, ajouter manuellement : fp2 = Pilote()", out)
         self.assertTrue(homekit.pairing_file("fp2").exists())
 
     async def test_discovery_shows_every_field(self):

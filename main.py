@@ -113,7 +113,7 @@ def pairing_list() -> list[dict]:
 def init_message() -> dict:
     return {"type": "init", "boot": BOOT, "blocks": snapshot(), "charts": charts,
             "errors": config_errors(), "pairings": pairing_list(),
-            "firmware": updates.list(),
+            "firmware": updates.list(), "pairing": pairing.state(),
             "push": push_state()}
 
 
@@ -498,25 +498,39 @@ async def install_firmware(dev_id: str):
 #   programme, ms), blocks (title, widget, device, state, measures : état de surveillance de
 #   chaque mesure, null tant que l'équipement n'est pas prêt), charts, errors (configuration :
 #   parties ignorées), pairings (protocol, label, duration, max_duration, cleanup), firmware,
-#   push ;
+#   pairing, push ;
 # - state (device, state) : un équipement a changé ;
 # - measures (device, measures) : un équipement devient prêt ou cesse de l'être ;
 # - datalog (points : liste de chemin, ms, valeur) : enregistrement, aux pages en Direct ;
 # - firmware (offers : device, current, version ; running ; progress en % ; last : résultat
 #   de la dernière installation) : liste ou avancement changé ;
+# - pairing (mode : none, scan, ask ; label : protocole ; log : lignes affichées ; ok : résultat,
+#   null tant qu'il n'est pas terminé ; remaining : temps restant de la recherche, s ; question :
+#   prompt, choices, secret) : appairage en cours ou dernier terminé, à chaque changement ;
 # - push (topic, pong : réception de la réponse au ping, ms) : ping envoyé ou réponse reçue ;
 # - error (device, detail) : commande refusée.
 # De la page vers le serveur : call (device, method, args) : action de l'équipement ; live (on) :
-# recevoir ou non les messages datalog.
+# recevoir ou non les messages datalog ; pair (protocol, duration) : lance un appairage ;
+# answer (value) : réponse à sa question ; pair_stop : l'arrête.
 
 
-def handle_message(message: dict, queue: asyncio.Queue) -> str | None:
+async def handle_message(message: dict, queue: asyncio.Queue) -> str | None:
     """Exécute une commande reçue ; renvoie un message d'erreur, ou None si tout va bien."""
+    kind = message.get("type")
     try:
-        if message.get("type") == "live":
+        if kind == "live":
             (live.add if message.get("on") else live.discard)(queue)
             return None
-        if message.get("type") != "call":
+        if kind == "pair":
+            return await start_pairing(message.get("protocol"), message.get("duration"))
+        if kind == "answer":
+            if isinstance(value := message.get("value"), str):
+                pairing.answer(value)
+            return None
+        if kind == "pair_stop":
+            stop_pairing()
+            return None
+        if kind != "call":
             return "type de message inconnu"
         apply_call(CallMessage.model_validate(message))
     except ValidationError:
@@ -538,7 +552,10 @@ async def read_loop(ws: WebSocket, queue: asyncio.Queue) -> None:
         except json.JSONDecodeError:
             queue.put_nowait({"type": "error", "detail": "message illisible"})
             continue
-        error = handle_message(message, queue) if isinstance(message, dict) else "message invalide"
+        if isinstance(message, dict):
+            error = await handle_message(message, queue)
+        else:
+            error = "message invalide"
         if error:
             device = message.get("device") if isinstance(message, dict) else None
             queue.put_nowait({"type": "error", "device": device, "detail": error})
@@ -569,12 +586,10 @@ async def websocket(ws: WebSocket):
                 await ws.close()
 
 
-# --- Appairage : WebSocket /ws/pair?protocol=…&duration=… -------------------
-# Un dialogue par appairage (voir core/pair.py), interrompu si la page se ferme.
-# serveur -> page : {"type": "say", "text"}, {"type": "ask", "prompt", "choices", "secret"},
-#                   {"type": "wait", "seconds"} (barre de progression ; 0 : masquée),
-#                   puis {"type": "end", "ok"}
-# page -> serveur : {"type": "answer", "value"}
+# --- Appairage : état du serveur, diffusé par le WebSocket /ws ----------------
+# Un appairage à la fois (voir core/pair.py), en tâche de fond : il ne dépend d'aucune page.
+# Message pairing (voir PairingDialog.state) ; lancé, répondu, arrêté par les messages pair,
+# answer et pair_stop de /ws.
 
 
 # Appareils appairés qu'aucun équipement n'utilise : liste (GET), retrait (DELETE).
@@ -606,57 +621,72 @@ async def remove_unused(protocol: str) -> list[str]:
 
 
 class PairingDialog:
-    """Dialogue de l'appairage (core.pair.Dialog) avec la page, par le WebSocket."""
+    """Appairage en cours ou dernier terminé (core.pair.Dialog), diffusé à toutes les pages."""
 
-    def __init__(self, ws: WebSocket):
-        self.ws = ws
-        self.outbox: asyncio.Queue = asyncio.Queue()  # None : fin de l'envoi
-        self.answers: asyncio.Queue = asyncio.Queue()
+    def __init__(self, label: str = ""):
+        self.label = label
+        self.mode = "none"  # none : sans appairage, scan : en cours, ask : attente d'une réponse
+        self.lines: list[str] = []
+        self.end = 0.0  # fin de la recherche (horloge monotone)
+        self.question: dict | None = None
+        self.ok: bool | None = None  # résultat, None : pas encore terminé
+        self.answers: asyncio.Queue[str] = asyncio.Queue()
+
+    def state(self) -> dict:
+        return {
+            "mode": self.mode, "label": self.label, "log": self.lines, "ok": self.ok,
+            "remaining": max(0.0, self.end - time.monotonic()),
+            "question": self.question,
+        }
+
+    def publish(self) -> None:
+        broadcast({"type": "pairing", "pairing": self.state()})
 
     def say(self, text: str) -> None:
-        self.outbox.put_nowait({"type": "say", "text": text})
+        self.lines.append(text)
+        self.publish()
 
     def wait(self, seconds: int) -> None:
-        self.outbox.put_nowait({"type": "wait", "seconds": seconds})
+        self.end = time.monotonic() + seconds
+        self.publish()
 
     async def ask(self, prompt: str, choices=None, secret: bool = False) -> str:
         while not self.answers.empty():  # réponse arrivée sans question : périmée
             self.answers.get_nowait()
-        self.outbox.put_nowait(
-            {"type": "ask", "prompt": prompt, "choices": choices or [], "secret": secret}
-        )
-        return (await self.answers.get()).strip()
-
-    async def send_loop(self) -> None:
-        while (message := await self.outbox.get()) is not None:
-            await self.ws.send_json(message)
-
-    async def read_loop(self) -> None:
-        """Rend la main à la déconnexion de la page."""
-        while True:
-            try:
-                message = json.loads(await self.ws.receive_text())
-            except json.JSONDecodeError:
-                continue
-            if isinstance(message, dict) and isinstance(message.get("value"), str):
-                self.answers.put_nowait(message["value"])
-
-
-async def run_pairing(dialog: PairingDialog, cls, duration: int) -> None:
-    session = cls(dialog)
-    pairing = asyncio.create_task(session.run(duration))
-    reader = asyncio.create_task(dialog.read_loop())
-    sender = asyncio.create_task(dialog.send_loop())
-    try:
-        await asyncio.wait({pairing, reader}, return_when=asyncio.FIRST_COMPLETED)
-        if not pairing.done():  # page fermée : on abandonne (la session se referme)
-            return
+        self.mode = "ask"
+        self.question = {"prompt": prompt, "choices": choices or [], "secret": secret}
+        self.publish()
         try:
-            ok = pairing.result()
+            value = (await self.answers.get()).strip()
+        finally:
+            self.mode, self.question = "scan", None
+        shown = "••••" if secret else dict(choices or []).get(value, value)
+        self.say(f"> {prompt} : {shown}")
+        return value
+
+    def answer(self, value: str) -> None:
+        if self.mode == "ask":
+            self.answers.put_nowait(value)
+
+
+pairing = PairingDialog()
+pairing_task: asyncio.Task | None = None
+
+
+async def run_pairing(cls, duration: int) -> None:
+    global pairing
+    dialog = pairing = PairingDialog(cls.LABEL)
+    dialog.mode = "scan"
+    dialog.publish()
+    log.info("Appairage %s lancé (%s s)", cls.LABEL, duration)
+    session = cls(dialog)
+    ok = False
+    try:
+        try:
+            ok = await session.run(duration)
         except Exception:
             log.exception("Appairage %s : erreur inattendue", cls.LABEL)
             dialog.say("Erreur inattendue, voir le journal.")
-            ok = False
         if ok and (dev := devices.get(session.dev_id)):  # déjà en marche : relit son appairage
             try:
                 await dev.stop()
@@ -667,33 +697,32 @@ async def run_pairing(dialog: PairingDialog, cls, duration: int) -> None:
                 dialog.say(f"« {dev.id} » : redémarrage impossible, voir le journal.")
         if ok:
             write_summary(devices, SUMMARY)
-        dialog.outbox.put_nowait({"type": "end", "ok": ok})
-        dialog.outbox.put_nowait(None)
-        await asyncio.wait({sender})  # tout est envoyé (ou la page est partie)
     finally:
-        for task in (pairing, reader, sender):
-            task.cancel()
-        await asyncio.gather(pairing, reader, sender, return_exceptions=True)
+        dialog.mode, dialog.question, dialog.end = "none", None, 0.0
+        dialog.ok = ok
+        dialog.publish()
 
 
-@app.websocket("/ws/pair")
-async def pair_socket(ws: WebSocket, protocol: str = "", duration: int = 0):
-    await ws.accept()
+async def start_pairing(protocol, duration) -> str | None:
+    """Lance l'appairage demandé par une page ; renvoie un message d'erreur, ou None."""
+    global pairing_task
     cls = pairings.get(protocol)
-    if cls is None or not 1 <= duration <= cls.MAX_DURATION:
-        error = "protocole inconnu" if cls is None else f"durée entre 1 et {cls.MAX_DURATION} s"
-    elif admin_lock.locked():
-        error = BUSY
-    else:
-        async with admin_lock:
-            log.info("Appairage %s lancé (%s s)", cls.LABEL, duration)
-            await run_pairing(PairingDialog(ws), cls, duration)
-        if ws.client_state == WebSocketState.CONNECTED:
-            await ws.close()
-        return
-    await ws.send_json({"type": "say", "text": f"Erreur : {error}."})
-    await ws.send_json({"type": "end", "ok": False})
-    await ws.close()
+    if cls is None:
+        return "protocole inconnu"
+    if not isinstance(duration, int) or not 1 <= duration <= cls.MAX_DURATION:
+        return f"durée entre 1 et {cls.MAX_DURATION} s"
+    if admin_lock.locked():
+        return BUSY
+    await admin_lock.acquire()
+    pairing_task = spawn_task(run_pairing(cls, duration), f"appairage {cls.LABEL}")
+    pairing_task.add_done_callback(lambda _: admin_lock.release())
+    return None
+
+
+def stop_pairing() -> None:
+    if pairing_task and not pairing_task.done():
+        pairing.say("Arrêt demandé.")
+        pairing_task.cancel()
 
 
 # --- Pages web (web/) --------------------------------------------------------

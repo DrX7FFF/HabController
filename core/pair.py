@@ -6,6 +6,7 @@ Chaque protocole qui sait appairer fournit drivers/<protocole>/pair.py avec une 
 
 import importlib
 import importlib.util
+import logging
 import pkgutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,7 @@ from core.devices import (
 )
 
 YES_NO = [("o", "Oui"), ("n", "Non")]
+log = logging.getLogger(__name__)
 
 
 class Dialog(Protocol):
@@ -109,6 +111,11 @@ class Pairing:
     def done(self) -> None:
         """Session fermée, appairage enregistré."""
 
+    def report(self, text: str, level: int = logging.INFO) -> None:
+        """Bilan de l'appairage : affiché et écrit dans le journal."""
+        self.ui.say(text)
+        log.log(level, text)
+
     @classmethod
     async def unused(cls) -> list[str]:
         """Appareils appairés qu'aucun équipement déclaré n'utilise (description de chacun)."""
@@ -133,23 +140,23 @@ class Pairing:
                     return False
                 candidate = await self.choose(candidates)
                 dev_id = self.dev_id = await self.target(candidate.uid)
-                path = await self.link(session, candidate, dev_id)
+                await self.link(session, candidate, dev_id)
         except self.PROTOCOL.ERRORS as err:
             detail = "" if self.SECRET_ERRORS else f" : {err}"
             say(f"Échec ({type(err).__name__}{detail}). {self.HINT}")
             return False
         self.done()
-        say(f"Appairage de « {dev_id} » enregistré" + (f" dans {path}." if path else "."))
         if self.previous and self.previous != dev_id:
             self.unlink(self.previous)
             say(f"« {self.previous} » n'a plus d'appareil : le retirer de devices/.")
+        done = f"Appairage {self.LABEL} : {candidate.uid} enregistré, "
         if dev_id in self.declared:
-            say(f"« {dev_id} » déjà déclaré dans devices/, inchangé.")
+            self.report(done + f"déjà déclaré dans le code sous : « {dev_id} »")
         elif not (driver := driver_for_model(candidate.models, self.models)):
-            args = f" et {', '.join(candidate.args)}" if candidate.args else ""
-            say(
-                f"Modèle inconnu : déclarer « {dev_id} » dans devices/ avec le bon pilote{args}, "
-                f"ou l'ajouter à {self.models}, puis réappairer."
+            self.report(
+                done + "type/modèle non trouvé, ajouter manuellement : "
+                f"{dev_id} = Pilote({', '.join(candidate.args)})",
+                logging.WARNING,
             )
         else:
             try:
@@ -157,7 +164,7 @@ class Pairing:
             except ValueError as err:
                 say(f"Équipement non ajouté : {err}")
                 return False
-            say(f"Équipement « {dev_id} » ajouté à {file}.")
+            self.report(done + f"« {dev_id} » ajouté à {file.parent.name}/{file.name}")
             say("Recharger la configuration pour l'utiliser.")
         return True
 

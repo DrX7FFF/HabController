@@ -1,7 +1,7 @@
 // Onglet Administration : appairage d'un équipement (un bouton par protocole).
-// Le dialogue passe par le WebSocket /ws/pair (voir main.py) : messages du serveur affichés
-// dans le journal, questions posées sous le journal, barre de progression pendant la recherche ;
-// « Arrêter » ou fermer la page interrompt l'appairage (il continue sur les autres onglets).
+// L'appairage est un état du serveur (message pairing de /ws, voir main.py), le même sur toutes
+// les pages : journal, question en attente, temps restant de la recherche. Lancer,
+// répondre et « Arrêter » : messages pair, answer et pair_stop ; fermer la page ne l'arrête pas.
 // Protocole qui le permet : bouton de nettoyage, qui retire (après confirmation) les appareils
 // appairés qu'aucun équipement n'utilise (GET puis DELETE /api/pair/<protocole>/unused).
 // Synchronisations (une section chacune, voir core/sync.py) : « Contrôler » (GET /api/sync/<nom>)
@@ -16,7 +16,7 @@
 // Notifications push : topic ntfy à saisir dans l'appli du téléphone ; « Ping » envoie une
 // notification de test (POST /api/push/ping), l'heure de réception de son Pong s'affiche.
 
-import { banner, el, request, subscribe, wsUrl } from "/common.js";
+import { banner, el, request, send, subscribe } from "/common.js";
 
 export function mount(page) {
   const show = banner(page);
@@ -30,105 +30,72 @@ export function mount(page) {
   const choices = page.querySelector("#choices");
   const cancel = page.querySelector("#cancel");
   const statusText = page.querySelector("#status");
-  const waitBox = page.querySelector("#wait");
-  const bar = page.querySelector("#bar");
   const remaining = page.querySelector("#remaining");
-  let ws = null;
-  let timer = null;  // mise à jour de la barre de progression
+  let timer = null;  // mise à jour du temps restant
+  let pairingActive = false;
+  let asked = "";  // question affichée : pas réécrite (saisie en cours) tant qu'elle ne change pas
   let boot = null;  // démarrage du programme, d'après le dernier message init
   let restarted = null;  // attente d'un redémarrage : appelée avec le boot de chaque message init
 
-  function write(text) {
-    logBox.textContent += (logBox.textContent ? "\n" : "") + text;
-    logBox.scrollTop = logBox.scrollHeight;
-  }
-
-  function running(value) {
-    protocols.querySelectorAll("button, input").forEach(el => { el.disabled = value; });
-    cancel.hidden = !value;
-    if (!value) {
-      question.hidden = true;
-      wait(0);
-    }
-  }
-
-  // Recherche de `seconds` s qui commence (0 : terminée) : barre qui se remplit, temps restant.
-  function wait(seconds) {
+  // Recherche dont il reste `left` s (0 : aucune) : temps restant.
+  function wait(left) {
     clearInterval(timer);
-    waitBox.hidden = !seconds;
-    if (!seconds) return;
-    const end = Date.now() + seconds * 1000;
-    bar.max = seconds;
+    remaining.hidden = !left;
+    if (!left) return;
+    const end = Date.now() + left * 1000;
     const tick = () => {
-      const left = Math.max(0, (end - Date.now()) / 1000);
-      bar.value = seconds - left;
-      remaining.textContent = `${Math.ceil(left)} s`;
-      if (!left) clearInterval(timer);
+      const rest = Math.max(0, (end - Date.now()) / 1000);
+      remaining.textContent = `${Math.ceil(rest)} s`;
+      if (!rest) clearInterval(timer);
     };
     tick();
-    timer = setInterval(tick, 200);
+    timer = setInterval(tick, 1000);
   }
 
   function reply(value) {
     question.hidden = true;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "answer", value }));
+    send({ type: "answer", value });
   }
 
   // Question à choix : un bouton par réponse ; sinon une saisie (masquée pour un code).
-  function ask(m) {
-    prompt.textContent = m.prompt;
-    const free = !m.choices.length;
+  function ask(q) {
+    prompt.textContent = q.prompt;
+    const free = !q.choices.length;
     form.style.display = free ? "" : "none";
-    choices.replaceChildren(...m.choices.map(([value, label]) => {
+    choices.replaceChildren(...q.choices.map(([value, label]) => {
       const button = el("button", { textContent: label });
-      button.onclick = () => { write(`> ${label}`); reply(value); };
+      button.onclick = () => reply(value);
       return button;
     }));
-    answer.type = m.secret ? "password" : "text";
+    answer.type = q.secret ? "password" : "text";
     answer.value = "";
     question.hidden = false;
     if (free) answer.focus();
     form.onsubmit = e => {
       e.preventDefault();
-      write(`> ${m.prompt} : ${m.secret ? "••••" : answer.value}`);
       reply(answer.value);
     };
   }
 
-  function finish(ok, text) {
-    running(false);
-    statusText.className = ok ? "ok" : "failed";
-    statusText.textContent = text;
+  function showPairing(s) {
+    pairingActive = s.mode !== "none";
+    protocols.querySelectorAll("button, input").forEach(el => { el.disabled = pairingActive; });
+    session.hidden = !pairingActive && s.ok === null;
+    cancel.hidden = !pairingActive;
+    logBox.textContent = s.log.join("\n");
+    logBox.scrollTop = logBox.scrollHeight;
+    wait(s.remaining);
+    const q = s.mode === "ask" ? JSON.stringify(s.question) : "";
+    if (q !== asked) {
+      asked = q;
+      if (q) ask(s.question);
+      else question.hidden = true;
+    }
+    statusText.className = s.ok ? "ok" : "failed";
+    statusText.textContent = pairingActive ? "" : s.ok ? "Appairage terminé." : "Appairage non abouti.";
   }
 
-  function start(p, duration) {
-    logBox.textContent = "";
-    statusText.textContent = "";
-    session.hidden = false;
-    running(true);
-    const query = new URLSearchParams({ protocol: p.protocol, duration });
-    ws = new WebSocket(wsUrl(`/ws/pair?${query}`));
-    let ended = false;
-    ws.onmessage = e => {
-      const m = JSON.parse(e.data);
-      if (m.type === "say") write(m.text);
-      else if (m.type === "ask") ask(m);
-      else if (m.type === "wait") wait(m.seconds);
-      else if (m.type === "end") {
-        ended = true;
-        finish(m.ok, m.ok ? "Appairage terminé." : "Appairage non abouti.");
-      }
-    };
-    ws.onclose = () => {
-      ws = null;
-      if (!ended) finish(false, "Appairage interrompu.");
-    };
-  }
-
-  cancel.onclick = () => {
-    if (ws) ws.close();
-    write("Arrêt demandé.");
-  };
+  cancel.onclick = () => send({ type: "pair_stop" });
 
   function build(p) {
     const duration = el("input", {
@@ -141,7 +108,7 @@ export function mount(page) {
         return;
       }
       show("");
-      start(p, seconds);
+      send({ type: "pair", protocol: p.protocol, duration: seconds });
     };
     const row = el("div", { className: "protocol" }, button, el("label", {}, "Recherche ", duration, " s"));
     if (p.cleanup) row.append(cleanupButton(p));
@@ -167,7 +134,7 @@ export function mount(page) {
       } catch (err) {
         show(`Nettoyage ${p.label} impossible (${err.message}).`);
       } finally {
-        button.disabled = !!ws;
+        button.disabled = pairingActive;
       }
     };
     return button;
@@ -236,6 +203,8 @@ export function mount(page) {
       listErrors(m.errors);
       if (restarted) restarted(m.boot);
     }
+    if (m.pairing) showPairing(m.pairing);
+    if (m.type === "error" && !m.device) show(m.detail);
     if (m.firmware) listFirmware(m.firmware);
     if (m.push) showPush(m.push);
   });

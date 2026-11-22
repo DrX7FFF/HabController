@@ -5,8 +5,6 @@
 .page-admin .protocol { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
 .page-admin input.duration { width: 5rem; }
 .page-admin #running { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; min-height: 2.6rem; }
-.page-admin #wait { display: flex; align-items: center; gap: .5rem; }
-.page-admin #bar { width: 16rem; height: 1.2rem; accent-color: var(--accent-border); }
 .page-admin #session { margin-top: 1.2rem; display: grid; gap: .8rem; }
 .page-admin #log { background: #f4f4f4; border-radius: .5rem; padding: .8rem 1rem; margin: 0;
                    white-space: pre-wrap; max-height: 24rem; overflow-y: auto; }
