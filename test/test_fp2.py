@@ -381,7 +381,7 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(driver.state().get("zone.0"))
 
     async def test_stop_after_start_unreachable_pairing_missing(self):
-        # sans appairage enregistré : aucune connexion tentée (signalé par equipements.yaml)
+        # sans appairage enregistré : aucune connexion tentée (signalé par devices.yaml)
         driver = make_fp2("inconnu_test")
         with (
             tempfile.TemporaryDirectory() as tmp,

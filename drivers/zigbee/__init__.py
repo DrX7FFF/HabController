@@ -461,10 +461,23 @@ class Coordinator:
 coordinator = Coordinator()
 
 
-def undeclared() -> list[tuple[str, list[str], str, tuple[str, ...]]] | None:
+def identity(zdev) -> dict[str, str]:
+    """Modèle et type d'appareil annoncés à l'appairage (une ligne par endpoint standard,
+    numérotée s'il y en a plusieurs)."""
+    endpoints = parts(zdev)
+    return {
+        "model": f"{zdev.model or 'unknown'} [{zdev.manufacturer or 'unknown'}]",
+        **{
+            "type" if len(endpoints) == 1 else f"type {ep_id}": device_type(endpoint)
+            for ep_id, endpoint in endpoints.items()
+        },
+    }
+
+
+def undeclared() -> list[tuple[str, list[str], str, tuple[str, ...], dict[str, str]]] | None:
     """Appareils du réseau qu'aucun équipement n'utilise : (description, clés de models.toml,
-    commentaire de déclaration, arguments de déclaration) pour chacun ; None si la clé
-    demandée n'est pas ouverte."""
+    commentaire de déclaration, arguments de déclaration, identité) pour chacun ; None si la
+    clé demandée n'est pas ouverte."""
     app = coordinator.app
     if app is None:
         return [] if coordinator.idle else None
@@ -474,6 +487,7 @@ def undeclared() -> list[tuple[str, list[str], str, tuple[str, ...]]] | None:
             model_keys(zdev),
             f"Zigbee : {zdev.manufacturer or '?'}, modèle {zdev.model or '?'}",
             (f'ieee="{zdev.ieee}"',),
+            identity(zdev),
         )
         for zdev in coordinator.unused(app)
     ]
@@ -575,12 +589,7 @@ class ZigbeeDevice(NetworkDevice):
             return info
         endpoints = parts(zdev)
         info |= {
-            "model": f"{zdev.model or 'unknown'} [{zdev.manufacturer or 'unknown'}]",
-            # une ligne par endpoint standard, numérotée s'il y en a plusieurs
-            **{
-                "type" if len(endpoints) == 1 else f"type {ep_id}": device_type(endpoint)
-                for ep_id, endpoint in endpoints.items()
-            },
+            **identity(zdev),
             # (OTA) : l'équipement accepte la mise à jour du firmware
             "firmware": (self._firmware() or "unknown")
             + (" (OTA)" if self._ota() is not None else ""),

@@ -3,7 +3,7 @@
 # Cela sert à générer sa ligne de déclaration :
 #   device_name = DriverType("xx:xx:xx:xx")
 # ajoutée à devices/devices.py lors de l'appairage,
-# ou proposée dans equipements.yaml pour un appareil appairé mais non déclaré.
+# ou proposée dans devices.yaml pour un appareil appairé mais non déclaré.
 
 [models]
 "0x0009" = "zigbee.plug"  # Mains Power Outlet

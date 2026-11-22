@@ -30,7 +30,7 @@ setup_logging()
 log = logging.getLogger("habctrl")
 
 CONFIG_PACKAGES = ("devices", "automations")  # paquets Python de la configuration
-SUMMARY = TEMP_DIR / "equipements.yaml"  # équipements et leur appareil physique
+SUMMARY = TEMP_DIR / "devices.yaml"  # équipements et leur appareil physique
 BOOT = now_ms()  # démarrage du programme : la page voit qu'il a redémarré
 BUSY = "une autre opération d'administration est en cours (appairage, rechargement, firmware…)"
 

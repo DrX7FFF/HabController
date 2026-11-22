@@ -117,8 +117,8 @@ def write_summary(devices: dict[str, Device], path: Path) -> int:
             if (found := undeclared()) is None:
                 log.info("Équipements : rapport non écrit, %s non initialisé", module.__name__)
                 return 0
-            for physical, keys, comment, args in found:
-                unlinked[physical] = orphan("<id>", keys, comment, args, models_path)
+            for physical, keys, comment, args, info in found:
+                unlinked[physical] = orphan("<id>", keys, comment, args, models_path, info=info)
                 orphans += 1
     report = {"unlinked": unlinked or "none"}
     unpaired = 0
@@ -138,14 +138,20 @@ def write_summary(devices: dict[str, Device], path: Path) -> int:
 
 
 def orphan(
-    dev_id: str, keys: list[str], comment: str, args: tuple[str, ...], models: Path
+    dev_id: str,
+    keys: list[str],
+    comment: str,
+    args: tuple[str, ...],
+    models: Path,
+    *,
+    info: dict[str, str] | None = None,
 ) -> dict:
     """Déclaration à copier pour un appareil sans équipement, si le pilote est connu (table
-    `models`)."""
+    `models`) ; sinon ce que l'appareil annonce (`info`, ex. modèle et type)."""
     try:
         statement, call = constructor(driver_for_model(keys, models), args)
     except ValueError:
-        return {"declaration": "unknown driver, to declare by hand"}
+        return {"driver": "undefined for this type/model", **(info or {})}
     line = f"{dev_id} = {call}" + (f"  # {comment}" if comment else "")
     return {"declaration": f"{statement}\n{line}"}
 

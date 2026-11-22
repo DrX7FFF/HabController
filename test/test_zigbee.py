@@ -541,12 +541,12 @@ class UnusedTest(unittest.IsolatedAsyncioTestCase):
 
 
 class SummaryTest(unittest.IsolatedAsyncioTestCase):
-    """equipements.yaml : appareils du réseau non déclarés, avec leur déclaration, puis fiches."""
+    """devices.yaml : appareils du réseau non déclarés, avec leur déclaration, puis fiches."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.out = Path(tmp.name) / "equipements.yaml"
+        self.out = Path(tmp.name) / "devices.yaml"
         self.coordinator = zigbee.Coordinator()
         self.devices = {"prise": Plug(IEEE), "lampe": YeelightBulb(host="192.0.2.1")}
         for dev_id, device in self.devices.items():
@@ -596,7 +596,8 @@ class SummaryTest(unittest.IsolatedAsyncioTestCase):
                 "      from drivers.all import Plug",
                 f'      <id> = Plug(ieee="{OTHER}")  # Zigbee : Fab, modèle LOM002',
                 "  Zigbee 11:22:33:44:55:66:77:88:",
-                "    declaration : unknown driver, to declare by hand",
+                "    driver : undefined for this type/model",
+                "    model  : inconnu [Fab]",
                 *self.DEVICES,
             ],
         )

@@ -135,7 +135,7 @@ class FP2(NetworkDevice):
 
     @override
     async def start(self) -> None:
-        if self.physical():  # sinon reste injoignable, signalé par equipements.yaml
+        if self.physical():  # sinon reste injoignable, signalé par devices.yaml
             self._spawn(self._run())
 
     async def _run(self) -> None:

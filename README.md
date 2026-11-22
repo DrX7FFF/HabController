@@ -17,7 +17,7 @@ Version cible : Python 3.13
   l'installation et suffit à la restaurer — `habctrl.toml` (réglages), `datalog.toml`, `dashboard/`, `devices/`,
   `automations/`, `pairing/` (appairages HomeKit, copie de la base Zigbee).
 - **temp/** : 100 % jetable (journaux, base Zigbee vivante), peut être en RAM.
-  `equipements.yaml`, écrit au démarrage une fois la clé Zigbee initialisée :
+  `devices.yaml`, écrit au démarrage une fois la clé Zigbee initialisée :
   d'abord les appareils appairés sans équipement déclaré (`unlinked`), avec la déclaration à
   copier dans devices/, puis une fiche par équipement, d'après ce que l'appairage en a retenu
   (l'appareil n'est pas interrogé) : pilote, appareil physique (ou « not paired »). Pour Zigbee :
@@ -66,7 +66,7 @@ déclaré est refusé (à corriger à la main dans `devices/`).
 Chaque équipement Zigbee de `devices/` porte l'adresse IEEE de son appareil (`ieee="…"`),
 écrite par l'appairage. Un appareil du réseau qu'aucun équipement déclaré n'utilise (appairage
 interrompu, appareil remplacé, déclaration supprimée) n'est jamais retiré automatiquement : il
-est listé dans `temp/equipements.yaml` (avec la déclaration à copier, si le modèle est connu), et
+est listé dans `temp/devices.yaml` (avec la déclaration à copier, si le modèle est connu), et
 « Nettoyer l'appairage des équipements non utilisés » (Administration) le retire du réseau après
 confirmation. Un équipement dont
 l'appareil est absent du réseau est signalé au démarrage (le réappairer). Repartir de zéro :
@@ -91,7 +91,7 @@ trouvé est journalisé et listé dans « Firmwares à mettre à jour » (Admini
 par équipement : un seul envoi à la fois (jusqu'à une heure, appareil alimenté), avec sa
 progression, pendant lequel les autres opérations d'administration attendent. Une fois installé,
 l'équipement quitte la liste (il y revient si une version suivante existe) et `pairing/zigbee.db`
-est réécrit avec la nouvelle version, comme `temp/equipements.yaml`, où la fiche de
+est réécrit avec la nouvelle version, comme `temp/devices.yaml`, où la fiche de
 l'équipement donne la version en cours. Seuls les appareils dotés de la mise à jour Zigbee (OTA) sont concernés.
 
 ## Administration : mise à jour et synchronisation du paramétrage
