@@ -117,6 +117,7 @@ class Timer:
 
     async def _wait(self) -> None:
         await asyncio.sleep(self.delay)
+        self._task = None
         try:
             result = self.action()
             if asyncio.iscoroutine(result):
