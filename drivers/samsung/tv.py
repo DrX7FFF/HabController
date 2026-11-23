@@ -57,38 +57,46 @@ class SamsungTV(Switchable, IPDevice, NetworkDevice):
 
     @override
     async def start(self) -> None:
-        self._spawn(
-            self._reconnect(
-                self._session, self._retry, (OSError, TimeoutError, asyncio.IncompleteReadError)
-            )
-        )
+        self._spawn(self._run())
 
     # --- connexion ----------------------------------------------------------
 
-    async def _session(self) -> None:
-        reader, writer = await asyncio.wait_for(asyncio.open_connection(self._host, self._port), 5)
-        try:
-            sock = writer.get_extra_info("socket")
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
-            writer.write(auth_packet())
-            await writer.drain()
-            self._writer = writer
-            self._set_connected(True, synced=True, silent=True)
-            SamsungTV.on.update(self, True)
-            while True:  # réponses de la TV, jusqu'à la fermeture de la connexion
-                response = await read_response(reader)
-                if response == ACCESS_DENIED:
-                    log.error("%s : « %s » refusé par la TV (réglages de la TV)", self.id, APP)
-        finally:
-            self._writer = None
-            writer.close()
+    async def _run(self) -> None:
+        while True:
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(self._host, self._port), 5
+                )
+            except (OSError, TimeoutError):
+                await asyncio.sleep(self._retry)
+                continue
+            try:
+                await self._serve(reader, writer)
+            except (OSError, asyncio.IncompleteReadError):
+                pass
+            finally:
+                self._writer = None
+                writer.close()
+                if self._connected:  # TV éteinte : fonctionnement normal, pas un avertissement
+                    log.info("%s : déconnecté", self.id)
+                self._set_connected(False, silent=True)
+            await asyncio.sleep(self._retry)
 
-    @override
-    def _disconnected(self, reason: str) -> None:
-        self._set_connected(False, silent=True)
+    async def _serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        sock = writer.get_extra_info("socket")
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+        writer.write(auth_packet())
+        await writer.drain()
+        self._writer = writer
+        self._set_connected(True, synced=True)
+        SamsungTV.on.update(self, True)
+        while True:  # réponses de la TV, jusqu'à la fermeture de la connexion
+            response = await read_response(reader)
+            if response == ACCESS_DENIED:
+                log.error("%s : « %s » refusé par la TV (réglages de la TV)", self.id, APP)
 
     @override
     def _reset(self) -> None:

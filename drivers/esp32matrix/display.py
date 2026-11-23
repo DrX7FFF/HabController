@@ -39,21 +39,30 @@ class RGBMatrix(Switchable, IPDevice, NetworkDevice):
 
     @override
     async def start(self) -> None:
-        self._spawn(self._reconnect(self._session, self._retry))
+        self._spawn(self._run())
 
     # --- connexion ----------------------------------------------------------
 
-    async def _session(self) -> None:
+    async def _run(self) -> None:
         # L'afficheur envoie son état à la connexion puis à chaque changement ; sans message
         # pendant `ping` secondes, un « ping » est envoyé, et sans réponse la connexion est coupée.
-        reader, writer = await asyncio.wait_for(asyncio.open_connection(self._host, self._port), 5)
-        self._writer = writer
-        self._set_connected(True)
-        try:
-            await self._read(reader)
-        finally:
-            self._writer = None
-            writer.close()
+        while True:
+            reason = ""
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(self._host, self._port), 5
+                )
+                self._writer = writer
+                self._set_connected(True)
+                try:
+                    await self._read(reader)
+                finally:
+                    self._writer = None
+                    writer.close()
+            except (OSError, TimeoutError) as err:
+                reason = str(err) or type(err).__name__
+            self._set_connected(False, reason=reason)
+            await asyncio.sleep(self._retry)
 
     async def _read(self, reader: asyncio.StreamReader) -> None:
         waiting = False

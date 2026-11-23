@@ -391,26 +391,6 @@ class NetworkDevice(Device):
         """Tâche du pilote (connexion, lecture…) : annulée par stop(), erreur journalisée."""
         spawn_task(coro, self.id, self._tasks)
 
-    async def _reconnect(
-        self,
-        session: Callable[[], Awaitable[None]],
-        retry: float,
-        errors: tuple[type[BaseException], ...] = (OSError, TimeoutError),
-    ) -> None:
-        """Connexion permanente : session() jusqu'à sa fin ou une erreur, puis nouvel essai
-        après `retry` secondes."""
-        while True:
-            reason = ""
-            try:
-                await session()
-            except errors as err:
-                reason = str(err) or type(err).__name__
-            self._disconnected(reason)
-            await asyncio.sleep(retry)
-
-    def _disconnected(self, reason: str) -> None:
-        self._set_connected(False, reason=reason)
-
     def _set_connected(
         self, connected: bool, synced: bool = False, reason: str = "", silent: bool = False
     ) -> None:

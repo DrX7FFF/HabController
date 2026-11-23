@@ -1,5 +1,6 @@
 """Pilote WLED : API JSON par WebSocket (/ws), l'état est poussé à chaque changement."""
 
+import asyncio
 import json
 import logging
 from typing import override
@@ -27,21 +28,26 @@ class WLED(Switchable, IPDevice, NetworkDevice):
 
     @override
     async def start(self) -> None:
-        self._spawn(self._reconnect(self._session, self._retry, ERRORS))
+        self._spawn(self._run())
 
     # --- connexion ----------------------------------------------------------
 
-    async def _session(self) -> None:
+    async def _run(self) -> None:
         # Le WLED envoie son état complet à la connexion puis à chaque changement ; les pings
         # de websockets détectent une coupure.
-        try:
-            async with connect(f"ws://{self._host}:{self._port}/ws", open_timeout=5) as ws:
-                self._ws = ws
-                self._set_connected(True)
-                async for message in ws:
-                    self._on_message(message)
-        finally:
+        while True:
+            reason = ""
+            try:
+                async with connect(f"ws://{self._host}:{self._port}/ws", open_timeout=5) as ws:
+                    self._ws = ws
+                    self._set_connected(True)
+                    async for message in ws:
+                        self._on_message(message)
+            except ERRORS as err:
+                reason = str(err)
             self._ws = None
+            self._set_connected(False, reason=reason)
+            await asyncio.sleep(self._retry)
 
     def _on_message(self, message: str | bytes) -> None:
         state = json.loads(message).get("state")
