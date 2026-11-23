@@ -19,15 +19,13 @@ NEW_DEVICES = "devices.py"  # où l'appairage ajoute les équipements, à réorg
 DRIVERS_IMPORT = "from drivers.all import "  # import commun des classes de pilotes
 
 
-def load_driver(name: str):
-    """Charge le pilote `drivers/<name>.py` : il doit exposer sa classe sous le nom `Driver`.
-
-    Un pilote rangé dans un sous-dossier se nomme avec un point : "zigbee.plug".
-    """
-    if not all(part.isidentifier() for part in name.split(".")):
+def load_driver(protocol: str, name: str) -> type:
+    """Charge le pilote `drivers/<protocol>/<name>.py` : il doit exposer sa classe sous le nom
+    `Driver`."""
+    if not name.isidentifier():
         raise ValueError(f"nom de pilote invalide « {name} »")
-    file = f"drivers/{name.replace('.', '/')}.py"
-    module_name = f"drivers.{name}"
+    file = f"drivers/{protocol}/{name}.py"
+    module_name = f"drivers.{protocol}.{name}"
     try:
         module = importlib.import_module(module_name)
     except ModuleNotFoundError as err:
@@ -148,10 +146,9 @@ def orphan(
 ) -> dict:
     """Déclaration à copier pour un appareil sans équipement, si le pilote est connu (table
     `models`) ; sinon ce que l'appareil annonce (`info`, ex. modèle et type)."""
-    try:
-        statement, call = constructor(driver_for_model(keys, models), args)
-    except ValueError:
+    if not (driver := driver_for_model(keys, models)):
         return {"driver": "undefined for this type/model", **(info or {})}
+    statement, call = constructor(driver, args)
     line = f"{dev_id} = {call}" + (f"  # {comment}" if comment else "")
     return {"declaration": f"{statement}\n{line}"}
 
@@ -186,35 +183,33 @@ def check_id(dev_id: str) -> None:
         )
 
 
-def driver_for_model(models: list[str], path: Path) -> str:
-    """Pilote de la table `path` ([models]) pour la première clé connue, ou "" si aucune.
+def driver_for_model(models: list[str], path: Path) -> type | None:
+    """Pilote de la table `path` ([models], pilotes du dossier de `path`) pour la première clé
+    connue, ou None si aucune.
 
     `models` : clés de la plus précise à la plus générale.
     """
     table = read_toml(path).get("models", {})
     for model in models:
-        driver = table.get(model, "")
-        if not driver:
+        if not (name := table.get(model)):
             continue
         try:
-            load_driver(driver)
+            return load_driver(path.parent.name, name)
         except ValueError as err:
-            log.warning("Pilote « %s » associé au modèle %s inutilisable : %s", driver, model, err)
-            return ""
-        return driver
-    return ""
+            log.warning("Pilote « %s » associé au modèle %s inutilisable : %s", name, model, err)
+            return None
+    return None
 
 
-def constructor(driver: str, args: tuple[str, ...] = ()) -> tuple[str, str]:
-    """(import du pilote, `<Pilote>(...)`), avec les arguments `args` (ex. 'ieee="…"') puis les
-    réglages par défaut du pilote."""
-    cls = load_driver(driver)
+def constructor(cls: type, args: tuple[str, ...] = ()) -> tuple[str, str]:
+    """(import du pilote `cls`, `<Pilote>(...)`), avec les arguments `args` (ex. 'ieee="…"') puis
+    les réglages par défaut du pilote."""
     config_args = getattr(cls, "config_args", None)
     args += tuple(config_args()) if config_args else ()
     return f"{DRIVERS_IMPORT}{cls.__name__}", f"{cls.__name__}({', '.join(args)})"
 
 
-def declaration(dev_id: str, driver: str, args: tuple[str, ...] = ()) -> tuple[str, str]:
+def declaration(dev_id: str, driver: type, args: tuple[str, ...] = ()) -> tuple[str, str]:
     """(import du pilote, `<id> = <Pilote>(...)`), voir constructor."""
     check_id(dev_id)
     statement, call = constructor(driver, args)
@@ -223,7 +218,7 @@ def declaration(dev_id: str, driver: str, args: tuple[str, ...] = ()) -> tuple[s
 
 def add_device(
     dev_id: str,
-    driver: str,
+    driver: type,
     comment: str = "",
     args: tuple[str, ...] = (),
     path: Path | None = None,

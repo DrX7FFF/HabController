@@ -833,7 +833,7 @@ class PairRunTest(unittest.IsolatedAsyncioTestCase):
     async def test_new_device_declared_with_ieee(self):
         ok, add = await self.pair("", "Prise bureau")  # identifiant vide : redemandé
         self.assertTrue(ok)
-        self.assertEqual(add.call_args.args, ("prise_bureau", "zigbee.plug"))
+        self.assertEqual(add.call_args.args, ("prise_bureau", Plug))
         self.assertEqual(add.call_args.kwargs["args"], (f'ieee="{IEEE}"',))
 
     async def test_existing_id_refused(self):
@@ -845,7 +845,7 @@ class PairRunTest(unittest.IsolatedAsyncioTestCase):
     async def test_driver_from_device_type(self):
         ok, add = await self.pair("Ventilateur", model="LOM002")  # modèle absent de la table
         self.assertTrue(ok)
-        self.assertEqual(add.call_args.args, ("ventilateur", "zigbee.plug"))
+        self.assertEqual(add.call_args.args, ("ventilateur", Plug))
 
 
 if __name__ == "__main__":

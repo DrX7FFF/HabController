@@ -37,6 +37,7 @@ from core import pair as core_pair
 from drivers import homekit
 from drivers.homekit import fp2
 from drivers.homekit import pair as homekit_pair
+from drivers.zigbee import plug
 
 # journaux attendus sans assertLogs : pas d'affichage (assertLogs les voit toujours)
 logging.getLogger().addHandler(logging.NullHandler())
@@ -524,7 +525,7 @@ class AddDeviceTest(unittest.TestCase):
 
     def test_appended_with_import(self):
         for dev_id in ("fp2", "capteur"):
-            core_devices.add_device(dev_id, "homekit.fp2", "HomeKit : X", path=self.path)
+            core_devices.add_device(dev_id, fp2.Driver, "HomeKit : X", path=self.path)
         self.assertEqual(
             self.file.read_text(encoding="utf-8"),
             "from drivers.all import FP2, YeelightBulb\n\n"
@@ -537,8 +538,8 @@ class AddDeviceTest(unittest.TestCase):
 
     def test_generated_file_loads_as_devices(self):
         package = self.path.parent / "devs_generated"
-        core_devices.add_device("capteur", "homekit.fp2", path=package)
-        core_devices.add_device("prise", "zigbee.plug", args=(f'ieee="{IEEE}"',), path=package)
+        core_devices.add_device("capteur", fp2.Driver, path=package)
+        core_devices.add_device("prise", plug.Driver, args=(f'ieee="{IEEE}"',), path=package)
         sys.path.insert(0, str(package.parent))
         self.addCleanup(sys.path.remove, str(package.parent))
         devices = core_devices.load_devices("devs_generated")
@@ -546,23 +547,14 @@ class AddDeviceTest(unittest.TestCase):
         self.assertEqual(devices["capteur"]._aliases, {0: "Global"})
 
     def test_refuses_bad_id_unknown_driver(self):
-        for dev_id, driver in (
-            ("a b", "fp2"),
-            ("a-b", "fp2"),
-            ("1abc", "fp2"),
-            ("_x", "fp2"),
-            ("class", "fp2"),
-            ("../x", "fp2"),
-            ("neuf", "nexistepas"),
-            ("neuf", ""),
-        ):
-            with self.subTest(dev_id=dev_id, driver=driver), self.assertRaises(ValueError):
-                core_devices.add_device(dev_id, driver, path=self.path)
+        for dev_id in ("a b", "a-b", "1abc", "_x", "class", "../x"):
+            with self.subTest(dev_id=dev_id), self.assertRaises(ValueError):
+                core_devices.add_device(dev_id, fp2.Driver, path=self.path)
         self.assertEqual(self.file.read_text(), self.existing)
 
     def test_import_added_when_absent(self):
         self.file.write_text("import logging\n")
-        core_devices.add_device("prise", "zigbee.plug", args=(f'ieee="{IEEE}"',), path=self.path)
+        core_devices.add_device("prise", plug.Driver, args=(f'ieee="{IEEE}"',), path=self.path)
         self.assertEqual(
             self.file.read_text(encoding="utf-8"),
             f'import logging\nfrom drivers.all import Plug\n\nprise = Plug(ieee="{IEEE}")\n',
@@ -570,7 +562,7 @@ class AddDeviceTest(unittest.TestCase):
 
     def test_star_import_kept(self):
         self.file.write_text("from drivers.all import *\n")
-        core_devices.add_device("prise", "zigbee.plug", path=self.path)
+        core_devices.add_device("prise", plug.Driver, path=self.path)
         self.assertEqual(
             self.file.read_text(encoding="utf-8"), "from drivers.all import *\n\nprise = Plug()\n"
         )
@@ -662,30 +654,31 @@ class DriverForModelTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.path = Path(tmp.name) / "models.toml"
+        (Path(tmp.name) / "homekit").mkdir()
+        self.path = Path(tmp.name) / "homekit" / "models.toml"
 
     def test_lookup(self):
-        self.path.write_text('[models]\n"PS-S02D" = "homekit.fp2"\n"X1" = "nexistepas"\n')
-        self.assertEqual(core_devices.driver_for_model(["PS-S02D"], self.path), "homekit.fp2")
-        self.assertEqual(core_devices.driver_for_model(["inconnu"], self.path), "")
+        self.path.write_text('[models]\n"PS-S02D" = "fp2"\n"X1" = "nexistepas"\n')
+        self.assertEqual(core_devices.driver_for_model(["PS-S02D"], self.path), fp2.Driver)
+        self.assertIsNone(core_devices.driver_for_model(["inconnu"], self.path))
         with self.assertLogs("core.devices", "WARNING") as logs:
-            self.assertEqual(core_devices.driver_for_model(["X1"], self.path), "")  # pilote absent
+            self.assertIsNone(core_devices.driver_for_model(["X1"], self.path))  # pilote absent
         self.assertIn("inutilisable", logs.output[0])
 
     def test_missing_file(self):
-        self.assertEqual(core_devices.driver_for_model(["PS-S02D"], self.path), "")
+        self.assertIsNone(core_devices.driver_for_model(["PS-S02D"], self.path))
 
     def test_repo_mapping_points_to_existing_driver(self):
         models = tomllib.loads((ROOT / "drivers" / "homekit" / "models.toml").read_text())
         table = homekit_pair.Pairing(ScriptedDialog()).models
-        self.assertEqual(core_devices.driver_for_model(["PS-S02D"], table), "homekit.fp2")
+        self.assertEqual(core_devices.driver_for_model(["PS-S02D"], table), fp2.Driver)
         for driver in models["models"].values():
-            core_devices.load_driver(driver)
+            core_devices.load_driver("homekit", driver)
 
     def test_zigbee_mapping_points_to_existing_driver(self):
         models = tomllib.loads((ROOT / "drivers" / "zigbee" / "models.toml").read_text())
         for driver in models["models"].values():
-            core_devices.load_driver(driver)
+            core_devices.load_driver("zigbee", driver)
 
 
 class ScriptedDialog(core_pair.Dialog):
@@ -741,11 +734,11 @@ class PairRunTest(unittest.IsolatedAsyncioTestCase):
         async def fake_controller():
             yield object()
 
-        known = {"PS-S02D": "homekit.fp2"} if models else {}
+        known = {"PS-S02D": fp2.Driver} if models else {}
         with (
             mock.patch.object(homekit, "open_session", fake_controller),
             mock.patch.object(homekit_pair, "discover", mock.AsyncMock(return_value=[discovery])),
-            mock.patch.object(core_pair, "driver_for_model", lambda m, _path: known.get(m[0], "")),
+            mock.patch.object(core_pair, "driver_for_model", lambda m, _path: known.get(m[0])),
         ):
             dialog = ScriptedDialog(answer, "123-45-678")  # vide : garder l'identifiant reconnu
             ok = await homekit_pair.Pairing(dialog).run(0)

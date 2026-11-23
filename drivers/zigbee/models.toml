@@ -6,28 +6,28 @@
 # ou proposée dans devices.yaml pour un appareil appairé mais non déclaré.
 
 [models]
-"0x0009" = "zigbee.plug"  # Mains Power Outlet
-"0x0051" = "zigbee.plug"  # Smart Plug
-"0x010a" = "zigbee.plug"  # On/Off Plug-in Unit
-"0x010b" = "zigbee.plug"  # Dimmable Plug-in Unit
+"0x0009" = "plug"  # Mains Power Outlet
+"0x0051" = "plug"  # Smart Plug
+"0x010a" = "plug"  # On/Off Plug-in Unit
+"0x010b" = "plug"  # Dimmable Plug-in Unit
 
-"0x0100" = "zigbee.light"  # On/Off Light
-"0x0101" = "zigbee.light"  # Dimmable Light
-"0x0102" = "zigbee.light"  # Color Dimmable Light
-"0x010c" = "zigbee.light"  # Color Temperature Light
-"0x010d" = "zigbee.light"  # Extended Color Light
-"LLC020" = "zigbee.light"  # Philips Hue Go (profil ZLL)
+"0x0100" = "light"  # On/Off Light
+"0x0101" = "light"  # Dimmable Light
+"0x0102" = "light"  # Color Dimmable Light
+"0x010c" = "light"  # Color Temperature Light
+"0x010d" = "light"  # Extended Color Light
+"LLC020" = "light"  # Philips Hue Go (profil ZLL)
 
-"0x0106" = "zigbee.motion"  # Light Sensor
-"0x0107" = "zigbee.motion"  # Occupancy Sensor
+"0x0106" = "motion"  # Light Sensor
+"0x0107" = "motion"  # Occupancy Sensor
 
-"0x0302" = "zigbee.climate"  # Temperature Sensor
-"lumi.weather" = "zigbee.climate"  # Xiaomi température, humidité, pression. Ancienne version annoncée en 0x5f01
+"0x0302" = "climate"  # Temperature Sensor
+"lumi.weather" = "climate"  # Xiaomi température, humidité, pression. Ancienne version annoncée en 0x5f01
 
-"lumi.sensor_magnet.aq2" = "zigbee.contact"  # Xiaomi contact de porte
+"lumi.sensor_magnet.aq2" = "contact"  # Xiaomi contact de porte
 
-"0x0006" = "zigbee.button"  # Remote Control
-"0x0103" = "zigbee.button"  # On/Off Switch
-"0x0104" = "zigbee.button"  # Dimmer Switch
-"lumi.sensor_cube.aqgl01" = "zigbee.button"  # Xiaomi cube
-"RWL021" = "zigbee.button"  # Philips Hue Dimmer (profil ZLL)
+"0x0006" = "button"  # Remote Control
+"0x0103" = "button"  # On/Off Switch
+"0x0104" = "button"  # Dimmer Switch
+"lumi.sensor_cube.aqgl01" = "button"  # Xiaomi cube
+"RWL021" = "button"  # Philips Hue Dimmer (profil ZLL)

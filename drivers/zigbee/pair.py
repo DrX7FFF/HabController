@@ -7,7 +7,7 @@ from typing import cast, override
 from zigpy.types import EUI64
 
 from core import pair
-from core.devices import driver_for_model, load_driver
+from core.devices import driver_for_model
 from drivers import zigbee
 from drivers.zigbee import (
     ERRORS,
@@ -121,8 +121,8 @@ class Pairing(pair.Pairing):
         il n'enverrait sinon rien au coordinateur avant d'y être lié (binding)."""
         if known := self.paired_ids(device.ieee):
             driver = cast(ZigbeeDevice, self.declared[known[0]])
-        elif name := driver_for_model(model_keys(device), self.models):
-            driver = cast(ZigbeeDevice, load_driver(name)(str(device.ieee)))
+        elif cls := driver_for_model(model_keys(device), self.models):
+            driver = cast(ZigbeeDevice, cls(str(device.ieee)))
             driver.configure(str(device.ieee))
         else:
             return
