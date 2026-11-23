@@ -112,9 +112,10 @@ async def eclairage(event: EventBool):
         extinction.start()                # extinction 5 min après le dernier départ
 ```
 - **Téléphone** (appli ntfy, topic affiché sur la page Administration) : `notify(texte)` envoie
-  une notification ; `ask(texte, {"Libellé": action ou None})` une notification à boutons (trois
-  au plus) : l'action du bouton choisi est appelée (fonction simple ou async) et la notification
-  retirée ; `cancel()` sur la question renvoyée la retire. Au rechargement des automatisations,
+  une notification ; `Question(texte, {"Libellé": action ou None})` déclare une fois, comme un
+  `Timer`, une notification à boutons (trois au plus) : `.ask()` l'envoie (en retirant la
+  précédente), `.cancel()` la retire, sans effet si elle n'est pas posée ; l'action du bouton
+  choisi est appelée (fonction simple ou async) et la notification retirée. Au rechargement des automatisations,
   les questions en attente sont retirées.
 - **Application** : `@app_start` appelle une fonction async au démarrage, automatisations chargées
   et avant la connexion des équipements (aussi au rechargement complet, `devices/`) ;

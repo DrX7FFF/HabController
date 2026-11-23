@@ -17,7 +17,7 @@ from core import CONFIG_DIR
 from core.base import describe, spawn_task
 
 log = logging.getLogger(__name__)
-__all__ = ["ask", "notify"]
+__all__ = ["Question", "notify"]
 
 SERVER = "https://ntfy.sh"
 SECRETS_FILE = CONFIG_DIR.parent / "HabSecrets" / "ntfy.json"
@@ -40,16 +40,24 @@ def load_topics() -> dict[str, str]:
 
 
 class Question:
-    """Notification à boutons en attente de réponse ; cancel() la retire du téléphone."""
+    """Notification à boutons (trois au plus), déclarée une fois comme un Timer : ask() l'envoie
+    (en retirant la précédente), cancel() la retire du téléphone, sans effet si elle n'est pas
+    posée. L'action du bouton choisi est appelée (fonction simple ou async)."""
 
-    def __init__(self, push: "Push", actions: list[Callable | None]):
-        self.id = secrets.token_hex(8)  # sequence_id ntfy : permet de supprimer la notification
-        self.actions = actions
-        self._push = push
+    def __init__(self, text: str, buttons: dict[str, Callable | None]):
+        if len(buttons) > 3:
+            raise ValueError("push : trois boutons au plus")
+        self.text = text
+        self.buttons = buttons
+        self.id: str | None = None  # sequence_id ntfy de la notification posée
+
+    def ask(self) -> None:
+        if _push:
+            _push.ask(self)
 
     def cancel(self) -> None:
-        if self._push.questions.pop(self.id, None):
-            self._push.delete(self.id)
+        if _push:
+            _push.withdraw(self)
 
 
 class Push:
@@ -93,25 +101,31 @@ class Push:
     def notify(self, text: str, data: dict | None = None) -> None:
         self.publish("POST", SERVER, {"topic": self.topic, "message": text, **(data or {})})
 
-    def ask(self, text: str, buttons: dict[str, Callable | None]) -> Question:
-        if len(buttons) > 3:
-            raise ValueError("push : trois boutons au plus")
-        question = Question(self, list(buttons.values()))
+    def ask(self, question: Question) -> None:
+        self.withdraw(question)
+        question.id = secrets.token_hex(8)  # sequence_id ntfy : permet de supprimer la notification
         self.questions[question.id] = question
         actions = [{"action": "http", "label": label, "url": f"{SERVER}/{self.reply}",
                     "body": f"{question.id}:{n}", "clear": True}
-                   for n, label in enumerate(buttons)]
-        self.notify(text, {"sequence_id": question.id, "actions": actions})
-        return question
+                   for n, label in enumerate(question.buttons)]
+        self.notify(question.text, {"sequence_id": question.id, "actions": actions})
+
+    def withdraw(self, question: Question) -> None:
+        """Retire la question du téléphone si elle est posée."""
+        if question.id and self.questions.pop(question.id, None):
+            self.delete(question.id)
+        question.id = None
 
     def answer(self, body: str) -> None:
         qid, _, n = body.partition(":")
         question = self.questions.pop(qid, None)
-        if question is None or not n.isdigit() or int(n) >= len(question.actions):
+        actions = list(question.buttons.values()) if question else []
+        if question is None or not n.isdigit() or int(n) >= len(actions):
             log.info("push : réponse ignorée (question retirée ou inconnue)")
             return
+        question.id = None
         self.delete(qid)  # traitée : retirée de tous les appareils abonnés
-        if action := question.actions[int(n)]:
+        if action := actions[int(n)]:
             spawn_task(self._run(action), "push.réponse")
 
     async def _run(self, action: Callable) -> None:
@@ -164,13 +178,6 @@ def notify(text: str) -> None:
     """Notification simple sur le téléphone. Ne bloque pas."""
     if _push:
         _push.notify(text)
-
-
-def ask(text: str, buttons: dict[str, Callable | None]) -> Question | None:
-    """Notification à boutons (trois au plus) : {libellé : action ou None}. L'action du bouton
-    choisi est appelée (fonction simple ou async), et la notification retirée. Renvoie la question
-    (cancel() pour la retirer)."""
-    return _push.ask(text, buttons) if _push else None
 
 
 def forget() -> None:

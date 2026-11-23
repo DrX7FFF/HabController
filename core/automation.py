@@ -1,7 +1,7 @@
 """Moteur des automatisations de HabConfig/automations : chargement et minuteurs. Les
 automatisations s'abonnent aux événements des équipements (@equipement.event_…, core.base)
 et de l'application (@app_start, @app_reload) ; variables gardées au rechargement : KeepOnReload ;
-notifications push sur le téléphone : notify, ask (core.push).
+notifications push sur le téléphone : notify, Question (core.push).
 
 Un script n'importe que ce module : `from core.automation import *` (voir __all__)."""
 
@@ -30,7 +30,7 @@ from core.base import (
     remove_listeners,
     spawn_task,
 )
-from core.push import ask, notify
+from core.push import Question, notify
 
 _logger = logging.getLogger(__name__)  # moteur : system.log
 log = logging.getLogger("automations")  # scripts : automations.log, avec le nom du fichier
@@ -44,10 +44,10 @@ __all__ = [
     "EventStr",
     "EventZone",
     "KeepOnReload",
+    "Question",
     "Timer",
     "app_reload",
     "app_start",
-    "ask",
     "log",
     "notify",
 ]

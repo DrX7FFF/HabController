@@ -67,7 +67,7 @@ boot_commit: str | None = None  # commit de HabController en marche
 history: datalog.Datalog | None = None
 notifier = push.setup()  # notifications push (ntfy.sh), indépendantes des rechargements
 pong: int | None = None  # réception (ms) de la réponse au dernier ping, None depuis le ping
-ping_question: push.Question | None = None  # dernier ping, retiré du téléphone au suivant
+ping_question = push.Question("🏓 Test de ping", {"Pong": lambda: set_pong(now_ms())})
 pairings = pair.protocols()  # {protocole: classe Pairing}
 admin_lock = asyncio.Lock()  # une opération d'administration à la fois (appairage, sauvegarde…)
 server = None  # uvicorn.Server lancé par ./habctrl : arrêté pour redémarrer (voir restart())
@@ -460,11 +460,8 @@ async def read_history(path: str, start: int, end: int):
 
 @app.post("/api/push/ping", status_code=202)
 async def ping():
-    global ping_question
     set_pong(None)
-    if ping_question:
-        ping_question.cancel()
-    ping_question = notifier.ask("🏓 Test de ping", {"Pong": lambda: set_pong(now_ms())})
+    ping_question.ask()
 
 
 # --- Firmwares (core/firmware.py) : installation de celui proposé pour un équipement --------
