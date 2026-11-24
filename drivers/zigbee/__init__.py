@@ -12,7 +12,8 @@ import sqlite3
 import sys
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
-from typing import ClassVar, override
+from dataclasses import dataclass
+from typing import Any, ClassVar, override
 
 import zhaquirks
 from bellows.ash import AshException
@@ -314,6 +315,19 @@ async def setup_reporting(
             log.warning("%s : reporting de %s refusé (%s)", name, attr.name, status.name)
 
 
+@dataclass(frozen=True)
+class Measure:
+    """Mesure Zigbee d'un attribut d'état : où la lire, quand l'envoyer, comment la convertir."""
+
+    cluster: int
+    attrs: tuple[str, ...]  # attributs ZCL (couleur : x et y)
+    low: int = 0  # s, intervalle minimal d'envoi spontané
+    high: int = 0  # s, intervalle maximal
+    change: Callable[[float], float] | None = None  # écart de reports -> écart en valeur brute ;
+    # None : envoyée par l'équipement de lui-même, sans réglage
+    value: Callable[[Any], Any] = lambda v: v  # valeur brute -> valeur de l'état (None : ignorée)
+
+
 class Coordinator:
     """La clé partagée : ouverte tant qu'il reste un équipement Zigbee ou un appairage en cours,
     rouverte si elle décroche.
@@ -502,9 +516,9 @@ async def ready() -> None:
 class ZigbeeDevice(NetworkDevice):
     """Base des pilotes Zigbee : rattachement au coordinateur, lecture périodique, joignabilité.
 
-    Le pilote décrit son équipement par trois méthodes : `_configure` (binding et reporting,
-    à chaque rattachement), `_read` (lecture complète de l'état, lève une erreur de ERRORS si
-    l'équipement ne répond pas) et `_on_attribute` (valeur reçue spontanément).
+    Le pilote décrit ses mesures dans MEASURES ; la base en tire le binding et le reporting (à
+    chaque rattachement), la lecture (lève une erreur de ERRORS si l'équipement ne répond pas)
+    et la réception des valeurs envoyées spontanément.
     L'équipement est joignable tant qu'il répond : une lecture toutes les `poll` secondes le
     vérifie (et rattrape les valeurs que l'équipement n'envoie pas de lui-même).
     Équipement sur pile (POLL = None) : il dort, on ne l'interroge jamais. Il est joignable dès
@@ -514,6 +528,7 @@ class ZigbeeDevice(NetworkDevice):
 
     POLL: float | None = 300  # s, période de lecture par défaut ; None : sur pile
     DEFAULTS: ClassVar[Mapping[str, object]] = {}  # mesures du pilote, suivies par défaut
+    MEASURES: ClassVar[Mapping[str, "Measure"]] = {}  # attribut d'état -> mesure Zigbee
 
     def __init__(self, ieee: str, poll: float | None = None):
         super().__init__()
@@ -666,21 +681,60 @@ class ZigbeeDevice(NetworkDevice):
                 self._set_connected(True, synced=True)
             await asyncio.sleep(poll)
 
-    # --- à fournir par le pilote --------------------------------------------
+    # --- mesures, d'après MEASURES ---------------------------------------------
+
+    def _cluster(self, zdev, key: str):
+        """Cluster de l'équipement qui fournit la mesure `key`, ou None."""
+        return find_cluster(zdev, self.MEASURES[key].cluster)
+
+    def _reports(self, zdev) -> list:
+        """[(cluster, envoi spontané par attribut)] pour les mesures que l'équipement a ; None :
+        mesure non suivie, l'équipement doit cesser de l'envoyer (il garde sa configuration)."""
+        clusters = {}
+        for key, measure in self.MEASURES.items():
+            if measure.change is None or (cluster := self._cluster(zdev, key)) is None:
+                continue
+            cfg = None
+            if key in self.reports:
+                cfg = (measure.low, measure.high, raw_change(self._change(key)))
+            cfgs = clusters.setdefault(measure.cluster, (cluster, {}))[1]
+            for attr in measure.attrs:
+                cfgs[attr] = cfg
+        return list(clusters.values())
+
+    def _change(self, key: str) -> float:
+        """Écart minimal de la mesure suivie `key`, en valeur brute."""
+        change = self.MEASURES[key].change
+        assert change is not None  # mesure à envoi spontané
+        return change(self.reports[key])
+
+    def _value(self, key: str, value):
+        """Valeur reçue convertie pour l'état ; None : ignorée."""
+        return self.MEASURES[key].value(value)
 
     async def _configure(self, zdev) -> None:
         """Binding et reporting (voir setup_reporting)."""
-
-    def _cluster(self, zdev, key: str):
-        """Cluster de l'équipement qui fournit la mesure `key` de DEFAULTS, ou None."""
-        raise NotImplementedError
+        for cluster, reports in self._reports(zdev):
+            await setup_reporting(self.id, cluster, reports)
 
     async def _read(self, zdev) -> None:
-        """Lit tout l'état de l'équipement."""
-        raise NotImplementedError
+        """Lit les mesures suivies de l'équipement."""
+        for cluster, reports in self._reports(zdev):
+            names = [attr for attr, cfg in reports.items() if cfg is not None]
+            if not names:
+                continue
+            for name, value in (await read(cluster, names)).items():
+                self._on_attribute(cluster.cluster_id, name, value)
 
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
         """Valeur reçue de l'équipement (envoi spontané ou réponse à une lecture)."""
+        for key, measure in self.MEASURES.items():
+            if measure.cluster == cluster_id and name in measure.attrs:
+                if key in self.reports and value is not None:
+                    converted = self._value(key, value)
+                    if converted is not None:
+                        getattr(type(self), key).update(self, converted)
+                return
 
     # --- événements de zigpy ------------------------------------------------
 

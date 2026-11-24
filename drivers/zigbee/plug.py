@@ -4,14 +4,7 @@ import logging
 from typing import TypedDict, override
 
 from core.base import EventFloat, EventSource, State, Switchable
-from drivers.zigbee import (
-    ZigbeeDevice,
-    find_cluster,
-    raw_change,
-    read,
-    setup_reporting,
-    tracked,
-)
+from drivers.zigbee import Measure, ZigbeeDevice, find_cluster, read, tracked
 
 log = logging.getLogger(__name__)
 
@@ -19,15 +12,15 @@ ON_OFF = 0x0006
 METERING = 0x0702
 ELECTRICAL = 0x0B04
 
-# état : (cluster, attribut ZCL, envoi spontané : intervalle min s, max s)
-ZCL = {
-    "on": (ON_OFF, "on_off", 0, 600),
-    "active_power": (ELECTRICAL, "active_power", 5, 300),
-    "voltage": (ELECTRICAL, "rms_voltage", 30, 600),
-    "current": (ELECTRICAL, "rms_current", 5, 300),
-    "energy": (METERING, "current_summ_delivered", 30, 600),
+# état -> mesure (envoi spontané : intervalle min s, max s) ; écart et valeur des mesures
+# électriques : mis à l'échelle par le pilote (FACTORS)
+MEASURES = {
+    "on": Measure(ON_OFF, ("on_off",), 0, 600, lambda _: 1, bool),
+    "active_power": Measure(ELECTRICAL, ("active_power",), 5, 300, lambda change: change),
+    "voltage": Measure(ELECTRICAL, ("rms_voltage",), 30, 600, lambda change: change),
+    "current": Measure(ELECTRICAL, ("rms_current",), 5, 300, lambda change: change),
+    "energy": Measure(METERING, ("current_summ_delivered",), 30, 600, lambda change: change),
 }
-STATE_OF = {(cluster_id, attr): key for key, (cluster_id, attr, _, _) in ZCL.items()}
 # mesure : (multiplicateur, diviseur), attributs de son cluster ; valeur = brute * mult / div
 FACTORS = {
     "active_power": ("ac_power_multiplier", "ac_power_divisor"),
@@ -60,6 +53,7 @@ class Plug(Switchable, ZigbeeDevice):
     """Prise Zigbee : marche/arrêt et mesures, envoyées spontanément par la prise."""
 
     DEFAULTS = DEFAULTS
+    MEASURES = MEASURES
     WIDGET = "plug"
 
     active_power = State[float]()  # W
@@ -81,15 +75,11 @@ class Plug(Switchable, ZigbeeDevice):
     # --- état ---------------------------------------------------------------
 
     @override
-    def _cluster(self, zdev, key: str):
-        return find_cluster(zdev, ZCL[key][0])
-
-    @override
     async def _configure(self, zdev) -> None:
         # facteur absent de l'appareil : fourni par son correctif zha-quirks, sinon 1
         scales = {}
         for key, (mult_attr, div_attr) in FACTORS.items():
-            cluster = find_cluster(zdev, ZCL[key][0])
+            cluster = self._cluster(zdev, key)
             if cluster is None or key not in self.reports:
                 continue
             factors = await read(cluster, [mult_attr, div_attr])
@@ -97,39 +87,17 @@ class Plug(Switchable, ZigbeeDevice):
             divisor = factors.get(div_attr) or 1
             scales[key] = multiplier / divisor
         self._scales = scales
-        # non suivie : la prise doit cesser de l'envoyer (elle garde sa configuration)
-        reports: dict[int, dict] = {}
-        for key, (cluster_id, attr, low, high) in ZCL.items():
-            cfg = None
-            if key in self.reports:
-                change = self.reports[key] / scales[key] if key in scales else 1
-                cfg = (low, high, raw_change(change))
-            reports.setdefault(cluster_id, {})[attr] = cfg
-        for cluster_id, cluster_reports in reports.items():
-            if (cluster := find_cluster(zdev, cluster_id)) is not None:
-                await setup_reporting(self.id, cluster, cluster_reports)
+        await super()._configure(zdev)
 
     @override
-    async def _read(self, zdev) -> None:
-        attrs: dict[int, list[str]] = {}
-        for key in self.reports:
-            cluster_id, attr, _, _ = ZCL[key]
-            attrs.setdefault(cluster_id, []).append(attr)
-        for cluster_id, names in attrs.items():
-            if (cluster := find_cluster(zdev, cluster_id)) is None:
-                continue
-            for name, value in (await read(cluster, names)).items():
-                self._on_attribute(cluster_id, name, value)
+    def _change(self, key: str) -> float:
+        return super()._change(key) / self._scales[key] if key in self._scales else 1
 
     @override
-    def _on_attribute(self, cluster_id: int, name: str, value) -> None:
-        key = STATE_OF.get((cluster_id, name))
-        if key not in self.reports:
-            return
-        if key == "on":
-            Plug.on.update(self, bool(value))
-        elif key in self._scales:
-            getattr(Plug, key).update(self, round(value * self._scales[key], 3))
+    def _value(self, key: str, value):
+        if key not in FACTORS:
+            return super()._value(key, value)
+        return round(value * self._scales[key], 3) if key in self._scales else None
 
     # --- commandes ----------------------------------------------------------
 

@@ -5,17 +5,11 @@ attributs. Les appareils non standard (Xiaomi…) sont ramenés aux clusters sta
 correctif zha-quirks. L'appareil dort : il n'est jamais interrogé."""
 
 import math
-from collections.abc import Callable, Mapping
-from typing import Any, ClassVar, TypedDict, override
+from collections.abc import Mapping
+from typing import ClassVar, TypedDict, override
 
-from core.base import Device, State
-from drivers.zigbee import (
-    ZigbeeDevice,
-    find_cluster,
-    raw_change,
-    setup_reporting,
-    tracked,
-)
+from core.base import Device
+from drivers.zigbee import Measure, ZigbeeDevice, find_cluster, tracked
 
 POWER = 0x0001
 ON_OFF = 0x0006
@@ -31,25 +25,28 @@ def lux(value: int) -> int:
     return round(10 ** ((value - 1) / 10000)) if value else 0
 
 
-# valeur de reports -> (cluster, attribut ZCL)
-ZCL = {
-    "temperature": (TEMPERATURE, "measured_value"),
-    "humidity": (HUMIDITY, "measured_value"),
-    "pressure": (PRESSURE, "measured_value"),
-    "illuminance": (ILLUMINANCE, "measured_value"),
-    "presence": (OCCUPANCY, "occupancy"),
-    "open": (ON_OFF, "on_off"),  # contact de porte : allumé = ouvert
-    "battery": (POWER, "battery_percentage_remaining"),
-}
-# Envoi spontané : état -> (intervalle min s, max s, écart de reports -> écart en valeur brute)
-# (open : envoyé par le capteur de lui-même)
-REPORTS = {
-    "temperature": (30, 3600, lambda change: change * 100),
-    "humidity": (30, 3600, lambda change: change * 100),
-    "pressure": (30, 3600, lambda change: change),
-    "illuminance": (30, 3600, lambda percent: 10000 * math.log10(1 + percent / 100)),
-    "presence": (0, 3600, lambda _: 1),
-    "battery": (3600, 43200, lambda change: change * 2),
+# Mesures de toutes les variantes : celles qu'une variante ne suit pas sont arrêtées sur
+# l'appareil (envoi spontané : intervalle min s, max s, écart de reports -> écart brut)
+MEASURES = {
+    "temperature": Measure(
+        TEMPERATURE, ("measured_value",), 30, 3600, lambda change: change * 100,
+        lambda v: v / 100,
+    ),
+    "humidity": Measure(
+        HUMIDITY, ("measured_value",), 30, 3600, lambda change: change * 100, lambda v: v / 100
+    ),
+    "pressure": Measure(PRESSURE, ("measured_value",), 30, 3600, lambda change: change),
+    "illuminance": Measure(
+        ILLUMINANCE, ("measured_value",), 30, 3600,
+        lambda percent: 10000 * math.log10(1 + percent / 100), lux,
+    ),
+    "presence": Measure(OCCUPANCY, ("occupancy",), 0, 3600, lambda _: 1, lambda v: bool(v & 1)),
+    # contact de porte : allumé = ouvert, envoyé par le capteur de lui-même
+    "open": Measure(ON_OFF, ("on_off",), value=bool),
+    "battery": Measure(
+        POWER, ("battery_percentage_remaining",), 3600, 43200, lambda change: change * 2,
+        lambda v: round(v / 2),
+    ),
 }
 
 
@@ -67,11 +64,7 @@ class Sensor(ZigbeeDevice):
     WIDGET = "sensor"
     # valeurs suivies par défaut, propres à chaque variante
     DEFAULTS: ClassVar[Mapping[str, object]] = {"battery": 1}
-    # (cluster, attribut ZCL) -> (attribut d'état, conversion de la valeur brute) ; complété
-    # par chaque variante
-    MEASURES: ClassVar[dict[tuple[int, str], tuple[State, Callable[[Any], Any]]]] = {
-        ZCL["battery"]: (Device.battery, lambda v: round(v / 2)),
-    }
+    MEASURES = MEASURES
 
     def __init__(self, ieee: str, reports: SensorReports | None = None):
         super().__init__(ieee)
@@ -79,24 +72,5 @@ class Sensor(ZigbeeDevice):
         Device.battery_powered.update(self, True)
 
     @override
-    async def _configure(self, zdev) -> None:
-        # non suivie (ou d'une autre variante) : le capteur doit cesser de l'envoyer
-        for key, (low, high, convert) in REPORTS.items():
-            cluster_id, attr = ZCL[key]
-            if (cluster := find_cluster(zdev, cluster_id)) is None:
-                continue
-            cfg = None
-            if key in self.reports:
-                cfg = (low, high, raw_change(convert(self.reports[key])))
-            await setup_reporting(self.id, cluster, {attr: cfg})
-
-    @override
     def _cluster(self, zdev, key: str):
-        return find_cluster(zdev, ZCL[key][0], output=True)
-
-    @override
-    def _on_attribute(self, cluster_id: int, name: str, value) -> None:
-        if (measure := self.MEASURES.get((cluster_id, name))) and value is not None:
-            state, convert = measure
-            if state.name in self.reports:
-                state.update(self, convert(value))
+        return find_cluster(zdev, MEASURES[key].cluster, output=True)

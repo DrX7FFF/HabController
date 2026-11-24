@@ -4,28 +4,26 @@ from typing import TypedDict, override
 
 import core.light
 from core.base import DeviceError
-from drivers.zigbee import (
-    ZigbeeDevice,
-    find_cluster,
-    raw_change,
-    read,
-    setup_reporting,
-    tracked,
-)
+from drivers.zigbee import Measure, ZigbeeDevice, tracked
 
 ON_OFF = 0x0006
 LEVEL = 0x0008
 COLOR = 0x0300
 
-# Réglage -> (cluster, envoi spontané : attribut -> (intervalle min s, max s, écart minimal en
-# valeur brute)) ; écart de brightness : celui de reports, converti
-SETTINGS = {
-    "on": (ON_OFF, {"on_off": (0, 600, 1)}),
-    "brightness": (LEVEL, {"current_level": (1, 600, 1)}),
-    "color_temp": (COLOR, {"color_temperature": (1, 600, 1)}),
-    "rgb": (COLOR, {"current_x": (1, 600, 10), "current_y": (1, 600, 10)}),
+# Réglage -> mesure (envoi spontané : intervalle min s, max s, écart minimal en valeur brute) ;
+# écart de brightness : celui de reports, converti ; rgb : converti par le pilote (x et y)
+MEASURES = {
+    "on": Measure(ON_OFF, ("on_off",), 0, 600, lambda _: 1, bool),
+    "brightness": Measure(
+        LEVEL, ("current_level",), 1, 600, lambda percent: percent * 254 / 100,
+        lambda v: max(1, round(int(v) * 100 / 254)),
+    ),
+    "color_temp": Measure(
+        COLOR, ("color_temperature",), 1, 600, lambda _: 1,
+        lambda v: round(1_000_000 / int(v)) if v else None,
+    ),
+    "rgb": Measure(COLOR, ("current_x", "current_y"), 1, 600, lambda _: 10),
 }
-SETTING_OF = {attr: name for name, (_, reports) in SETTINGS.items() for attr in reports}
 CAPABILITIES = "color_capabilities"  # attribut du cluster couleur, lu à l'appairage
 CAPABILITY = {"color_temp": 0x10, "rgb": 0x08}  # bits de color_capabilities : température, xy
 
@@ -79,6 +77,7 @@ class Light(core.light.Light, ZigbeeDevice):
     """Ampoule Zigbee : l'état vient de ce qu'elle envoie, relu toutes les `poll` secondes."""
 
     DEFAULTS = DEFAULTS
+    MEASURES = MEASURES
 
     def __init__(
         self,
@@ -98,40 +97,9 @@ class Light(core.light.Light, ZigbeeDevice):
     def _cluster(self, zdev, key: str):
         """Cluster du réglage `key`, ou None si l'ampoule ne l'a pas (cluster absent, ou
         couleur non déclarée dans color_capabilities, lu depuis le cache de la base zigpy)."""
-        cluster = find_cluster(zdev, SETTINGS[key][0])
+        cluster = super()._cluster(zdev, key)
         caps = cluster.get(CAPABILITIES) if cluster is not None and key in CAPABILITY else None
         return None if caps is not None and not caps & CAPABILITY[key] else cluster
-
-    def _reports(self, zdev) -> list:
-        """[(cluster, envoi spontané par attribut)] pour les réglages que l'ampoule a ; None :
-        réglage non suivi, l'ampoule doit cesser de l'envoyer (elle garde sa configuration)."""
-        clusters = {}
-        for name, (cluster_id, reports) in SETTINGS.items():
-            if (cluster := self._cluster(zdev, name)) is None:
-                continue
-            cfgs = clusters.setdefault(cluster_id, (cluster, {}))[1]
-            for attr, (low, high, change) in reports.items():
-                if name not in self.reports:
-                    cfgs[attr] = None
-                elif name == "brightness":
-                    cfgs[attr] = (low, high, raw_change(self.reports[name] * 254 / 100))
-                else:
-                    cfgs[attr] = (low, high, change)
-        return list(clusters.values())
-
-    @override
-    async def _configure(self, zdev) -> None:
-        for cluster, reports in self._reports(zdev):
-            await setup_reporting(self.id, cluster, reports)
-
-    @override
-    async def _read(self, zdev) -> None:
-        for cluster, reports in self._reports(zdev):
-            names = [attr for attr, cfg in reports.items() if cfg is not None]
-            if not names:
-                continue
-            for name, value in (await read(cluster, names)).items():
-                self._on_attribute(cluster.cluster_id, name, value)
 
     @override
     def _attach(self, app) -> None:
@@ -141,24 +109,20 @@ class Light(core.light.Light, ZigbeeDevice):
 
     @override
     def _on_attribute(self, cluster_id: int, name: str, value) -> None:
-        setting = SETTING_OF.get(name)
-        if setting is None or setting not in self.reports or value is None:
-            return
-        # ex. une ampoule blanc réglable envoie aussi x/y : pas de rgb pour elle
-        if self.zdev is not None and self._cluster(self.zdev, setting) is None:
-            return
-        if name == "on_off":
-            Light.on.update(self, bool(value))
-        elif name == "current_level":
-            Light.brightness.update(self, max(1, round(int(value) * 100 / 254)))
-        elif name == "color_temperature":
-            if value:
-                Light.color_temp.update(self, round(1_000_000 / int(value)))
-        else:
+        if name in MEASURES["rgb"].attrs and value is not None:
             self._xy[name] = int(value)
-            if len(self._xy) == 2:
-                x, y = self._xy["current_x"] / 65535, self._xy["current_y"] / 65535
-                Light.rgb.update(self, xy_to_rgb(x, y))
+        super()._on_attribute(cluster_id, name, value)
+
+    @override
+    def _value(self, key: str, value):
+        # ex. une ampoule blanc réglable envoie aussi x/y : pas de rgb pour elle
+        if self.zdev is not None and self._cluster(self.zdev, key) is None:
+            return None
+        if key != "rgb":
+            return super()._value(key, value)
+        if len(self._xy) < 2:
+            return None
+        return xy_to_rgb(self._xy["current_x"] / 65535, self._xy["current_y"] / 65535)
 
     # --- commandes ----------------------------------------------------------
 

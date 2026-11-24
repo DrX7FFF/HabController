@@ -24,6 +24,7 @@ from zigpy.zcl import OtaImageAvailableEvent
 
 import drivers.zigbee.pair as zigbee_pair
 import drivers.zigbee.plug as zigbee_plug
+import drivers.zigbee.sensor as zigbee_sensor
 from core import base
 from core import pair as core_pair
 from core.devices import id_from_name, summarize, write_summary
@@ -118,17 +119,15 @@ class ReportsTest(unittest.IsolatedAsyncioTestCase):
         async def read(cluster, _names):
             return (scales or {}).get(cluster, {})
 
-        module = sys.modules[type(device).__module__]
-        if not hasattr(module, "setup_reporting"):
-            module = sys.modules["drivers.zigbee.sensor"]
-        patches = [
-            mock.patch.object(module, "setup_reporting", setup),
-            mock.patch.object(
-                module, "find_cluster", lambda _z, c: c if c in cluster_ids else None
-            ),
-        ]
-        if hasattr(module, "read"):
-            patches.append(mock.patch.object(module, "read", read))
+        patches: list = [mock.patch.object(zigbee, "setup_reporting", setup)]
+        for module in {zigbee, zigbee_sensor, sys.modules[type(device).__module__]}:
+            if hasattr(module, "find_cluster"):
+                patches.append(mock.patch.object(
+                    module, "find_cluster",
+                    lambda _z, c, **_kw: c if c in cluster_ids else None,
+                ))
+            if hasattr(module, "read"):
+                patches.append(mock.patch.object(module, "read", read))
         for patcher in patches:
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -168,7 +167,7 @@ class ReportsTest(unittest.IsolatedAsyncioTestCase):
         clusters = {cluster_id: mock.Mock(cluster_id=cluster_id) for cluster_id in (6, 8, 0x0300)}
         clusters[0x0300].get.return_value = None  # color_capabilities non lu : tout présent
         with mock.patch(
-            "drivers.zigbee.light.find_cluster", lambda _z, cluster_id: clusters[cluster_id]
+            "drivers.zigbee.find_cluster", lambda _z, cluster_id: clusters[cluster_id]
         ):
             reports = {
                 cluster.cluster_id: cfgs for cluster, cfgs in light._reports(SimpleNamespace())
@@ -314,7 +313,7 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
         light = Light(IEEE)
         light.zdev = fake(ZigpyDevice)
         with (
-            mock.patch("drivers.zigbee.light.find_cluster", return_value=None),
+            mock.patch("drivers.zigbee.find_cluster", return_value=None),
             self.assertRaises(ValueError),
         ):
             await light._set_rgb("#ff0000", None, None)
@@ -338,7 +337,7 @@ class LightTest(unittest.IsolatedAsyncioTestCase):
                 setattr(cluster, name, command(name))
             clusters[cluster_id] = cluster
         light.zdev = fake(ZigpyDevice)
-        patcher = mock.patch("drivers.zigbee.light.find_cluster", lambda _z, c: clusters[c])
+        patcher = mock.patch("drivers.zigbee.find_cluster", lambda _z, c: clusters[c])
         patcher.start()
         self.addCleanup(patcher.stop)
         return light
