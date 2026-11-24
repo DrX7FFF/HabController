@@ -1,0 +1,42 @@
+Bug Ladybird : curseur d'intensité de l'onglet Commandes (relevé le 2026-11-24)
+================================================================================
+
+Symptômes (Ladybird 2026.47.7, flatpak org.ladybird.Ladybird)
+- Régler l'intensité d'une ampoule puis lâcher le curseur : rien n'est envoyé.
+- Pendant ce temps, l'affichage ne suit plus les changements faits ailleurs (téléphone).
+- En cliquant à côté du curseur après l'avoir lâché, l'ampoule se règle.
+- Brave (PC) et le téléphone : fonctionne. Bouton marche/arrêt : fonctionne dans Ladybird.
+
+Cause établie
+- La page n'envoie la commande qu'au signal « fin de réglage » du navigateur (événement change),
+  et bloque la mise à jour du curseur tant que ce signal n'est pas arrivé (web/pages/dashboard.js,
+  fonction slider : oninput -> busy = true ; onchange -> envoi + busy = false).
+- Sur l'onglet Commandes, Ladybird n'envoie ce signal qu'à la perte du focus, pas au relâchement.
+- Écarté : liaison avec le serveur fermée (F5 ne change rien) ; aucune erreur dans system.log.
+
+Page de test (curseur seul, écrit en HTML) : Ladybird envoie bien change au relâchement
+  <label>Intensité <input type="range" min="1" max="100"></label>
+  événements journalisés : input, change, pointerup, mouseup, keyup
+  résultat : input ... puis pointerup 48, mouseup 48, change 48
+=> Comportement incohérent du navigateur (probable bug Ladybird).
+
+Différences entre la page de test et l'onglet Commandes (à isoler)
+1. Curseur créé par programme (el("input", { type: "range", min, max })), pas écrit en HTML.
+2. Mise en forme : label en grille (dashboard.css), styles communs (common.css).
+3. Placé dans un bloc reconstruit à l'arrivée des mesures de l'équipement (build/measures).
+
+Corrections envisagées (non appliquées)
+1. Envoyer aussi au relâchement (souris, doigt, flèches du clavier), sans renvoyer une valeur déjà
+   envoyée : comportement identique partout. (recommandée)
+2. Envoyer après ~0,3 s d'immobilité du curseur : indépendant des signaux du navigateur, mais
+   l'ampoule peut changer pendant le glissement.
+Le sélecteur de couleur (colorPicker) utilise le même mécanisme.
+
+Prompt pour reprendre
+---------------------
+Projet HabController. Lis todobug.txt (bug Ladybird du curseur d'intensité de l'onglet
+Commandes). Objectif : trouver laquelle des 3 différences fait que Ladybird n'envoie pas
+l'événement change au relâchement, avec une page de test locale qui les ajoute une par une
+(servie par python3 -m http.server sur 127.0.0.1, ouverte dans Ladybird en collant l'adresse
+dans la fenêtre existante). Puis proposer : signalement du bug à Ladybird et/ou correction 1.
+Analyse et proposition d'abord, aucune modification sans mon « oui ».
