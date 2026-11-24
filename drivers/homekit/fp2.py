@@ -10,7 +10,7 @@ from aiohomekit.model import Accessory
 from aiohomekit.model.characteristics import CharacteristicPermissions as Perms
 from aiohomekit.model.characteristics import CharacteristicsTypes as Types
 
-from core.base import EventFloat, EventSource, EventZone, NetworkDevice, State
+from core.base import EventFloat, EventSource, EventZone, PersistentDevice, State
 from drivers.homekit import (
     ERRORS,
     PairingError,
@@ -22,8 +22,6 @@ from drivers.homekit import (
 
 log = logging.getLogger(__name__)
 
-RETRY_MIN = 2  # s, entre deux tentatives de connexion (doublé à chaque échec)
-RETRY_MAX = 60
 FIND_TIMEOUT = 30  # s, attente de l'accessoire sur le réseau (mDNS)
 POLL_TIMEOUT = 10  # s, au-delà la connexion est tenue pour morte
 
@@ -74,10 +72,12 @@ def build_mapping(accessories: list[dict], aliases: dict[int, str] | None = None
     return mapping
 
 
-class FP2(NetworkDevice):
+class FP2(PersistentDevice):
     """Capteur de présence FP2 : une connexion permanente, l'état vient des événements HomeKit."""
 
     WIDGET = "fp2"
+    ERRORS = ERRORS
+    FATAL = (PairingError,)
     illuminance = State[float]()  # lx
     event_illuminance = EventSource[EventFloat]()
     event_zone = EventSource[EventZone]()
@@ -103,7 +103,6 @@ class FP2(NetworkDevice):
         self._subscribed: set[Key] = set()  # abonnements actifs sur la connexion courante
         self._mapping = Mapping()
         self._pairing = None  # défini une fois la première lecture faite
-        self._backoff: float = RETRY_MIN
 
     @property
     def zones(self) -> "Zones":
@@ -136,29 +135,14 @@ class FP2(NetworkDevice):
     @override
     async def start(self) -> None:
         if self.physical():  # sinon reste injoignable, signalé par devices.yaml
-            self._spawn(self._run())
+            await super().start()
 
-    async def _run(self) -> None:
-        """Se connecte (adresse résolue par mDNS à chaque essai) et réessaie tant qu'il le faut."""
-        while True:
-            try:
-                async with open_session() as controller:
-                    pairing = await connect(controller, self.id, self._find_timeout)
-                    await self._serve(pairing)
-            except PairingError as err:
-                log.error("%s : %s", self.id, err)
-                return  # inutile de réessayer
-            except ERRORS as err:
-                log.warning(
-                    "%s : connexion impossible (%s : %s), nouvel essai dans %s s",
-                    self.id,
-                    type(err).__name__,
-                    err,
-                    self._backoff,
-                )
-            self._set_connected(False)
-            await asyncio.sleep(self._backoff)
-            self._backoff = min(self._backoff * 2, RETRY_MAX)
+    @override
+    async def _session(self) -> None:
+        """Adresse résolue par mDNS à chaque essai."""
+        async with open_session() as controller:
+            pairing = await connect(controller, self.id, self._find_timeout)
+            await self._serve(pairing)
 
     async def _serve(self, pairing) -> None:
         stops = [
@@ -169,7 +153,6 @@ class FP2(NetworkDevice):
         self._subscribed = set()  # nouvelle connexion : aucun abonnement
         try:
             await self._sync(pairing)
-            self._backoff = RETRY_MIN
             self._pairing = pairing
             # La bibliothèque se reconnecte seule et nous prévient, mais ne voit pas une connexion
             # morte sans fermeture TCP : lecture au rythme qu'elle préconise, un échec relance tout.

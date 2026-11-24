@@ -12,7 +12,7 @@ from core.base import (
     EventSource,
     EventStr,
     IPDevice,
-    NetworkDevice,
+    PersistentDevice,
     State,
     Switchable,
     actionweb,
@@ -21,7 +21,7 @@ from core.base import (
 log = logging.getLogger(__name__)
 
 
-class RGBMatrix(Switchable, IPDevice, NetworkDevice):
+class RGBMatrix(Switchable, IPDevice, PersistentDevice):
     """Afficheur HUB75 : connexion permanente, l'état vient de ses messages."""
 
     WIDGET = "matrix"
@@ -31,38 +31,25 @@ class RGBMatrix(Switchable, IPDevice, NetworkDevice):
     event_auto = EventSource[EventBool]()
     event_pattern = EventSource[EventStr]()
 
-    def __init__(self, host: str, port: int = 5000, retry: float = 10, ping: float = 10):
+    def __init__(self, host: str, port: int = 5000, ping: float = 10):
         super().__init__(host, port)
-        self._retry = retry
         self._ping = ping
         self._writer: asyncio.StreamWriter | None = None
 
-    @override
-    async def start(self) -> None:
-        self._spawn(self._run())
-
     # --- connexion ----------------------------------------------------------
 
-    async def _run(self) -> None:
+    @override
+    async def _session(self) -> None:
         # L'afficheur envoie son état à la connexion puis à chaque changement ; sans message
         # pendant `ping` secondes, un « ping » est envoyé, et sans réponse la connexion est coupée.
-        while True:
-            reason = ""
-            try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(self._host, self._port), 5
-                )
-                self._writer = writer
-                self._set_connected(True)
-                try:
-                    await self._read(reader)
-                finally:
-                    self._writer = None
-                    writer.close()
-            except (OSError, TimeoutError) as err:
-                reason = str(err) or type(err).__name__
-            self._set_connected(False, reason=reason)
-            await asyncio.sleep(self._retry)
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(self._host, self._port), 5)
+        self._writer = writer
+        try:
+            self._set_connected(True)
+            await self._read(reader)
+        finally:
+            self._writer = None
+            writer.close()
 
     async def _read(self, reader: asyncio.StreamReader) -> None:
         waiting = False

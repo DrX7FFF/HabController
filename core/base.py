@@ -14,6 +14,8 @@ type Handler = Callable[..., Awaitable[None]]  # fonction abonnée à un événe
 type Background = Coroutine[object, object, None]  # travail lancé en tâche de fond
 
 tasks: set[asyncio.Task[None]] = set()  # tâches de fond (commandes, automatisations…)
+RETRY_MIN = 2  # s, avant un nouvel essai de connexion (doublé à chaque échec)
+RETRY_MAX = 60
 _listeners: list[tuple["Device", str, Handler]] = []  # event_ : (équipement, clé, fonction)
 _listener_tasks: set[asyncio.Task[None]] = set()  # fonctions abonnées en cours
 
@@ -52,6 +54,21 @@ async def cancel(group: set[asyncio.Task[None]] = tasks) -> None:
         for task in running:
             task.cancel()
         await asyncio.gather(*running, return_exceptions=True)
+
+
+class Retry:
+    """Délai avant un nouvel essai de connexion : RETRY_MIN, doublé à chaque échec jusqu'à
+    RETRY_MAX, remis à RETRY_MIN une fois la connexion rétablie (reset)."""
+
+    def __init__(self):
+        self.delay: float = RETRY_MIN
+
+    def reset(self) -> None:
+        self.delay = RETRY_MIN
+
+    async def wait(self) -> None:
+        await asyncio.sleep(self.delay)
+        self.delay = min(self.delay * 2, RETRY_MAX)
 
 
 class DeviceError(Exception):
@@ -403,6 +420,46 @@ class NetworkDevice(Device):
         """DeviceError si l'équipement n'est pas joignable (connecté et état lu)."""
         if not self.connected:
             raise DeviceError(f"{self.id} : injoignable")
+
+
+class PersistentDevice(NetworkDevice, ABC):
+    """Équipement à connexion permanente : _session() se connecte et lit jusqu'à la coupure,
+    puis nouvel essai (voir Retry). Erreur de ERRORS : connexion perdue ou impossible ; de
+    FATAL : nouvel essai inutile, journalisée et abandon. QUIET : perte normale (équipement
+    éteint), journalisée sans avertissement."""
+
+    ERRORS: ClassVar[tuple[type[Exception], ...]] = (OSError, TimeoutError)
+    FATAL: ClassVar[tuple[type[Exception], ...]] = ()
+    QUIET = False
+
+    def __init__(self):
+        super().__init__()
+        self._retry = Retry()
+
+    @override
+    async def start(self) -> None:
+        self._spawn(self._run())
+
+    async def _run(self) -> None:
+        while True:
+            reason = ""
+            try:
+                await self._session()
+            except self.FATAL as err:
+                log.error("%s : %s", self.id, err)
+                return
+            except self.ERRORS as err:
+                reason = describe(err)
+            if self._connected:
+                self._retry.reset()
+                if self.QUIET:
+                    log.info("%s : déconnecté", self.id)
+            self._set_connected(False, reason=reason, silent=self.QUIET)
+            await self._retry.wait()
+
+    @abstractmethod
+    async def _session(self) -> None:
+        """Connexion, puis lecture de l'équipement jusqu'à la coupure."""
 
 
 class IPDevice(Device):

@@ -6,7 +6,7 @@ import logging
 import socket
 from typing import override
 
-from core.base import DeviceError, IPDevice, NetworkDevice, Switchable
+from core.base import DeviceError, IPDevice, PersistentDevice, Switchable
 
 log = logging.getLogger(__name__)
 
@@ -42,45 +42,30 @@ async def read_response(reader: asyncio.StreamReader) -> bytes:
     return await reader.readexactly(size)
 
 
-class SamsungTV(Switchable, IPDevice, NetworkDevice):
+class SamsungTV(Switchable, IPDevice, PersistentDevice):
     """TV Samsung legacy : connexion permanente, allumée tant qu'elle répond (`on` suit la
     connexion, False quand elle ne répond pas). Ne peut être qu'éteinte par le réseau."""
 
     WIDGET = "onoff"
     BRAND = "Samsung"
+    ERRORS = (OSError, TimeoutError, asyncio.IncompleteReadError)
+    QUIET = True  # TV éteinte : fonctionnement normal, pas un avertissement
 
-    def __init__(self, host: str, port: int = 55000, retry: float = 30):
+    def __init__(self, host: str, port: int = 55000):
         super().__init__(host, port)
-        self._retry = retry
         self._writer: asyncio.StreamWriter | None = None
         SamsungTV.on.update(self, False)
 
-    @override
-    async def start(self) -> None:
-        self._spawn(self._run())
-
     # --- connexion ----------------------------------------------------------
 
-    async def _run(self) -> None:
-        while True:
-            try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(self._host, self._port), 5
-                )
-            except (OSError, TimeoutError):
-                await asyncio.sleep(self._retry)
-                continue
-            try:
-                await self._serve(reader, writer)
-            except (OSError, asyncio.IncompleteReadError):
-                pass
-            finally:
-                self._writer = None
-                writer.close()
-                if self._connected:  # TV éteinte : fonctionnement normal, pas un avertissement
-                    log.info("%s : déconnecté", self.id)
-                self._set_connected(False, silent=True)
-            await asyncio.sleep(self._retry)
+    @override
+    async def _session(self) -> None:
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(self._host, self._port), 5)
+        try:
+            await self._serve(reader, writer)
+        finally:
+            self._writer = None
+            writer.close()
 
     async def _serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         sock = writer.get_extra_info("socket")

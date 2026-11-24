@@ -31,7 +31,7 @@ from aiohomekit.zeroconf import HomeKitService
 
 import drivers
 import drivers.all
-from core import ROOT
+from core import ROOT, base
 from core import devices as core_devices
 from core import pair as core_pair
 from drivers import homekit
@@ -367,13 +367,13 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
 
         driver = make_fp2()
         with (
-            mock.patch.object(fp2, "RETRY_MIN", 0.01),
+            mock.patch.object(base, "RETRY_MIN", 0.01),
             mock.patch.object(fp2, "open_session", fake_controller),
             mock.patch.object(fp2, "connect", fake_connect),
             mock.patch.object(fp2, "links", lambda: {"fp2": "HomeKit"}),
-            self.assertLogs("drivers.homekit.fp2", "WARNING"),
+            self.assertNoLogs(level="WARNING"),  # essais ratés : rien au journal
         ):
-            driver._backoff = 0.01
+            driver._retry.delay = 0.01
             await driver.start()
             await until(lambda: driver.state().get("connected"))
             second.emit("event", {presence_key(0): {"value": 1}})
@@ -408,13 +408,13 @@ class DriverTest(unittest.IsolatedAsyncioTestCase):
 
         driver = make_fp2()
         with (
-            mock.patch.object(fp2, "RETRY_MIN", 0.01),
+            mock.patch.object(base, "RETRY_MIN", 0.01),
             mock.patch.object(fp2, "open_session", fake_controller),
             mock.patch.object(fp2, "connect", fake_connect),
             mock.patch.object(fp2, "links", lambda: {"fp2": "HomeKit"}),
-            self.assertLogs("drivers.homekit.fp2", "WARNING"),
+            self.assertNoLogs(level="WARNING"),  # essais ratés : rien au journal
         ):
-            driver._backoff = 0.01
+            driver._retry.delay = 0.01
             await driver.start()
             await until(lambda: driver.state().get("connected"))
         await driver.stop()

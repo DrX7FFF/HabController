@@ -46,7 +46,7 @@ from zigpy.zcl.foundation import Status
 from zigpy.zcl.helpers import ReportingConfig
 
 from core import PAIRING_DIR, TEMP_DIR, settings
-from core.base import DeviceError, NetworkDevice
+from core.base import DeviceError, NetworkDevice, Retry
 from core.firmware import updates
 from drivers.zigbee import quirks
 
@@ -66,8 +66,6 @@ PROFILES = {  # profils standard : abréviation, types d'appareil de la norme
 MEASURE_CLUSTERS = {0x0001, 0x0006, 0x0008, 0x0300, 0x0500, 0x0702, 0x0B04}
 MANUFACTURER = 0xFC00  # premier numéro de cluster propre au fabricant
 ON_OFF = 0x0006  # cluster marche/arrêt
-RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à chaque échec)
-RETRY_MAX = 60
 READY_WAIT = 30  # s, laissées à la clé pour s'ouvrir quand l'appairage l'emprunte
 CLOSE_WAIT = 10  # s, au plus, pour arrêter le coordinateur (clé retirée : il peut bloquer)
 SAVE_DELAY = 5  # s, laissées à zigpy pour écrire en base la version d'un firmware installé
@@ -433,13 +431,13 @@ class Coordinator:
             self._task = None
 
     async def _run(self) -> None:
-        backoff = RETRY_MIN
+        retry = Retry()
         while True:
             self._lost = asyncio.Event()
             try:
                 async with open_session() as app:
                     log.info("Clé Zigbee démarrée")
-                    backoff = RETRY_MIN
+                    retry.reset()
                     self.app = app
                     self._ready.set()
                     app.add_listener(self)
@@ -452,16 +450,15 @@ class Coordinator:
                 return
             except ERRORS as err:
                 log.warning("Clé Zigbee inaccessible (%s : %s), nouvel essai dans %s s",
-                            type(err).__name__, err, backoff)
+                            type(err).__name__, err, retry.delay)
             except Exception:  # imprévue : tracée, sans arrêter le Zigbee
-                log.exception("Clé Zigbee : erreur inattendue, nouvel essai dans %s s", backoff)
+                log.exception("Clé Zigbee : erreur inattendue, nouvel essai dans %s s", retry.delay)
             finally:
                 self.app = None
                 self._ready.clear()
                 for device in self._devices.values():
                     device._detach()
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, RETRY_MAX)
+            await retry.wait()
 
     # --- événements de zigpy (appelés dans la boucle asyncio) ---------------
 

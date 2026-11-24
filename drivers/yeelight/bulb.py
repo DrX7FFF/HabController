@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from functools import partial
@@ -13,14 +12,13 @@ from yeelight import (
 )
 from yeelight.aio import KEY_CONNECTED, AsyncBulb
 
-from core.base import DeviceError, IPDevice, NetworkDevice
+from core.base import DeviceError, IPDevice, NetworkDevice, Retry, describe
 from core.light import Light, rgb_bytes
 
 log = logging.getLogger(__name__)
 
 ERRORS = (BulbException, OSError)  # erreurs du protocole ou du réseau
 PROPERTIES = ["power", "bright", "ct", "rgb"]
-RETRY_DELAY = 10  # s, entre deux tentatives de première connexion
 
 
 class Effect(TypedDict):
@@ -55,13 +53,15 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
             await self._bulb.async_stop_listening()
 
     async def _connect(self, bulb: AsyncBulb) -> None:
-        # Après une première connexion réussie, la bibliothèque se reconnecte seule.
+        # Après une première connexion réussie, la bibliothèque se reconnecte seule (toutes les
+        # 15 s, délai fixé par elle).
+        retry = Retry()
         while True:
             try:
                 await bulb.async_listen(partial(self._on_update, bulb))
             except ERRORS as err:
-                log.warning("%s : connexion impossible (%s), nouvel essai", self.id, err)
-                await asyncio.sleep(RETRY_DELAY)
+                self._set_connected(False, reason=describe(err))
+                await retry.wait()
             else:
                 return
 
