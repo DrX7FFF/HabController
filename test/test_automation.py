@@ -440,7 +440,7 @@ class DriverEventsTest(unittest.TestCase):
         for name in drivers.all.__all__:
             cls = getattr(drivers.all, name)
             for attr in dir(cls):
-                if attr in ("battery_powered", "rgb_capable", "last_clean"):  # sans événement
+                if attr in ("rgb_capable", "last_clean"):  # sans événement
                     continue
                 if isinstance(getattr(cls, attr), State):
                     with self.subTest(driver=name, attribute=attr):

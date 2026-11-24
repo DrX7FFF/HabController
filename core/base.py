@@ -206,10 +206,7 @@ class Device:
     WIDGET = ""  # widget de la page Commandes (web/pages/dashboard.js) ; "" : aucun
     ACTIONS: ClassVar[frozenset[str]] = frozenset()  # méthodes @actionweb, relevées à la création
     connected = State[bool]()  # joignable (et état lu) ; None : sans connexion suivie
-    battery_powered = Capability[bool](default=False)  # sur pile, renseigné par le pilote
-    battery = State[int]()  # %, équipement sur pile
     event_connected = EventSource[EventBool]()
-    event_battery = EventSource[EventInt]()
 
     def __init__(self):
         self.id = ""  # affecté par configure() : le chargeur le déduit du nom de la variable
@@ -219,6 +216,7 @@ class Device:
         self._last: dict[str, object] = {}  # dernière valeur annoncée, gardée hors connexion
         self.changed_at: int | None = None  # ms depuis l'époque Unix, dernier changement d'état
         self._event_lock = asyncio.Lock()  # fonctions abonnées : une à la fois, dans l'ordre
+        self._tasks: set[asyncio.Task[None]] = set()  # tâches du pilote, annulées par stop()
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -314,7 +312,12 @@ class Device:
         """Appelé au démarrage de l'application (connexion, écoute...)."""
 
     async def stop(self) -> None:
-        """Appelé à l'arrêt de l'application."""
+        """Appelé à l'arrêt de l'application : annule les tâches du pilote."""
+        await cancel(self._tasks)
+
+    def _spawn(self, coro: Background) -> None:
+        """Tâche du pilote (connexion, lecture…) : annulée par stop(), erreur journalisée."""
+        spawn_task(coro, self.id, self._tasks)
 
     def physical(self) -> str:
         """Appareil physique lié (protocole et identité), "" s'il n'y en a pas."""
@@ -337,7 +340,6 @@ class Device:
             state.name: "tracked"
             for state in states(type(self))
             if not isinstance(state, Capability)
-            and (state is not Device.battery or self.battery_powered)
         }
 
     def check_measure(self, name: str) -> str:
@@ -381,15 +383,6 @@ class NetworkDevice(Device):
         super().__init__()
         self._connected = False  # liaison établie (connected : liaison établie et état lu)
         Device.connected.update(self, False)  # avant tout abonnement : rien n'est annoncé
-        self._tasks: set[asyncio.Task[None]] = set()  # tâches du pilote, annulées par stop()
-
-    @override
-    async def stop(self) -> None:
-        await cancel(self._tasks)
-
-    def _spawn(self, coro: Background) -> None:
-        """Tâche du pilote (connexion, lecture…) : annulée par stop(), erreur journalisée."""
-        spawn_task(coro, self.id, self._tasks)
 
     def _set_connected(
         self, connected: bool, synced: bool = False, reason: str = "", silent: bool = False

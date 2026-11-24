@@ -10,7 +10,7 @@ from miio.exceptions import DeviceException
 from miio.integrations.vacuum.roborock.vacuum import RoborockVacuum
 from miio.integrations.vacuum.roborock.vacuumcontainers import CleaningDetails
 
-from core.base import DeviceError, IPDevice, State, actionweb, cancel, spawn_task
+from core.base import DeviceError, IPDevice, State, actionweb, spawn_task
 from core.datalog import device_path, record
 
 HISTORY_PERIOD = 3600  # s, le robot garde ses 20 derniers nettoyages
@@ -27,16 +27,11 @@ class Roborock(IPDevice):
         super().__init__(host)
         self._vacuum = RoborockVacuum(host, token, model="roborock.vacuum.s5e")
         self._logged: set[tuple[datetime, datetime]] = set()  # plages déjà envoyées au datalog
-        self._tasks: set[asyncio.Task[None]] = set()  # relevé de l'historique, annulé par stop()
 
     @override
     async def start(self) -> None:
         self.refresh()
         spawn_task(self._history_loop(), f"{self.id}.history", self._tasks)
-
-    @override
-    async def stop(self) -> None:
-        await cancel(self._tasks)
 
     async def _history_loop(self) -> None:
         while True:
