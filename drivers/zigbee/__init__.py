@@ -65,6 +65,7 @@ PROFILES = {  # profils standard : abréviation, types d'appareil de la norme
 # (mesures physiques : 0x0400 à 0x04ff)
 MEASURE_CLUSTERS = {0x0001, 0x0006, 0x0008, 0x0300, 0x0500, 0x0702, 0x0B04}
 MANUFACTURER = 0xFC00  # premier numéro de cluster propre au fabricant
+ON_OFF = 0x0006  # cluster marche/arrêt
 RETRY_MIN = 2  # s, entre deux tentatives d'ouverture de la clé (doublé à chaque échec)
 RETRY_MAX = 60
 READY_WAIT = 30  # s, laissées à la clé pour s'ouvrir quand l'appairage l'emprunte
@@ -262,6 +263,17 @@ def find_cluster(zdev, cluster_id: int, output: bool = False):
         if cluster_id in clusters:
             return clusters[cluster_id]
     return None
+
+
+def clusters(zdev) -> list:
+    """Clusters d'entrée et de sortie de l'équipement (sans l'endpoint 0, ZDO) ; de sortie
+    aussi : certains capteurs y rapportent (ex. porte Xiaomi, 0x0006)."""
+    return [
+        cluster
+        for endpoint in zdev.endpoints.values()
+        if isinstance(endpoint, Endpoint)
+        for cluster in (*endpoint.in_clusters.values(), *endpoint.out_clusters.values())
+    ]
 
 
 async def read(cluster, names: list[str]) -> dict:
@@ -530,14 +542,16 @@ class ZigbeeDevice(NetworkDevice):
     DEFAULTS: ClassVar[Mapping[str, object]] = {}  # mesures du pilote, suivies par défaut
     MEASURES: ClassVar[Mapping[str, "Measure"]] = {}  # attribut d'état -> mesure Zigbee
 
-    def __init__(self, ieee: str, poll: float | None = None):
+    def __init__(
+        self, ieee: str, poll: float | None = None, reports: Mapping[str, object] | None = None
+    ):
         super().__init__()
         try:
             self.ieee = EUI64.convert(ieee)
         except (AssertionError, ValueError) as err:
             raise ValueError(f"adresse IEEE invalide « {ieee} »") from err
         self.poll = self.POLL if poll is None else poll
-        self.reports: dict[str, float] = {}  # tracked(DEFAULTS, déclaration), fixé par le pilote
+        self.reports = tracked(self.DEFAULTS, reports)  # défauts du pilote, puis déclaration
         self.zdev: ZigpyDevice | None = None  # objet zigpy de l'équipement, clé ouverte
         self._unsubscribe: list[Callable[[], object]] = []
         self._ota_image: OtaImageWithMetadata | None = None  # plus récent, installé sur demande
@@ -642,18 +656,14 @@ class ZigbeeDevice(NetworkDevice):
             return
         self.zdev = zdev
         self._ready_changed()
-        for endpoint in zdev.endpoints.values():
-            if not isinstance(endpoint, Endpoint):  # endpoint 0 (ZDO)
-                continue
-            # clusters de sortie aussi : certains capteurs y rapportent (ex. porte Xiaomi, 0x0006)
-            for cluster in (*endpoint.in_clusters.values(), *endpoint.out_clusters.values()):
-                # rapport spontané de l'équipement (attribute_report), ou valeur corrigée par
-                # un quirk (attribute_updated) : zigpy n'émet qu'un des deux par valeur reçue
-                for event in (AttributeReportedEvent, AttributeUpdatedEvent):
-                    self._unsubscribe.append(cluster.on_event(event.event_type, self._on_event))
-                self._unsubscribe.append(
-                    cluster.on_event(OtaImageAvailableEvent.event_type, self._on_ota)
-                )
+        for cluster in clusters(zdev):
+            # rapport spontané de l'équipement (attribute_report), ou valeur corrigée par un
+            # quirk (attribute_updated) : zigpy n'émet qu'un des deux par valeur reçue
+            for event in (AttributeReportedEvent, AttributeUpdatedEvent):
+                self._unsubscribe.append(cluster.on_event(event.event_type, self._on_event))
+            self._unsubscribe.append(
+                cluster.on_event(OtaImageAvailableEvent.event_type, self._on_ota)
+            )
         if self.poll:
             self._spawn(self._poll_loop(zdev, self.poll))
 

@@ -3,10 +3,8 @@
 import logging
 from typing import override
 
-from zigpy.endpoint import Endpoint
-
 from core.base import EventAction, EventSource
-from drivers.zigbee import ERRORS, MANUFACTURER, find_cluster
+from drivers.zigbee import ERRORS, MANUFACTURER, clusters, find_cluster
 from drivers.zigbee.sensor import Sensor
 
 log = logging.getLogger(__name__)
@@ -20,12 +18,9 @@ class Button(Sensor):
         super()._attach(app)
         if self.zdev is None:
             return
-        for endpoint in self.zdev.endpoints.values():
-            if not isinstance(endpoint, Endpoint):  # endpoint 0 (ZDO)
-                continue
-            for cluster in (*endpoint.in_clusters.values(), *endpoint.out_clusters.values()):
-                cluster.add_listener(self)
-                self._unsubscribe.append(lambda cluster=cluster: cluster.remove_listener(self))
+        for cluster in clusters(self.zdev):
+            cluster.add_listener(self)
+            self._unsubscribe.append(lambda cluster=cluster: cluster.remove_listener(self))
 
     @override
     async def _configure(self, zdev) -> None:

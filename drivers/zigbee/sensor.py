@@ -9,10 +9,9 @@ from collections.abc import Mapping
 from typing import ClassVar, TypedDict, override
 
 from core.base import EventInt, EventSource, State
-from drivers.zigbee import Measure, ZigbeeDevice, find_cluster, tracked
+from drivers.zigbee import ON_OFF, Measure, ZigbeeDevice, find_cluster
 
 POWER = 0x0001
-ON_OFF = 0x0006
 ILLUMINANCE = 0x0400
 TEMPERATURE = 0x0402
 PRESSURE = 0x0403
@@ -69,8 +68,7 @@ class Sensor(ZigbeeDevice):
     event_battery = EventSource[EventInt]()
 
     def __init__(self, ieee: str, reports: SensorReports | None = None):
-        super().__init__(ieee)
-        self.reports = tracked(self.DEFAULTS, reports)
+        super().__init__(ieee, reports=reports)
 
     @override
     def _cluster(self, zdev, key: str):

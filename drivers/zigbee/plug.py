@@ -4,11 +4,10 @@ import logging
 from typing import TypedDict, override
 
 from core.base import EventFloat, EventSource, State, Switchable
-from drivers.zigbee import Measure, ZigbeeDevice, find_cluster, read, tracked
+from drivers.zigbee import ON_OFF, Measure, ZigbeeDevice, find_cluster, read
 
 log = logging.getLogger(__name__)
 
-ON_OFF = 0x0006
 METERING = 0x0702
 ELECTRICAL = 0x0B04
 
@@ -68,8 +67,7 @@ class Plug(Switchable, ZigbeeDevice):
     def __init__(
         self, ieee: str, poll: float | None = None, reports: PlugReports | None = None
     ):
-        super().__init__(ieee, poll)
-        self.reports = tracked(DEFAULTS, reports)
+        super().__init__(ieee, poll, reports)
         self._scales: dict[str, float] = {}  # mesure suivie -> facteur, si la prise l'a
 
     # --- état ---------------------------------------------------------------

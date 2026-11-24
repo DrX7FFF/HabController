@@ -4,9 +4,8 @@ from typing import TypedDict, override
 
 import core.light
 from core.base import DeviceError
-from drivers.zigbee import Measure, ZigbeeDevice, tracked
+from drivers.zigbee import ON_OFF, Measure, ZigbeeDevice
 
-ON_OFF = 0x0006
 LEVEL = 0x0008
 COLOR = 0x0300
 
@@ -86,8 +85,7 @@ class Light(core.light.Light, ZigbeeDevice):
         poll: float | None = None,
         reports: LightReports | None = None,
     ):
-        super().__init__(ieee, poll)
-        self.reports = tracked(DEFAULTS, reports)
+        super().__init__(ieee, poll, reports)
         self.transition = transition  # durée par défaut des transitions (ms)
         self._xy: dict[str, int] = {}  # dernières coordonnées de couleur reçues (current_x/y)
 
