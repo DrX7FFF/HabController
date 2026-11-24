@@ -29,6 +29,16 @@ class Light(Switchable, ABC):
     event_brightness = EventSource[EventInt]()
     event_color_temp = EventSource[EventInt]()
     event_rgb = EventSource[EventStr]()
+    transition: int  # ms, durée par défaut des transitions, fixée par le pilote
+
+    def _duration(self, transition: int | None) -> int:
+        """Durée de transition (ms) : celle demandée, sinon celle par défaut."""
+        return self.transition if transition is None else transition
+
+    async def _power_on(self, transition: int | None) -> None:
+        """L'ampoule refuse les réglages quand elle est éteinte : on l'allume d'abord."""
+        if not self.on:
+            await self._switch(True, transition)
 
     # --- actions : en tâche de fond, l'ampoule est allumée si besoin -------------
 

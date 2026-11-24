@@ -127,7 +127,7 @@ class Light(core.light.Light, ZigbeeDevice):
     # --- commandes ----------------------------------------------------------
 
     def _tenths(self, transition: int | None) -> int:
-        return round((self.transition if transition is None else transition) / 100)
+        return round(self._duration(transition) / 100)
 
     def _setting(self, name: str):
         """Cluster du réglage `name` ; DeviceError si injoignable, ValueError si l'ampoule ne
@@ -177,8 +177,7 @@ class Light(core.light.Light, ZigbeeDevice):
         """Cluster couleur ; une ampoule éteinte ignore les commandes de couleur : on l'allume
         d'abord."""
         cluster = self._setting(name)
-        if not self.on:
-            await self._switch(True, None)
+        await self._power_on(None)
         return cluster
 
 

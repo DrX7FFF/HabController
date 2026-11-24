@@ -144,11 +144,6 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
             Light.brightness.update(self, int(brightness))
         Light.rgb.update(self, f"#{red:02x}{green:02x}{blue:02x}")
 
-    async def _power_on(self, transition: int | None) -> None:
-        """L'ampoule refuse les réglages quand elle est éteinte : on l'allume d'abord."""
-        if not self.on:
-            await self._switch(True, transition)
-
     async def _scene(self, step: TemperatureTransition | RGBTransition) -> None:
         flow = Flow(1, Flow.actions.stay, [step])
         await self._send(lambda bulb: bulb.async_set_scene(SceneClass.CF, flow))
@@ -161,9 +156,6 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
             await command(self._bulb)
         except ERRORS as err:
             raise DeviceError(f"{self.id} : {err}") from err
-
-    def _duration(self, transition: int | None) -> int:
-        return self.transition if transition is None else transition
 
     def _effect(self, transition: int | None) -> Effect:
         """Transition en millisecondes (0 = immédiat)."""
