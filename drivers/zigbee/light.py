@@ -72,7 +72,7 @@ def xy_to_rgb(x: float, y: float) -> str:
     return "#" + "".join(f"{round(_gamma(c / top) * 255):02x}" for c in rgb)
 
 
-class Light(core.light.Light, ZigbeeDevice):
+class Light(core.light.TypeLight, ZigbeeDevice):
     """Ampoule Zigbee : l'état vient de ce qu'elle envoie, relu toutes les `poll` secondes."""
 
     DEFAULTS = DEFAULTS

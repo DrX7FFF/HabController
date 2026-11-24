@@ -13,7 +13,7 @@ from yeelight import (
 from yeelight.aio import KEY_CONNECTED, AsyncBulb
 
 from core.base import DeviceError, IPDevice, NetworkDevice, Retry, describe
-from core.light import Light, rgb_bytes
+from core.light import TypeLight, rgb_bytes
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class Effect(TypedDict):
     duration: int
 
 
-class YeelightBulb(Light, IPDevice, NetworkDevice):
+class YeelightBulb(TypeLight, IPDevice, NetworkDevice):
     """Ampoule Yeelight : une connexion permanente, l'état vient des notifications."""
 
     BRAND = "Yeelight"
@@ -37,7 +37,7 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
         super().__init__(host, port)
         self.transition = transition  # durée par défaut des transitions (ms)
         self._bulb: AsyncBulb | None = None  # a besoin de la boucle asyncio : créée par start()
-        Light.rgb_capable.update(self, True)
+        TypeLight.rgb_capable.update(self, True)
 
     # --- cycle de vie -------------------------------------------------------
 
@@ -80,13 +80,13 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
     def _merge(self, props: dict[str, object]) -> None:
         """Valeurs reçues, noms du protocole Yeelight ("" ou absent : inchangé)."""
         if props.get("power"):
-            Light.on.update(self, props["power"] == "on")
+            TypeLight.on.update(self, props["power"] == "on")
         if props.get("bright"):
-            Light.brightness.update(self, int(str(props["bright"])))
+            TypeLight.brightness.update(self, int(str(props["bright"])))
         if props.get("ct"):
-            Light.color_temp.update(self, int(str(props["ct"])))
+            TypeLight.color_temp.update(self, int(str(props["ct"])))
         if props.get("rgb"):
-            Light.rgb.update(self, f"#{int(str(props['rgb'])):06x}")
+            TypeLight.rgb.update(self, f"#{int(str(props['rgb'])):06x}")
 
     async def _refresh(self, bulb: AsyncBulb) -> None:
         try:
@@ -105,14 +105,14 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
     async def _switch(self, on: bool, transition: int | None) -> None:
         fx = self._effect(transition)
         await self._send(lambda bulb: bulb.async_turn_on(**fx) if on else bulb.async_turn_off(**fx))
-        Light.on.update(self, on)
+        TypeLight.on.update(self, on)
 
     @override
     async def _set_brightness(self, brightness: int, transition: int | None) -> None:
         await self._power_on(transition)
         fx = self._effect(transition)
         await self._send(lambda bulb: bulb.async_set_brightness(int(brightness), **fx))
-        Light.brightness.update(self, int(brightness))
+        TypeLight.brightness.update(self, int(brightness))
 
     @override
     async def _set_color_temp(
@@ -126,9 +126,9 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
             duration = self._duration(transition)
             step = TemperatureTransition(int(color_temp), duration, int(brightness))
             await self._scene(step)
-            Light.on.update(self, True)
-            Light.brightness.update(self, int(brightness))
-        Light.color_temp.update(self, int(color_temp))
+            TypeLight.on.update(self, True)
+            TypeLight.brightness.update(self, int(brightness))
+        TypeLight.color_temp.update(self, int(color_temp))
 
     @override
     async def _set_rgb(self, rgb: str, brightness: int | None, transition: int | None) -> None:
@@ -140,9 +140,9 @@ class YeelightBulb(Light, IPDevice, NetworkDevice):
         else:
             step = RGBTransition(red, green, blue, self._duration(transition), int(brightness))
             await self._scene(step)
-            Light.on.update(self, True)
-            Light.brightness.update(self, int(brightness))
-        Light.rgb.update(self, f"#{red:02x}{green:02x}{blue:02x}")
+            TypeLight.on.update(self, True)
+            TypeLight.brightness.update(self, int(brightness))
+        TypeLight.rgb.update(self, f"#{red:02x}{green:02x}{blue:02x}")
 
     async def _scene(self, step: TemperatureTransition | RGBTransition) -> None:
         flow = Flow(1, Flow.actions.stay, [step])

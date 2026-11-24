@@ -14,14 +14,14 @@ from core.base import (
     IPDevice,
     PersistentDevice,
     State,
-    Switchable,
+    TypeSwitch,
     actionweb,
 )
 
 log = logging.getLogger(__name__)
 
 
-class RGBMatrix(Switchable, IPDevice, PersistentDevice):
+class RGBMatrix(TypeSwitch, IPDevice, PersistentDevice):
     """Afficheur HUB75 : connexion permanente, l'état vient de ses messages."""
 
     WIDGET = "matrix"

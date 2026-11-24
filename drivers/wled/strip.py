@@ -7,14 +7,14 @@ from typing import override
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import WebSocketException
 
-from core.base import DeviceError, IPDevice, PersistentDevice, Switchable
+from core.base import DeviceError, IPDevice, PersistentDevice, TypeSwitch
 
 log = logging.getLogger(__name__)
 
 ERRORS = (OSError, TimeoutError, WebSocketException)
 
 
-class WLED(Switchable, IPDevice, PersistentDevice):
+class WLED(TypeSwitch, IPDevice, PersistentDevice):
     """Contrôleur WLED : connexion permanente, l'état vient de ses messages."""
 
     WIDGET = "onoff"

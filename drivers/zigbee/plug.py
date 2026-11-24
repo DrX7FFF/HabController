@@ -3,7 +3,7 @@
 import logging
 from typing import TypedDict, override
 
-from core.base import EventFloat, EventSource, State, Switchable
+from core.base import EventFloat, EventSource, State, TypeSwitch
 from drivers.zigbee import ON_OFF, Measure, ZigbeeDevice, find_cluster, read
 
 log = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ DEFAULTS: PlugReports = {
 }
 
 
-class Plug(Switchable, ZigbeeDevice):
+class Plug(TypeSwitch, ZigbeeDevice):
     """Prise Zigbee : marche/arrêt et mesures, envoyées spontanément par la prise."""
 
     DEFAULTS = DEFAULTS

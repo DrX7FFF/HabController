@@ -27,11 +27,11 @@
 - Si l'équipement ou son attribut n'existe pas, c'est Python qui le signale.
 
 ## Hiérarchie
-- `Device` : connected, battery_powered, battery.
-- `Switchable(Device)` : on, switch, toggle. Pour la lampe, la
+- `Device` : connected.
+- `TypeSwitch(Device)` : on, switch, toggle. Pour la lampe, la
   prise, le ruban, l'afficheur et la TV.
-- `Light(Switchable)` : brightness, color_temp, rgb, rgb_capable.
-- Capteurs Zigbee (`Sensor(Device)`, sur pile) : `Climate`, `Contact`, `Motion`,
+- `TypeLight(TypeSwitch)` : brightness, color_temp, rgb, rgb_capable.
+- Capteurs Zigbee (`Sensor(Device)`, sur pile, battery) : `Climate`, `Contact`, `Motion`,
   `Button`. FP2 : illuminance et zones. Aspirateur : last_clean ; clean, pause,
   home, refresh.
 

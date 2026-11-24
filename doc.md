@@ -286,7 +286,7 @@ salon = YeelightBulb(host="192.168.1.110")   # port=55443, transition=300
 plafonnier = Light(ieee="00:17:88:01:08:b6:48:b3")  # Zigbee ; transition=300
 ```
 
-Interface commune (`core/light.py`, classe `Light`, fille de `Switchable`) : une
+Interface commune (`core/light.py`, classe `TypeLight`, fille de `TypeSwitch`) : une
 automatisation écrite pour une ampoule marche avec l'autre.
 
 | Attribut      | Type                      | Signification                          |

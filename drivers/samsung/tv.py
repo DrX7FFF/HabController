@@ -6,7 +6,7 @@ import logging
 import socket
 from typing import override
 
-from core.base import DeviceError, IPDevice, PersistentDevice, Switchable
+from core.base import DeviceError, IPDevice, PersistentDevice, TypeSwitch
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ async def read_response(reader: asyncio.StreamReader) -> bytes:
     return await reader.readexactly(size)
 
 
-class SamsungTV(Switchable, IPDevice, PersistentDevice):
+class SamsungTV(TypeSwitch, IPDevice, PersistentDevice):
     """TV Samsung legacy : connexion permanente, allumée tant qu'elle répond (`on` suit la
     connexion, False quand elle ne répond pas). Ne peut être qu'éteinte par le réseau."""
 

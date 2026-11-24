@@ -21,10 +21,10 @@ from test_fp2 import FakePairing, make_fp2, presence_key, until
 
 import drivers.all
 from core import automation, base
-from core.base import Device, DeviceError, State, Switchable, spawn_task
+from core.base import Device, DeviceError, State, TypeSwitch, spawn_task
 
 
-class FakeBulb(Switchable):
+class FakeBulb(TypeSwitch):
     """Ampoule simulée : attributs State, actions en méthodes, commandes relevées."""
 
     bright = State[int]()

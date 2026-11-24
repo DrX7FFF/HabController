@@ -163,7 +163,7 @@ def on_value(value: object) -> bool:
 
 class State[T]:
     """Attribut d'état : la valeur est gardée dans l'équipement, en lecture seule
-    (`cuisine.on`) ; seul le pilote l'écrit, par `Light.on.update(self, valeur)`, qui annonce
+    (`cuisine.on`) ; seul le pilote l'écrit, par `TypeLight.on.update(self, valeur)`, qui annonce
     le changement (événement event_<nom>, pages)."""
 
     def __init__(self, default: T | None = None):
@@ -481,7 +481,7 @@ class IPDevice(Device):
         return {"host": self._host}
 
 
-class Switchable(Device, ABC):
+class TypeSwitch(Device, ABC):
     """Équipement à marche/arrêt. Le pilote met `on` à jour à la réception et fournit
     _switch()."""
 

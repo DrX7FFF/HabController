@@ -1,13 +1,13 @@
 """Ampoule, quel que soit le protocole : base commune des pilotes d'ampoule.
 
-Le pilote met les attributs à jour à la réception (`Light.on.update(self, valeur)`) et fournit
+Le pilote met les attributs à jour à la réception (`TypeLight.on.update(self, valeur)`) et fournit
 _switch(), _set_brightness(), _set_color_temp() et _set_rgb() ; les méthodes publiques partent en
 tâche de fond."""
 
 import logging
 from abc import ABC, abstractmethod
 
-from core.base import Capability, EventInt, EventSource, EventStr, State, Switchable, actionweb
+from core.base import Capability, EventInt, EventSource, EventStr, State, TypeSwitch, actionweb
 
 log = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ def rgb_bytes(rgb: str) -> tuple[int, int, int]:
     return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
 
 
-class Light(Switchable, ABC):
+class TypeLight(TypeSwitch, ABC):
     WIDGET = "light"
     brightness = State[int]()  # 1 à 100
     color_temp = State[int]()  # Kelvin
