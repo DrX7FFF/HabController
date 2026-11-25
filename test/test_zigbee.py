@@ -702,7 +702,10 @@ class CoordinatorSessionTest(unittest.IsolatedAsyncioTestCase):
                 closed.set()
 
         coordinator = zigbee.Coordinator()
-        with mock.patch.object(zigbee, "open_session", session):
+        with (
+            mock.patch.object(zigbee, "open_session", session),
+            mock.patch.object(zigbee, "save_snapshot"),
+        ):
             async with coordinator.session() as borrowed:
                 self.assertIs(borrowed, app)
             await asyncio.wait_for(closed.wait(), 1)
