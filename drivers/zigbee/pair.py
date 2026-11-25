@@ -13,7 +13,7 @@ from drivers.zigbee import (
     ERRORS,
     ZigbeeDevice,
     coordinator,
-    describe,
+    endpoints_summary,
     find_cluster,
     label,
     model_keys,
@@ -110,7 +110,7 @@ class Pairing(pair.Pairing):
                 uid=device.ieee,
                 models=model_keys(device),
                 comment=f"Zigbee : {device.manufacturer}, modèle {device.model}",
-                details=describe(device),
+                details=endpoints_summary(device),
                 device=device,
                 args=(f'ieee="{device.ieee}"',),
             )

@@ -75,6 +75,17 @@ class DeviceError(Exception):
     """Équipement injoignable ou commande refusée."""
 
 
+async def run_action(action: Callable[[], object], name: str) -> None:
+    """Appelle `action` (fonction simple ou async) ; une erreur d'équipement ou de valeur est
+    un avertissement au journal."""
+    try:
+        result = action()
+        if asyncio.iscoroutine(result):
+            await result
+    except (DeviceError, ValueError) as err:
+        log.warning("%s : %s : %s", name, type(err).__name__, err)
+
+
 @dataclass(frozen=True)
 class Event[T]:
     """Attribut changé : première valeur reçue (old None) ou valeur différente de la précédente."""
@@ -315,10 +326,7 @@ class Device:
 
     async def _run_listener(self, func: Handler, event: object, name: str) -> None:
         async with self._event_lock:  # les tâches démarrent dans l'ordre de création
-            try:
-                await func(event)
-            except (DeviceError, ValueError) as err:
-                log.warning("%s : %s : %s", name, type(err).__name__, err)
+            await run_action(lambda: func(event), name)
 
     def _ready_changed(self) -> None:
         """À appeler quand ready() change."""

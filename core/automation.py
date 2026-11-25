@@ -28,6 +28,7 @@ from core.base import (
     clear_listeners,
     listeners,
     remove_listeners,
+    run_action,
     spawn_task,
 )
 from core.push import Question, notify
@@ -118,12 +119,7 @@ class Timer:
     async def _wait(self) -> None:
         await asyncio.sleep(self.delay)
         self._task = None
-        try:
-            result = self.action()
-            if asyncio.iscoroutine(result):
-                await result
-        except (DeviceError, ValueError) as err:
-            _logger.warning("%s : %s : %s", self.name, type(err).__name__, err)
+        await run_action(self.action, self.name)
 
 
 def check() -> None:

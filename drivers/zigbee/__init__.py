@@ -48,7 +48,7 @@ from zigpy.zcl.foundation import Status
 from zigpy.zcl.helpers import ReportingConfig
 
 from core import PAIRING_DIR, TEMP_DIR, settings
-from core.base import DeviceError, NetworkDevice, Retry
+from core.base import DeviceError, NetworkDevice, Retry, describe
 from core.firmware import updates
 from drivers.zigbee import quirks
 
@@ -243,7 +243,7 @@ def label(device) -> str:
     return f"{device.ieee} ({device.manufacturer or '?'} {device.model or '?'})"
 
 
-def describe(device) -> list[str]:
+def endpoints_summary(device) -> list[str]:
     """Identité et clusters de chaque endpoint, pour choisir ou écrire un pilote."""
     lines = [
         f"IEEE : {device.ieee}   NWK : 0x{device.nwk:04x}",
@@ -696,7 +696,7 @@ class ZigbeeDevice(NetworkDevice):
                     configured = True
                 await self._read(zdev)
             except ERRORS as err:
-                self._set_connected(False, reason=type(err).__name__)
+                self._set_connected(False, reason=describe(err))
             else:
                 self._set_connected(True, synced=True)
             await asyncio.sleep(poll)
@@ -784,7 +784,7 @@ class ZigbeeDevice(NetworkDevice):
                 self._ota_image, lambda _sent, _total, percent: progress(percent)
             )
         except (*ERRORS, TimeoutError) as err:
-            raise DeviceError(f"{self.id} : envoi interrompu ({type(err).__name__})") from err
+            raise DeviceError(f"{self.id} : envoi interrompu ({describe(err)})") from err
         if status != Status.SUCCESS:
             raise DeviceError(f"{self.id} : firmware refusé ({getattr(status, 'name', status)})")
         self._ota_image = None
@@ -821,7 +821,7 @@ class ZigbeeDevice(NetworkDevice):
             result = await getattr(cluster, command)(*args)
         except ERRORS as err:
             self._set_connected(False)
-            raise DeviceError(f"{self.id} : {type(err).__name__}") from err
+            raise DeviceError(f"{self.id} : {describe(err)}") from err
         status = getattr(result, "status", Status.SUCCESS)
         if status != Status.SUCCESS:
             raise DeviceError(f"{self.id} : commande {command} refusée ({status.name})")

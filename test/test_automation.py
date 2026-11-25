@@ -236,7 +236,7 @@ class TimerTest(AutomationTestCase):
             raise DeviceError("injoignable")
 
         timer = automation.Timer(0, action)
-        with self.assertLogs("core.automation", "WARNING") as logs:
+        with self.assertLogs("core.base", "WARNING") as logs:
             timer.start()
             await self.idle()
         self.assertIn("injoignable", logs.output[0])

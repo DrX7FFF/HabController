@@ -150,8 +150,8 @@ class YeelightBulb(TypeLight, IPDevice, NetworkDevice):
 
     async def _send(self, command: Callable[[AsyncBulb], Awaitable[object]]) -> None:
         """Envoie une commande de la bibliothèque ; DeviceError si l'ampoule est injoignable."""
-        if self._bulb is None or not self.connected:
-            raise DeviceError(f"{self.id} : injoignable")
+        self._check_reachable()
+        assert self._bulb is not None  # connectée : créée par start()
         try:
             await command(self._bulb)
         except ERRORS as err:

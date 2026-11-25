@@ -14,7 +14,7 @@ from collections.abc import Callable
 import aiohttp
 
 from core import CONFIG_DIR
-from core.base import Retry, describe, spawn_task
+from core.base import Retry, describe, run_action, spawn_task
 
 log = logging.getLogger(__name__)
 __all__ = ["Question", "notify"]
@@ -125,15 +125,7 @@ class Push:
         question.id = None
         self.delete(qid)  # traitée : retirée de tous les appareils abonnés
         if action := actions[int(n)]:
-            spawn_task(self._run(action), "push.réponse")
-
-    async def _run(self, action: Callable) -> None:
-        try:
-            result = action()
-            if asyncio.iscoroutine(result):
-                await result
-        except Exception:
-            log.exception("push : réponse en erreur")
+            spawn_task(run_action(action, "push.réponse"), "push.réponse")
 
     async def _listen(self) -> None:
         """Abonnement au topic des réponses ; après une coupure, reprend au dernier message lu."""
