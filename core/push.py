@@ -14,7 +14,7 @@ from collections.abc import Callable
 import aiohttp
 
 from core import CONFIG_DIR
-from core.base import describe, spawn_task
+from core.base import Retry, describe, spawn_task
 
 log = logging.getLogger(__name__)
 __all__ = ["Question", "notify"]
@@ -23,7 +23,6 @@ SERVER = "https://ntfy.sh"
 SECRETS_FILE = CONFIG_DIR.parent / "HabSecrets" / "ntfy.json"
 TIMEOUT = aiohttp.ClientTimeout(total=10)
 STREAM_TIMEOUT = aiohttp.ClientTimeout(total=None, sock_read=120)  # keepalive du serveur : 45 s
-RETRY = 30  # s, avant de se réabonner après une coupure
 
 
 def load_topics() -> dict[str, str]:
@@ -139,12 +138,13 @@ class Push:
     async def _listen(self) -> None:
         """Abonnement au topic des réponses ; après une coupure, reprend au dernier message lu."""
         assert self._session is not None
-        since, failing = str(int(time.time())), False
+        since, failing, retry = str(int(time.time())), False, Retry()
         while True:
             try:
                 async with self._session.get(f"{SERVER}/{self.reply}/json", params={"since": since},
                                              timeout=STREAM_TIMEOUT) as response:
                     response.raise_for_status()
+                    retry.reset()
                     if failing:
                         log.info("push : abonnement rétabli")
                         failing = False
@@ -157,7 +157,7 @@ class Push:
                 if not failing:
                     log.warning("push : abonnement coupé (%s)", describe(err))
                 failing = True
-            await asyncio.sleep(RETRY)
+            await retry.wait()
 
     def forget(self) -> None:
         """Rechargement des automatisations : leurs questions en attente sont retirées."""

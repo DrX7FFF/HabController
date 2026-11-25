@@ -3,7 +3,6 @@
 from typing import TypedDict, override
 
 import core.light
-from core.base import DeviceError
 from drivers.zigbee import ON_OFF, Measure, ZigbeeDevice
 
 LEVEL = 0x0008
@@ -126,15 +125,6 @@ class Light(core.light.TypeLight, ZigbeeDevice):
 
     def _tenths(self, transition: int | None) -> int:
         return round(self._duration(transition) / 100)
-
-    def _setting(self, name: str):
-        """Cluster du réglage `name` ; DeviceError si injoignable, ValueError si l'ampoule ne
-        l'a pas."""
-        if self.zdev is None:
-            raise DeviceError(f"{self.id} : injoignable")
-        if (cluster := self._cluster(self.zdev, name)) is None:
-            raise ValueError(f"{self.id} ne gère pas « {name} » (ampoule sans ce réglage)")
-        return cluster
 
     @override
     async def _switch(self, on: bool, transition: int | None) -> None:

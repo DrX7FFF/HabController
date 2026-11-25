@@ -23,7 +23,6 @@ from zigpy.types import EUI64
 from zigpy.zcl import OtaImageAvailableEvent
 
 import drivers.zigbee.pair as zigbee_pair
-import drivers.zigbee.plug as zigbee_plug
 import drivers.zigbee.sensor as zigbee_sensor
 from core import base
 from core import pair as core_pair
@@ -230,7 +229,7 @@ class PlugCommandTest(unittest.IsolatedAsyncioTestCase):
             sent.append(name)
 
         with (
-            mock.patch.object(zigbee_plug, "find_cluster", return_value=object()),
+            mock.patch.object(plug, "_setting", return_value=object()),
             mock.patch.object(plug, "_command", command),
         ):
             await plug._switch(True, None)

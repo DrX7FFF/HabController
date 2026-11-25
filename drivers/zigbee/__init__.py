@@ -792,11 +792,18 @@ class ZigbeeDevice(NetworkDevice):
 
     # --- commandes ----------------------------------------------------------
 
+    def _setting(self, name: str):
+        """Cluster du réglage `name` ; DeviceError si injoignable, ValueError si l'équipement
+        ne l'a pas."""
+        if self.zdev is None:
+            raise DeviceError(f"{self.id} : injoignable")
+        if (cluster := self._cluster(self.zdev, name)) is None:
+            raise ValueError(f"{self.id} ne gère pas « {name} »")
+        return cluster
+
     async def _command(self, cluster, command: str, *args) -> None:
         """Envoie une commande ZCL ; DeviceError si l'équipement ne répond pas ou la refuse."""
         self._check_reachable()
-        if cluster is None:
-            raise DeviceError(f"{self.id} : injoignable")
         try:
             result = await getattr(cluster, command)(*args)
         except ERRORS as err:

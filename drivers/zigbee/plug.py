@@ -4,7 +4,7 @@ import logging
 from typing import TypedDict, override
 
 from core.base import EventFloat, EventSource, State, TypeSwitch
-from drivers.zigbee import ON_OFF, Measure, ZigbeeDevice, find_cluster, read
+from drivers.zigbee import ON_OFF, Measure, ZigbeeDevice, read
 
 log = logging.getLogger(__name__)
 
@@ -101,6 +101,5 @@ class Plug(TypeSwitch, ZigbeeDevice):
 
     @override
     async def _switch(self, on: bool, transition: int | None) -> None:
-        cluster = find_cluster(self.zdev, ON_OFF) if self.zdev is not None else None
-        await self._command(cluster, "on" if on else "off")  # commandes ZCL « on » / « off »
+        await self._command(self._setting("on"), "on" if on else "off")  # commandes ZCL
         Plug.on.update(self, on)
