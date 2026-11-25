@@ -11,14 +11,16 @@ import shutil
 import sqlite3
 import sys
 from collections.abc import AsyncIterator, Callable, Mapping
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, ClassVar, override
 
 import zhaquirks
 from bellows.ash import AshException
 from bellows.zigbee.application import ControllerApplication
 from zha.quirks import DEVICE_REGISTRY
+from zigpy.appdb import DB_VERSION
 from zigpy.application import ControllerApplication as ZigpyApplication
 from zigpy.config import (
     CONF_DATABASE,
@@ -219,6 +221,15 @@ def save_snapshot() -> None:
     except (sqlite3.Error, OSError) as err:
         log.warning("Sauvegarde de la base Zigbee impossible (%s)", err)
         tmp.unlink(missing_ok=True)
+
+
+def schema_version(db: Path) -> int | None:
+    """Version du format de la base, sans rien créer à côté (None si absente ou illisible)."""
+    try:
+        with closing(sqlite3.connect(f"file:{db}?mode=ro&immutable=1", uri=True)) as conn:
+            return conn.execute("PRAGMA user_version").fetchone()[0]
+    except sqlite3.Error:
+        return None
 
 
 def joined_devices(app: ZigpyApplication) -> list:
@@ -437,6 +448,8 @@ class Coordinator:
             try:
                 async with open_session() as app:
                     log.info("Clé Zigbee démarrée")
+                    if schema_version(SNAPSHOT) != DB_VERSION:  # base convertie par zigpy
+                        save_snapshot()
                     retry.reset()
                     self.app = app
                     self._ready.set()
