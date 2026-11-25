@@ -177,6 +177,3 @@ class Light(core.light.TypeLight, ZigbeeDevice):
         cluster = self._setting(name)
         await self._power_on(None)
         return cluster
-
-
-Driver = Light  # convention : le chargeur cherche ce nom

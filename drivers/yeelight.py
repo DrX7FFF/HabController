@@ -163,6 +163,3 @@ class YeelightBulb(TypeLight, IPDevice, NetworkDevice):
         if duration <= 0:
             return {"effect": "sudden", "duration": 0}
         return {"effect": "smooth", "duration": max(30, duration)}
-
-
-Driver = YeelightBulb  # convention : le chargeur cherche ce nom

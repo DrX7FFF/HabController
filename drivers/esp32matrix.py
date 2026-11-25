@@ -112,6 +112,3 @@ class RGBMatrix(TypeSwitch, IPDevice, PersistentDevice):
             await self._send(command)
         except OSError as err:
             raise DeviceError(f"{self.id} : {err}") from err
-
-
-Driver = RGBMatrix  # convention : le chargeur cherche ce nom

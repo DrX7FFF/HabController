@@ -525,7 +525,7 @@ class AddDeviceTest(unittest.TestCase):
 
     def test_appended_with_import(self):
         for dev_id in ("fp2", "capteur"):
-            core_devices.add_device(dev_id, fp2.Driver, "HomeKit : X", path=self.path)
+            core_devices.add_device(dev_id, fp2.FP2, "HomeKit : X", path=self.path)
         self.assertEqual(
             self.file.read_text(encoding="utf-8"),
             "from drivers.all import FP2, YeelightBulb\n\n"
@@ -538,8 +538,8 @@ class AddDeviceTest(unittest.TestCase):
 
     def test_generated_file_loads_as_devices(self):
         package = self.path.parent / "devs_generated"
-        core_devices.add_device("capteur", fp2.Driver, path=package)
-        core_devices.add_device("prise", plug.Driver, args=(f'ieee="{IEEE}"',), path=package)
+        core_devices.add_device("capteur", fp2.FP2, path=package)
+        core_devices.add_device("prise", plug.Plug, args=(f'ieee="{IEEE}"',), path=package)
         sys.path.insert(0, str(package.parent))
         self.addCleanup(sys.path.remove, str(package.parent))
         devices = core_devices.load_devices("devs_generated")
@@ -549,12 +549,12 @@ class AddDeviceTest(unittest.TestCase):
     def test_refuses_bad_id_unknown_driver(self):
         for dev_id in ("a b", "a-b", "1abc", "_x", "class", "../x"):
             with self.subTest(dev_id=dev_id), self.assertRaises(ValueError):
-                core_devices.add_device(dev_id, fp2.Driver, path=self.path)
+                core_devices.add_device(dev_id, fp2.FP2, path=self.path)
         self.assertEqual(self.file.read_text(), self.existing)
 
     def test_import_added_when_absent(self):
         self.file.write_text("import logging\n")
-        core_devices.add_device("prise", plug.Driver, args=(f'ieee="{IEEE}"',), path=self.path)
+        core_devices.add_device("prise", plug.Plug, args=(f'ieee="{IEEE}"',), path=self.path)
         self.assertEqual(
             self.file.read_text(encoding="utf-8"),
             f'import logging\nfrom drivers.all import Plug\n\nprise = Plug(ieee="{IEEE}")\n',
@@ -562,17 +562,20 @@ class AddDeviceTest(unittest.TestCase):
 
     def test_star_import_kept(self):
         self.file.write_text("from drivers.all import *\n")
-        core_devices.add_device("prise", plug.Driver, path=self.path)
+        core_devices.add_device("prise", plug.Plug, path=self.path)
         self.assertEqual(
             self.file.read_text(encoding="utf-8"), "from drivers.all import *\n\nprise = Plug()\n"
         )
 
     def test_all_exports_the_drivers(self):
+        """Pilotes : les classes d'équipement de drivers/ sans sous-classe."""
         found = set()
         for info in pkgutil.walk_packages(drivers.__path__, "drivers."):
-            if cls := getattr(importlib.import_module(info.name), "Driver", None):
-                self.assertIs(getattr(drivers.all, cls.__name__, None), cls)
-                found.add(cls.__name__)
+            for cls in vars(importlib.import_module(info.name)).values():
+                if (isinstance(cls, type) and issubclass(cls, base.Device)
+                        and cls.__module__ == info.name and not cls.__subclasses__()):
+                    self.assertIs(getattr(drivers.all, cls.__name__, None), cls)
+                    found.add(cls.__name__)
         self.assertEqual(set(drivers.all.__all__), found)
 
 
@@ -658,8 +661,8 @@ class DriverForModelTest(unittest.TestCase):
         self.path = Path(tmp.name) / "homekit" / "models.toml"
 
     def test_lookup(self):
-        self.path.write_text('[models]\n"PS-S02D" = "fp2"\n"X1" = "nexistepas"\n')
-        self.assertEqual(core_devices.driver_for_model(["PS-S02D"], self.path), fp2.Driver)
+        self.path.write_text('[models]\n"PS-S02D" = "FP2"\n"X1" = "Nexistepas"\n')
+        self.assertEqual(core_devices.driver_for_model(["PS-S02D"], self.path), fp2.FP2)
         self.assertIsNone(core_devices.driver_for_model(["inconnu"], self.path))
         with self.assertLogs("core.devices", "WARNING") as logs:
             self.assertIsNone(core_devices.driver_for_model(["X1"], self.path))  # pilote absent
@@ -671,14 +674,14 @@ class DriverForModelTest(unittest.TestCase):
     def test_repo_mapping_points_to_existing_driver(self):
         models = tomllib.loads((ROOT / "drivers" / "homekit" / "models.toml").read_text())
         table = homekit_pair.Pairing(ScriptedDialog()).models
-        self.assertEqual(core_devices.driver_for_model(["PS-S02D"], table), fp2.Driver)
+        self.assertEqual(core_devices.driver_for_model(["PS-S02D"], table), fp2.FP2)
         for driver in models["models"].values():
-            core_devices.load_driver("homekit", driver)
+            self.assertTrue(hasattr(drivers.all, driver), driver)
 
     def test_zigbee_mapping_points_to_existing_driver(self):
         models = tomllib.loads((ROOT / "drivers" / "zigbee" / "models.toml").read_text())
         for driver in models["models"].values():
-            core_devices.load_driver("zigbee", driver)
+            self.assertTrue(hasattr(drivers.all, driver), driver)
 
 
 class ScriptedDialog(core_pair.Dialog):
@@ -734,7 +737,7 @@ class PairRunTest(unittest.IsolatedAsyncioTestCase):
         async def fake_controller():
             yield object()
 
-        known = {"PS-S02D": fp2.Driver} if models else {}
+        known = {"PS-S02D": fp2.FP2} if models else {}
         with (
             mock.patch.object(homekit, "open_session", fake_controller),
             mock.patch.object(homekit_pair, "discover", mock.AsyncMock(return_value=[discovery])),

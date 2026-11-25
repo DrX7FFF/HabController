@@ -18,6 +18,3 @@ class Contact(Sensor):
 
     def __init__(self, ieee: str, reports: ContactReports | None = None):
         super().__init__(ieee, reports)
-
-
-Driver = Contact  # convention : le chargeur cherche ce nom

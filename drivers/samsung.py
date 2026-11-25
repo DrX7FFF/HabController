@@ -101,6 +101,3 @@ class SamsungTV(TypeSwitch, IPDevice, PersistentDevice):
             await self._writer.drain()
         except OSError as err:
             raise DeviceError(f"{self.id} : {err}") from err
-
-
-Driver = SamsungTV  # convention : le chargeur cherche ce nom

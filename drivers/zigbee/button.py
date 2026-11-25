@@ -37,6 +37,3 @@ class Button(Sensor):
         self._received()
         log.debug("%s : événement %s %s", self.id, action, args)
         self._emit(action, args or None)
-
-
-Driver = Button  # convention : le chargeur cherche ce nom

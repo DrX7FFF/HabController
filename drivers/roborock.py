@@ -90,6 +90,3 @@ class Roborock(IPDevice):
     async def last_complete(self) -> datetime | None:
         """Début du dernier nettoyage terminé, None s'il n'y en a aucun dans l'historique."""
         return max((c.start for c in await self.history() if c.complete), default=None)
-
-
-Driver = Roborock  # convention : le chargeur cherche ce nom

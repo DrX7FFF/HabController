@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from test_fp2 import until
 
-from drivers.samsung.tv import SamsungTV, auth_packet, key_packet
+from drivers.samsung import SamsungTV, auth_packet, key_packet
 
 
 class SamsungTVTest(unittest.IsolatedAsyncioTestCase):

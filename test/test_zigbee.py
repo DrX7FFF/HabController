@@ -33,7 +33,7 @@ from drivers import (
     homekit,
     zigbee,
 )
-from drivers.yeelight.bulb import YeelightBulb
+from drivers.yeelight import YeelightBulb
 from drivers.zigbee.button import Button
 from drivers.zigbee.climate import Climate
 from drivers.zigbee.contact import Contact
@@ -570,7 +570,7 @@ class SummaryTest(unittest.IsolatedAsyncioTestCase):
     DEVICES = (
         "",
         "lampe:",
-        "  driver : yeelight.bulb",
+        "  driver : yeelight",
         "  host   : 192.0.2.1",
         "",
         "prise:",

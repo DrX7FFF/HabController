@@ -21,6 +21,3 @@ class Motion(Sensor):
 
     def __init__(self, ieee: str, reports: MotionReports | None = None):
         super().__init__(ieee, reports)
-
-
-Driver = Motion  # convention : le chargeur cherche ce nom

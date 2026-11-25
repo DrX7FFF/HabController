@@ -9,6 +9,7 @@ from pathlib import Path
 from types import ModuleType
 
 import drivers
+import drivers.all
 from core import CONFIG_DIR, read_toml
 from core.base import Device
 
@@ -17,24 +18,6 @@ log = logging.getLogger(__name__)
 DEVICES_DIR = CONFIG_DIR / "devices"
 NEW_DEVICES = "devices.py"  # où l'appairage ajoute les équipements, à réorganiser librement
 DRIVERS_IMPORT = "from drivers.all import "  # import commun des classes de pilotes
-
-
-def load_driver(protocol: str, name: str) -> type:
-    """Charge le pilote `drivers/<protocol>/<name>.py` : il doit exposer sa classe sous le nom
-    `Driver`."""
-    if not name.isidentifier():
-        raise ValueError(f"nom de pilote invalide « {name} »")
-    file = f"drivers/{protocol}/{name}.py"
-    module_name = f"drivers.{protocol}.{name}"
-    try:
-        module = importlib.import_module(module_name)
-    except ModuleNotFoundError as err:
-        if err.name and module_name.startswith(err.name):  # le fichier du pilote n'existe pas
-            raise ValueError(f"pilote inconnu « {name} » ({file} introuvable)") from err
-        raise  # dépendance manquante à l'intérieur du pilote : on garde le message d'origine
-    if not hasattr(module, "Driver"):
-        raise ValueError(f"{file} doit exposer sa classe sous le nom « Driver »")
-    return module.Driver
 
 
 def load_devices(package: str = "devices") -> dict:
@@ -85,7 +68,7 @@ async def summarize(devices: dict[str, Device], path: Path) -> None:
 
 
 def protocol_modules() -> list[ModuleType]:
-    """Paquets de drivers/ (un par protocole ou marque)."""
+    """Modules de drivers/ (un par protocole ou marque)."""
     return [
         importlib.import_module(f"drivers.{info.name}")
         for info in pkgutil.iter_modules(drivers.__path__)
@@ -184,8 +167,8 @@ def check_id(dev_id: str) -> None:
 
 
 def driver_for_model(models: list[str], path: Path) -> type | None:
-    """Pilote de la table `path` ([models], pilotes du dossier de `path`) pour la première clé
-    connue, ou None si aucune.
+    """Classe de pilote (de drivers/all.py) que la table `path` ([models]) associe à la première
+    clé connue, ou None si aucune.
 
     `models` : clés de la plus précise à la plus générale.
     """
@@ -193,11 +176,12 @@ def driver_for_model(models: list[str], path: Path) -> type | None:
     for model in models:
         if not (name := table.get(model)):
             continue
-        try:
-            return load_driver(path.parent.name, name)
-        except ValueError as err:
-            log.warning("Pilote « %s » associé au modèle %s inutilisable : %s", name, model, err)
-            return None
+        if (driver := getattr(drivers.all, name, None)) is None:
+            log.warning(
+                "Pilote « %s » associé au modèle %s inutilisable : absent de drivers/all.py",
+                name, model,
+            )
+        return driver
     return None
 
 

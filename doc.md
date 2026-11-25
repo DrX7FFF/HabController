@@ -245,8 +245,7 @@ Déroulé et nettoyage des appareils Zigbee inutilisés : voir `README.md`.
 
 ## États et commandes par type d'équipement
 
-Commun à tous (`Device`) : `connected` (bool), `battery_powered` (bool, sur pile) et
-`battery` (int, %, équipement sur pile). Quand `connected` vaut `False`, les autres attributs
+Commun à tous (`Device`) : `connected` (bool). Quand `connected` vaut `False`, les autres attributs
 disparaissent de l'état et se lisent `None`. Tous les attributs sont en lecture seule.
 
 Dans une automatisation :
@@ -279,7 +278,7 @@ Une clé inconnue du pilote, ou une valeur autre qu'un nombre, `True` ou `None`,
 (signalée par l'éditeur, et au chargement). Un
 attribut que l'appareil refuse d'envoyer est signalé dans le journal à sa configuration.
 
-### Ampoules — `yeelight.bulb`, `zigbee.light`
+### Ampoules — `yeelight`, `zigbee.light`
 
 ```python
 salon = YeelightBulb(host="192.168.1.110")   # port=55443, transition=300
@@ -438,12 +437,12 @@ alias : `fp2.zones[3]`. Un alias absent de `zonemapping` (faute de frappe) lève
 `@fp2.event_zone`, `event.zonename` est l'alias de la zone, ou son index (`"3"`) si elle n'en a
 pas. Capteur : toute commande est refusée.
 
-### TV Samsung d'avant 2016 — `samsung.tv`
+### TV Samsung d'avant 2016 — `samsung`
 
 Ex. UE55ES7000, système Orsay, protocole « legacy ».
 
 ```python
-tv = SamsungTV(host="192.168.1.104")   # port=55000, retry=30
+tv = SamsungTV(host="192.168.1.104")   # port=55000
 ```
 
 | Attribut | Type |
@@ -457,10 +456,10 @@ Action : `switch(False)` (extinction) ; `switch(True)` est refusé (journalisé)
 secondes. L'allumer par le réseau est impossible sur ces modèles. À la première connexion,
 accepter « HabController » sur l'écran de la TV : elle s'en souvient.
 
-### WLED — `wled.strip`
+### WLED — `wled`
 
 ```python
-ruban = WLED(host="192.168.1.120")   # port=80, retry=10
+ruban = WLED(host="192.168.1.120")   # port=80
 ```
 
 | Attribut | Type |
@@ -489,10 +488,10 @@ nettoyage terminé, None s'il n'y en a pas) ; robot injoignable : `DeviceError`.
 heures, les plages de nettoyage sont enregistrées dans le datalog (`devices/<id>/on` : true au
 début, false à la fin). Pas de connexion suivie : `connected` reste vide.
 
-### Afficheur RGB — `esp32matrix.display`
+### Afficheur RGB — `esp32matrix`
 
 ```python
-matrice = RGBMatrix(host="192.168.1.130")   # port=5000, retry=10, ping=10
+matrice = RGBMatrix(host="192.168.1.130")   # port=5000, ping=10
 ```
 
 | Attribut  | Type | Signification                                  |

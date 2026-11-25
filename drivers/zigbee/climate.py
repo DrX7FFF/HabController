@@ -24,6 +24,3 @@ class Climate(Sensor):
 
     def __init__(self, ieee: str, reports: ClimateReports | None = None):
         super().__init__(ieee, reports)
-
-
-Driver = Climate  # convention : le chargeur cherche ce nom

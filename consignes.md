@@ -34,10 +34,14 @@
 - Capteurs Zigbee (`Sensor(Device)`, sur pile, battery) : `Climate`, `Contact`, `Motion`,
   `Button`. FP2 : illuminance et zones. Aspirateur : last_clean ; clean, pause,
   home, refresh.
+- Refonte des classes : repenser et simplifier, pas déplacer le code.
+  Comportement identique et homogène entre équipements.
+- Ne remonter dans un parent que ce qui sert à tous ses enfants ; sinon niveau
+  intermédiaire ou table de données. Pas de mise en commun qui ajoute des lignes.
 
 ## Capacités
 - Une classe générique par catégorie. Ce qui dépend du modèle est une capacité
-  (`rgb_capable = Capability[bool]()`, `battery_powered`), renseignée par le
+  (`rgb_capable = Capability[bool]()`), renseignée par le
   pilote, à l'appairage si possible, gardée hors connexion.
 - Une action non prise en charge écrit un avertissement dans le journal, par
   exemple « salon_light ne prend pas en charge RGB ».

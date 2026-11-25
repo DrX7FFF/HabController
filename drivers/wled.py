@@ -58,6 +58,3 @@ class WLED(TypeSwitch, IPDevice, PersistentDevice):
         except ERRORS as err:
             raise DeviceError(f"{self.id} : {err}") from err
         WLED.on.update(self, on)
-
-
-Driver = WLED  # convention : le chargeur cherche ce nom

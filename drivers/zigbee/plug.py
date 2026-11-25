@@ -104,6 +104,3 @@ class Plug(TypeSwitch, ZigbeeDevice):
         cluster = find_cluster(self.zdev, ON_OFF) if self.zdev is not None else None
         await self._command(cluster, "on" if on else "off")  # commandes ZCL « on » / « off »
         Plug.on.update(self, on)
-
-
-Driver = Plug  # convention : le chargeur cherche ce nom

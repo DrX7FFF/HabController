@@ -6,28 +6,28 @@
 # ou proposée dans devices.yaml pour un appareil appairé mais non déclaré.
 
 [models]
-"0x0009" = "plug"  # Mains Power Outlet
-"0x0051" = "plug"  # Smart Plug
-"0x010a" = "plug"  # On/Off Plug-in Unit
-"0x010b" = "plug"  # Dimmable Plug-in Unit
+"0x0009" = "Plug"  # Mains Power Outlet
+"0x0051" = "Plug"  # Smart Plug
+"0x010a" = "Plug"  # On/Off Plug-in Unit
+"0x010b" = "Plug"  # Dimmable Plug-in Unit
 
-"0x0100" = "light"  # On/Off Light
-"0x0101" = "light"  # Dimmable Light
-"0x0102" = "light"  # Color Dimmable Light
-"0x010c" = "light"  # Color Temperature Light
-"0x010d" = "light"  # Extended Color Light
-"LLC020" = "light"  # Philips Hue Go (profil ZLL)
+"0x0100" = "Light"  # On/Off Light
+"0x0101" = "Light"  # Dimmable Light
+"0x0102" = "Light"  # Color Dimmable Light
+"0x010c" = "Light"  # Color Temperature Light
+"0x010d" = "Light"  # Extended Color Light
+"LLC020" = "Light"  # Philips Hue Go (profil ZLL)
 
-"0x0106" = "motion"  # Light Sensor
-"0x0107" = "motion"  # Occupancy Sensor
+"0x0106" = "Motion"  # Light Sensor
+"0x0107" = "Motion"  # Occupancy Sensor
 
-"0x0302" = "climate"  # Temperature Sensor
-"lumi.weather" = "climate"  # Xiaomi température, humidité, pression. Ancienne version annoncée en 0x5f01
+"0x0302" = "Climate"  # Temperature Sensor
+"lumi.weather" = "Climate"  # Xiaomi température, humidité, pression. Ancienne version annoncée en 0x5f01
 
-"lumi.sensor_magnet.aq2" = "contact"  # Xiaomi contact de porte
+"lumi.sensor_magnet.aq2" = "Contact"  # Xiaomi contact de porte
 
-"0x0006" = "button"  # Remote Control
-"0x0103" = "button"  # On/Off Switch
-"0x0104" = "button"  # Dimmer Switch
-"lumi.sensor_cube.aqgl01" = "button"  # Xiaomi cube
-"RWL021" = "button"  # Philips Hue Dimmer (profil ZLL)
+"0x0006" = "Button"  # Remote Control
+"0x0103" = "Button"  # On/Off Switch
+"0x0104" = "Button"  # Dimmer Switch
+"lumi.sensor_cube.aqgl01" = "Button"  # Xiaomi cube
+"RWL021" = "Button"  # Philips Hue Dimmer (profil ZLL)

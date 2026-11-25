@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from yeelight.aio import AsyncBulb
 
 from core import base
-from drivers.yeelight.bulb import YeelightBulb
+from drivers.yeelight import YeelightBulb
 
 # journaux attendus sans assertLogs : pas d'affichage (assertLogs les voit toujours)
 logging.getLogger().addHandler(logging.NullHandler())

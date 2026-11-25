@@ -291,6 +291,3 @@ class Zones:
 
     def __getitem__(self, index: int) -> bool | None:
         return self._device._zones.get(str(self._device._aliases.get(index, index)))
-
-
-Driver = FP2  # convention : le chargeur cherche ce nom
