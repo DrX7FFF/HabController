@@ -49,7 +49,7 @@ class SamsungTV(TypeSwitch, IPDevice, PersistentDevice):
     WIDGET = "onoff"
     BRAND = "Samsung"
     ERRORS = (OSError, TimeoutError, asyncio.IncompleteReadError)
-    QUIET = True  # TV éteinte : fonctionnement normal, pas un avertissement
+    QUIET = True  # TV éteinte : fonctionnement normal, non journalisé
 
     def __init__(self, host: str, port: int = 55000):
         super().__init__(host, port)

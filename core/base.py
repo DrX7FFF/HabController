@@ -402,7 +402,10 @@ class Device:
 
 
 class NetworkDevice(Device):
-    """Base pour les équipements avec connexion réseau (HomeKit, WiFi, etc.)."""
+    """Base pour les équipements avec connexion réseau (HomeKit, WiFi, etc.). QUIET :
+    connexion et perte normales (équipement éteint), non journalisées."""
+
+    QUIET = False
 
     def __init__(self):
         super().__init__()
@@ -414,7 +417,7 @@ class NetworkDevice(Device):
     ) -> None:
         """Connexion établie ou perdue : journalisée si elle change (sauf `silent`), état
         diffusé. `synced` : état déjà lu (sinon à lire ensuite) ; `reason` : cause de la perte."""
-        if connected != self._connected and not silent:
+        if connected != self._connected and not (silent or self.QUIET):
             if connected:
                 log.info("%s : connecté", self.id)
             else:
@@ -433,12 +436,10 @@ class NetworkDevice(Device):
 class PersistentDevice(NetworkDevice, ABC):
     """Équipement à connexion permanente : _session() se connecte et lit jusqu'à la coupure,
     puis nouvel essai (voir Retry). Erreur de ERRORS : connexion perdue ou impossible ; de
-    FATAL : nouvel essai inutile, journalisée et abandon. QUIET : perte normale (équipement
-    éteint), journalisée sans avertissement."""
+    FATAL : nouvel essai inutile, journalisée et abandon."""
 
     ERRORS: ClassVar[tuple[type[Exception], ...]] = (OSError, TimeoutError)
     FATAL: ClassVar[tuple[type[Exception], ...]] = ()
-    QUIET = False
 
     def __init__(self):
         super().__init__()
@@ -460,9 +461,7 @@ class PersistentDevice(NetworkDevice, ABC):
                 reason = describe(err)
             if self._connected:
                 self._retry.reset()
-                if self.QUIET:
-                    log.info("%s : déconnecté", self.id)
-            self._set_connected(False, reason=reason, silent=self.QUIET)
+            self._set_connected(False, reason=reason)
             await self._retry.wait()
 
     @abstractmethod

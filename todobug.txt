@@ -31,6 +31,7 @@ Corrections envisagées (non appliquées)
 2. Envoyer après ~0,3 s d'immobilité du curseur : indépendant des signaux du navigateur, mais
    l'ampoule peut changer pendant le glissement.
 Le sélecteur de couleur (colorPicker) utilise le même mécanisme.
+À la correction : fusionner curseur et sélecteur de couleur en un seul mécanisme d'envoi (point 6 de la revue).
 
 Prompt pour reprendre
 ---------------------
